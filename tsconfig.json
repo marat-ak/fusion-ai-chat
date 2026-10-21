@@ -42,5 +42,8 @@
   },
   "include": [
     "./src/ts/**/*"
+  ],
+  "exclude": [
+    "./src/ts/**/__tests__/**"
   ]
 }

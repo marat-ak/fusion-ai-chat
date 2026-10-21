@@ -1,11 +1,11 @@
 {
   "name": "xxx-gnimsys-ai",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "jetVersion": "^18.0.15",
   "type": "pack",
   "displayName": "A user friendly, translatable name of the pack.",
   "description": "A translatable high-level description for the pack.",
   "dependencies": {
-    "xxx-gnimsys-ai-chat": "1.0.0"
+    "xxx-gnimsys-ai-chat": "0.1.0"
   }
 }

@@ -9,7 +9,11 @@
 module.exports = function (configObj) {
   return new Promise((resolve) => {
     console.log("Running before_app_typescript hook.");
-    //const { tsconfigJson } = configObj.typescript;
+    // ojet replaces tsconfig.json include/exclude with its own Jest-style globs (`*.[jt]s?(x)`),
+    // which TypeScript cannot match; exclude test folders with a TS-compatible glob.
+    const { tsconfigJson } = configObj.typescript;
+    tsconfigJson.exclude = tsconfigJson.exclude || [];
+    tsconfigJson.exclude.push("**/__tests__/**");
     resolve(configObj);
   });
 };
