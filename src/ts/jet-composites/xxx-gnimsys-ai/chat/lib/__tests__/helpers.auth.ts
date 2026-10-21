@@ -5,9 +5,10 @@ export function b64url(s: string): string {
 export function makeJwt(exp: number, iat: number): string {
   return `${b64url('{"alg":"none"}')}.${b64url(JSON.stringify({ exp, iat }))}.sig`;
 }
-export function fakeResponse(body: string, opts: { status?: number; type?: string; contentType?: string } = {}): Response {
+export function fakeResponse(body: string, opts: { status?: number; type?: string; contentType?: string; headers?: Record<string, string> } = {}): Response {
   const status = opts.status ?? 200;
   const headers = new Map<string, string>([["content-type", opts.contentType ?? "application/json"]]);
+  for (const [k, v] of Object.entries(opts.headers ?? {})) headers.set(k.toLowerCase(), v);
   return {
     status,
     ok: status >= 200 && status < 300,
