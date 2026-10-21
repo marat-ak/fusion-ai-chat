@@ -1,0 +1,8 @@
+data: {"message":{"content":[{"text":"Hel"}]}}
+
+data: {"message":{"content":[{"text":"lo!"}]}}
+
+data: {"jobId":"job-1"}
+
+data: {"message":{"output":"Hello! How can I help?","finishReason":"stop","followUpQuestions":["Show invoices","Create order"]}}
+

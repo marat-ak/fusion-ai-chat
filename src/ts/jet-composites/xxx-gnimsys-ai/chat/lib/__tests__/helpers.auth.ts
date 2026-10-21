@@ -16,3 +16,14 @@ export function fakeResponse(body: string, opts: { status?: number; type?: strin
     text: async () => body,
   } as unknown as Response;
 }
+/** fakeResponse plus a `body` ReadableStream of the given chunks (needs the node Jest env for ReadableStream/TextEncoder). */
+export function streamResponse(chunks: string[], opts: { status?: number; open?: boolean } = {}): Response {
+  const enc = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      for (const ch of chunks) c.enqueue(enc.encode(ch));
+      if (!opts.open) c.close();
+    },
+  });
+  return Object.assign(fakeResponse(chunks.join(""), { status: opts.status, contentType: "text/event-stream" }), { body });
+}
