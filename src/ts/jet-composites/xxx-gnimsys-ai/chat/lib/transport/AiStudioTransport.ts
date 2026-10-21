@@ -1,3 +1,4 @@
+import { resolveOrigin } from "../origin";
 import type { AuthFetch } from "../auth/AuthFetch";
 import type { ChatEvent } from "./events";
 import type { ChatTransport, SendInput } from "./ChatTransport";
@@ -21,8 +22,7 @@ export class AiStudioTransport implements ChatTransport {
   private readonly url: string;
 
   constructor(deps: AiStudioTransportDeps) {
-    const origin = deps.origin ?? globalThis.location?.origin;
-    if (!origin) throw new Error("AiStudioTransport: origin unavailable");
+    const origin = resolveOrigin(deps.origin);
     this.deps = deps;
     this.url = `${origin}/api/fusion-ai/orchestrator/agent/v2/${encodeURIComponent(deps.workflowCode)}/chat`;
   }

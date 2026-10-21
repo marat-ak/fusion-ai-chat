@@ -1,3 +1,4 @@
+import { resolveOrigin } from "../origin";
 import { Audience, AuthError, AuthFetch } from "./AuthFetch";
 import { TokenCache, fetchRelayToken, readXsrfToken, relayUrl } from "./tokenRelay";
 
@@ -12,13 +13,13 @@ export class FusionShellAuthFetch implements AuthFetch {
   constructor(deps: { pod: string; document: Document; origin?: string; fetchImpl?: typeof fetch; now?: () => number }) {
     this.deps = deps;
     this.cache = new TokenCache(deps.now ?? (() => Math.floor(Date.now() / 1000)));
-    const origin = deps.origin ?? globalThis.location?.origin;
-    if (!origin) {
+    try {
+      this.origin = resolveOrigin(deps.origin);
+    } catch (err) {
       const e = new AuthError("invalid");
-      e.message = "origin unavailable";
+      e.message = (err as Error).message;
       throw e;
     }
-    this.origin = origin;
     this.fetchImpl = deps.fetchImpl ?? ((...a) => globalThis.fetch(...a));
   }
 

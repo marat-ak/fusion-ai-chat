@@ -1,6 +1,6 @@
 import type { AuthFetch } from "../auth/AuthFetch";
 import { HistoryError } from "./HistoryStore";
-import { resolveOrigin } from "./OracleHistoryStore";
+import { resolveOrigin } from "../origin";
 
 export interface WorkflowInfo { name: string; starterQuestions: string[]; followupEnabled: boolean }
 
@@ -24,8 +24,9 @@ export class OracleWorkflowInfo {
     const json = JSON.parse(await r.text());
     const item = (json.items ?? [])[0];
     if (!item) throw new HistoryError(404, "workflow not published");
+    if (typeof item.name !== "string" || item.name === "") throw new HistoryError(0, "workflow name missing");
     return {
-      name: item.name ?? this.workflowCode,
+      name: item.name,
       starterQuestions: [item.firstStarterQuestion, item.secondStarterQuestion, item.thirdStarterQuestion].filter(
         (s): s is string => typeof s === "string" && s.length > 0,
       ),

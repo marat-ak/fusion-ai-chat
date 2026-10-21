@@ -19,6 +19,13 @@ test("workflow_info_maps_three_starters_dropping_empty", async () => {
   expect(r).toEqual({ name: "Agent", starterQuestions: ["Q1", "Q3"], followupEnabled: true });
 });
 
+test("workflow_info_throws_when_name_missing", async () => {
+  const { auth } = fake(fakeResponse(JSON.stringify({ items: [{ firstStarterQuestion: "Q" }] })));
+  const e = await new OracleWorkflowInfo({ auth, workflowCode: "WF_1", origin: O }).get().catch((x) => x);
+  expect(e).toBeInstanceOf(HistoryError);
+  expect([e.status, e.body]).toEqual([0, "workflow name missing"]);
+});
+
 test("workflow_info_unpublished_throws_404", async () => {
   const { auth } = fake(fakeResponse(JSON.stringify({ items: [] })));
   const e = await new OracleWorkflowInfo({ auth, workflowCode: "WF_1", origin: O }).get().catch((x) => x);

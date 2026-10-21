@@ -1,15 +1,10 @@
 import type { AuthFetch } from "../auth/AuthFetch";
+import { resolveOrigin } from "../origin";
 import { HistoryError } from "./HistoryStore";
 import type { ConversationSummary, HistoryMessage, HistoryStore } from "./HistoryStore";
 
 const FIELDS = "personIdentifier,id,objectCode,objectType,name,status,createdBy,timeCreated,updatedBy,timeUpdated";
 const q = (s: string): string => s.replace(/'/g, "''");
-
-export function resolveOrigin(origin?: string): string {
-  const o = origin ?? (globalThis as { location?: { origin?: string } }).location?.origin;
-  if (!o) throw new Error("origin required: pass deps.origin or run in a page");
-  return o;
-}
 
 export class OracleHistoryStore implements HistoryStore {
   private auth: AuthFetch;

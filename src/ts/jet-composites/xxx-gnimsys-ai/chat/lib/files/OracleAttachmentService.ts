@@ -1,3 +1,4 @@
+import { resolveOrigin } from "../origin";
 import type { AuthFetch } from "../auth/AuthFetch";
 import type { AttachmentLimits, AttachmentService, Rejection, UploadedAttachment } from "./AttachmentService";
 
@@ -22,17 +23,15 @@ export class OracleAttachmentService implements AttachmentService {
   private limits: AttachmentLimits;
   private origin: string;
   private now: () => number;
-  private known: Set<string> = new Set();
+  private known: Map<string, Promise<void>> = new Map();
 
   constructor(deps: { auth: AuthFetch; workflowCode: string; personId: string; hcmRestBase: string; limits: AttachmentLimits; origin?: string; now?: () => number }) {
-    const origin = deps.origin ?? (globalThis as { location?: { origin?: string } }).location?.origin;
-    if (!origin) throw new Error("origin required: pass deps.origin or run in a page");
     this.auth = deps.auth;
     this.workflowCode = deps.workflowCode;
     this.personId = deps.personId;
     this.hcmRestBase = deps.hcmRestBase;
     this.limits = deps.limits;
-    this.origin = origin;
+    this.origin = resolveOrigin(deps.origin);
     this.now = deps.now ?? Date.now;
   }
 
@@ -53,14 +52,25 @@ export class OracleAttachmentService implements AttachmentService {
   }
 
   async ensureConversation(conversationId: string): Promise<void> {
-    if (this.known.has(conversationId)) return;
+    const inflight = this.known.get(conversationId);
+    if (inflight) return inflight;
+    const p = this.create(conversationId);
+    this.known.set(conversationId, p);
+    try {
+      await p;
+    } catch (e) {
+      this.known.delete(conversationId);
+      throw e;
+    }
+  }
+
+  private async create(conversationId: string): Promise<void> {
     const r = await this.auth.fetch("rest", `${this.origin}${this.hcmRestBase}/hcmAiStudioConversations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ConversationId: conversationId, PersonId: this.personId, ObjectCode: this.workflowCode, ObjectType: "AGENT_TEAM" }),
     });
     if (!r.ok) throw new AttachmentError("conversation", r.status, await r.text());
-    this.known.add(conversationId);
   }
 
   async upload(file: File): Promise<UploadedAttachment> {

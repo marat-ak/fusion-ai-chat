@@ -48,6 +48,13 @@ test("ensureConversation_posts_once_per_id", async () => {
   expect(calls).toHaveLength(2);
 });
 
+test("ensureConversation_parallel_calls_post_once", async () => {
+  const { auth, calls } = fake([fakeResponse("{}", { status: 201 })]);
+  const s = svc(auth);
+  await Promise.all([s.ensureConversation("c1"), s.ensureConversation("c1")]);
+  expect(calls).toHaveLength(1);
+});
+
 test("ensureConversation_failure_throws_AttachmentError", async () => {
   const { auth } = fake([fakeResponse("nope", { status: 403 })]);
   const e = await svc(auth).ensureConversation("c1").catch((x) => x);
