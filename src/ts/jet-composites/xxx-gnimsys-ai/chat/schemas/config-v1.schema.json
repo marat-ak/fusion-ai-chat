@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gnimsys.ai/schemas/fusion-ai-chat/config-v1.schema.json",
+  "title": "xxx-gnimsys-ai-chat config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent", "auth", "protocol"],
+  "properties": {
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflowCode", "pod"],
+      "properties": {
+        "workflowCode": { "type": "string", "minLength": 1 },
+        "pod": { "type": "string", "minLength": 1 },
+        "triggerType": { "const": "chat" },
+        "additionalContext": { "type": "object" },
+        "responseLanguage": { "type": "string" }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "const": "fusionShell" } }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkVersion"],
+      "properties": {
+        "checkVersion": { "type": "string", "minLength": 1 },
+        "hcmRestBase": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string" },
+        "placeholder": { "type": "string" },
+        "starterQuestions": {
+          "default": "fromWorkflow",
+          "oneOf": [
+            { "const": "fromWorkflow" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "conversations": { "type": "boolean", "default": true },
+        "viewer": { "type": "boolean", "default": false }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "maxFiles": { "type": "number", "exclusiveMinimum": 0, "default": 5 },
+        "maxSizeMB": { "type": "number", "exclusiveMinimum": 0, "default": 50 },
+        "accept": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["pdf", "docx", "xlsx", "pptx", "csv", "txt", "md", "html", "json", "xml", "zip", "image/*"]
+        }
+      }
+    },
+    "datasources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowInline": { "type": "boolean", "default": false },
+        "allowPrefixes": { "type": "array", "items": { "type": "string" }, "default": [] }
+      }
+    },
+    "widgets": { "type": "object" },
+    "submit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "envelope": { "const": "gnimsysSubmit", "default": "gnimsysSubmit" } }
+    },
+    "history": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "kind": { "const": "oracle", "default": "oracle" } }
+    }
+  },
+  "if": {
+    "required": ["files"],
+    "properties": { "files": { "required": ["enabled"], "properties": { "enabled": { "const": true } } } }
+  },
+  "then": {
+    "properties": { "protocol": { "required": ["hcmRestBase"] } }
+  }
+}
