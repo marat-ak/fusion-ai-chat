@@ -10,7 +10,10 @@
 module.exports = {
     rootDir: process.cwd(),
     preset: "@oracle/oraclejet-jest-preset",
-    moduleNameMapper: { },
+    moduleNameMapper: {
+        "^markdown-it$": "<rootDir>/src/ts/jet-composites/xxx-gnimsys-ai/libs/markdown-it.min.js",
+        "^dompurify$": "<rootDir>/src/ts/jet-composites/xxx-gnimsys-ai/libs/purify.min.js"
+    },
     roots: ["<rootDir>/src/ts"],
     testMatch: ["**/__tests__/**/*.test.ts"]
 }
