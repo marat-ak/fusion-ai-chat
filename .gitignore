@@ -1,0 +1,10 @@
+node_modules/
+dist/
+web/
+staged-themes/
+.env
+*.log
+*.zip
+test-results/
+playwright-report/
+coverage/

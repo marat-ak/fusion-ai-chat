@@ -1,0 +1,17 @@
+# Deployment self-description of the fusion-ai-chat client artifact
+# (contract: devops/manifest-schema.md)
+# NOTE: `kind: client-artifact` is NEW — it is not yet in the manifest schema. oservices-devops must
+# accept it; this is flagged here, not silently assumed.
+name: fusion-ai-chat
+kind: client-artifact
+contains: [xxx-gnimsys-ai]
+needs:
+  always: []
+  per_target: {}
+images: []
+artifacts:
+  - name: xxx-gnimsys-ai
+    form: jet-pack-zip
+    built_by: "scripts/dev.sh npm run package"
+target_notes:
+  customer-vb: "imported into a Fusion App UI extension in VB Studio; same-origin to the pod"
