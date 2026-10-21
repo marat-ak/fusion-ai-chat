@@ -8,3 +8,12 @@ staged-themes/
 test-results/
 playwright-report/
 coverage/
+.playwright-mcp/
+# ojet-generated ignores
+/jet_components
+/exchange_components
+/bower_components
+/themes
+/jaftmp@
+.DS_Store
+Thumbs.db

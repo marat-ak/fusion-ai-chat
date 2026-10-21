@@ -1,0 +1,22 @@
+/* This file is where css selectors for the component go.
+   There will be hard coded properties and properties controlled by variables, for example
+
+   xxx-gnimsys-ai-chat .xxx-gnimsys-ai-chat-value-text {
+   color: var(--xxx-gnimsys-ai-chat-value-text-color);
+   display: inline-block;
+	 }
+*/
+
+xxx-gnimsys-ai-chat:not(.oj-complete){
+  visibility: hidden;
+}
+
+xxx-gnimsys-ai-chat{
+	min-height: 50px;
+	width: 50px;
+}
+
+xxx-gnimsys-ai-chat[hidden]
+{
+  display: none;
+}

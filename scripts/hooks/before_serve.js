@@ -1,0 +1,44 @@
+/**
+  Copyright (c) 2015, 2026, Oracle and/or its affiliates.
+  Licensed under The Universal Permissive License (UPL), Version 1.0
+  as shown at https://oss.oracle.com/licenses/upl/
+
+*/
+
+'use strict';
+
+module.exports = function (configObj) {
+  return new Promise((resolve, reject) => {
+    console.log('Running before_serve hook.');
+
+    try {
+      const express = require("express");
+      const app = express();
+
+      // CORS headers
+      app.use((req, res, next) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,SOAPAction');
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+        // Handle preflight requests
+        if (req.method === 'OPTIONS') {
+          res.status(200).end();
+          return;
+        }
+
+        next();
+      });
+
+      // Pass the Express instance (with CORS) to the JET tooling
+      configObj.express = app;
+
+      console.log('Running before_serve hook end.');
+      resolve(configObj);
+    } catch (error) {
+      console.error('[Hook] Error in before_serve hook:', error);
+      reject(error);
+    }
+  });
+};
