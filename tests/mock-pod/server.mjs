@@ -7,7 +7,8 @@
 //   POST /__mock/reset                  -> reload the fixture conversation rows and clear the armed one-shots (log kept)
 //   GET /__mock/arm?workflows=<status>  -> the next BOSS workflows query answers <status> (4xx/5xx) once
 //   GET /__mock/arm?listDelay=<ms>      -> the next BOSS userConversations list answers <ms> (0..30000) late, once
-//                                          (both parameters may be armed in one call)
+//   GET /__mock/arm?attachUpload=<status> -> the next attachUpload answers <status> (4xx/5xx) once
+//                                          (the parameters may be combined in one call)
 //   GET /fscmRestApi/tokenrelay?$mock=expired -> the next relay answers login HTML once (this call is logged)
 import http from "node:http";
 import { readFileSync } from "node:fs";
@@ -26,6 +27,7 @@ const state = {
   relayExpiredNext: false,
   workflowsStatusNext: null,
   listDelayNext: null,
+  attachUploadStatusNext: null,
   requests: [],
 };
 
@@ -100,6 +102,7 @@ const routes = [
       state.relayExpiredNext = false;
       state.workflowsStatusNext = null;
       state.listDelayNext = null;
+      state.attachUploadStatusNext = null;
       return json(res, 204);
     },
   },
@@ -107,15 +110,18 @@ const routes = [
     method: "GET", path: /^\/__mock\/arm$/, open: true,
     handle: ({ res, url }) => {
       const p = url.searchParams;
-      const usage = "arm: workflows=<4xx|5xx> and/or listDelay=<0..30000 ms> required";
-      if (!p.has("workflows") && !p.has("listDelay")) return json(res, 400, { detail: usage });
+      const usage = "arm: workflows=<4xx|5xx>, listDelay=<0..30000 ms> and/or attachUpload=<4xx|5xx> required";
+      if (!p.has("workflows") && !p.has("listDelay") && !p.has("attachUpload")) return json(res, 400, { detail: usage });
       const status = Number(p.get("workflows"));
       const delay = Number(p.get("listDelay"));
       if (p.has("workflows") && (!Number.isInteger(status) || status < 400 || status > 599)) return json(res, 400, { detail: usage });
       if (p.has("listDelay") && (!Number.isInteger(delay) || delay < 0 || delay > 30000)) return json(res, 400, { detail: usage });
+      const upload = Number(p.get("attachUpload"));
+      if (p.has("attachUpload") && (!Number.isInteger(upload) || upload < 400 || upload > 599)) return json(res, 400, { detail: usage });
       const armed = {};
       if (p.has("workflows")) state.workflowsStatusNext = armed.workflows = status;
       if (p.has("listDelay")) state.listDelayNext = armed.listDelay = delay;
+      if (p.has("attachUpload")) state.attachUploadStatusNext = armed.attachUpload = upload;
       return json(res, 200, { armed });
     },
   },
@@ -145,6 +151,7 @@ const routes = [
       const b = body && typeof body === "object" ? body : {};
       const pick = b.resumeInput ? "chat-resumed.sse"
         : b.message === "approve me" ? "chat-wait.sse"
+        : b.message === "wait for me" ? "chat-wait-timer.sse"
         : b.message === "fail" ? "chat-error.sse"
         : "chat-hello.sse";
       return streamSse(res, pick);
@@ -224,7 +231,14 @@ const routes = [
   },
   {
     method: "POST", path: /^\/fscmRestApi\/applcoreApi\/v1\/attachUpload$/,
-    handle: ({ res }) => json(res, 200, {}),
+    handle: ({ res }) => {
+      if (state.attachUploadStatusNext !== null) {
+        const status = state.attachUploadStatusNext;
+        state.attachUploadStatusNext = null;
+        return json(res, status, { detail: `mock pod: armed attachUpload ${status}` });
+      }
+      return json(res, 200, {});
+    },
   },
 ];
 

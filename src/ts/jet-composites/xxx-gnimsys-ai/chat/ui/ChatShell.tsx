@@ -20,7 +20,7 @@ export type ChatHandle = {
   newConversation: () => void;
   /**
    * Sends a user message (with the files pending in the composer) in the current conversation; ignored while a reply
-   * is streaming, files are uploading or the history is loading.
+   * is streaming, the agent waits on the user, files are uploading or the history is loading.
    * @param text the message text
    */
   send: (text: string) => void;
@@ -132,10 +132,10 @@ export function ChatShell(props: ChatShellProps) {
           {state.turns.length === 0 && !historyLoading && (ctl.workflowError
             ? <StartersUnavailable error={ctl.workflowError} />
             : <Starters questions={starters} disabled={!canSend} onPick={ctl.sendStarter} />)}
-          {!busy && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
+          {!busy && !wait && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
         </Feed>
         {wait ? (
-          <HitlBar key={wait.token} wait={wait} disabled={!authOk} onResume={ctl.resume} />
+          <HitlBar key={wait.token} wait={wait} disabled={!authOk || ctl.inFlight} onResume={ctl.resume} />
         ) : (
           <Composer disabled={!canSend} onSend={ctl.send}
             {...(config.ui.placeholder !== undefined && { placeholder: config.ui.placeholder })}

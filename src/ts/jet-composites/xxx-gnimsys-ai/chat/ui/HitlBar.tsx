@@ -6,16 +6,20 @@ import type { ResumeAction, ResumeOptions } from "./useChatController";
 const waitSeconds = (minutes: number): number => minutes * 60 + 15;
 const mmss = (s: number): string => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
-/** Seconds left of a countdown started at mount; 0 when there is none. */
+/** Whole seconds left of a countdown started at mount; 0 when there is none. */
 function useCountdown(seconds: number | undefined): number {
-  const [left, setLeft] = useState(seconds ?? 0);
+  const total = seconds === undefined ? 0 : Math.floor(seconds);
+  const [left, setLeft] = useState(total);
   useEffect(() => {
-    if (seconds === undefined) return undefined;
-    const end = Date.now() + seconds * 1000;
-    const tick = (): void => setLeft(Math.max(0, Math.ceil((end - Date.now()) / 1000)));
-    const timer = setInterval(tick, 250);
+    if (total <= 0) return undefined;
+    const end = Date.now() + total * 1000;
+    const timer = setInterval(() => {
+      const s = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      setLeft(s);
+      if (s === 0) clearInterval(timer);
+    }, 250);
     return () => clearInterval(timer);
-  }, [seconds]);
+  }, [total]);
   return left;
 }
 
@@ -58,7 +62,8 @@ function ReplyText(props: {
  * Shown instead of the composer while the agent waits on the user (the wait message is the last assistant bubble).
  * Controls by the node's flags: approval + feedback -> Approve / Request change (opens a reply text); approval only ->
  * Approve / Reject; no approval -> a free-text reply. A WAIT node keeps them disabled and counts down its wait time
- * (+15 s), then offers Refresh, a status check; without a wait time Refresh is offered at once.
+ * (+15 s), then offers Refresh, a status check; without a wait time Refresh is offered at once. `disabled` (auth
+ * problem, or the reply stream still open) disables every control.
  */
 export function HitlBar(props: {
   wait: WaitInfo;

@@ -3,7 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 // Host page = src/index.html (default mock config: files.enabled, person-id "-1", hcmRestBase
 // "/hcmRestApi/rest/latest/en/11.13.18.05:9", limits 5 files / 50 MB). Mock pod attachment endpoints:
 // hcmAiStudioConversations -> 201, attachDocTracker -> {trackers:[{trackerId:"trk-1"}], username:"test.user"},
-// attachUpload -> 200, ADF batch on `${hcmRestBase}/` -> 200. JSON bodies are recorded parsed, others as text.
+// attachUpload -> 200 (GET /__mock/arm?attachUpload=<status> makes the next one fail once), ADF batch on
+// `${hcmRestBase}/` -> 200. JSON bodies are recorded parsed, others as text.
 const MOCK_POD = "http://localhost:8787";
 const HCM_REST_BASE = "/hcmRestApi/rest/latest/en/11.13.18.05:9";
 
@@ -94,6 +95,58 @@ test("upload_then_send_performs_oracle_sequence", async ({ page }) => {
     }],
   });
   expect((step("chat").body as { message: string }).message).toBe("summarize the file");
+});
+
+test("failed_upload_blocks_send_and_marks_chip", async ({ page }) => {
+  await page.request.get(`${MOCK_POD}/__mock/arm?attachUpload=500`);
+  await page.goto("/");
+  await page.evaluate(() => {
+    const w = window as unknown as { __chatErrors: unknown[] };
+    w.__chatErrors = [];
+    document.getElementById("chat")!.addEventListener("aiChatError", (e) => w.__chatErrors.push((e as CustomEvent).detail));
+  });
+  await page.getByTestId("gai-attach-input").setInputFiles(file("test.pdf", "application/pdf", 10240));
+  const input = page.getByTestId("gai-composer-input");
+  await input.fill("hello");
+  await page.getByTestId("gai-composer-send").click();
+
+  const chip = page.getByTestId("gai-attach-chip");
+  await expect(chip).toHaveAttribute("data-state", "failed");
+  await expect(chip).toContainText("attachment upload HTTP 500");
+  await expect(input).toHaveValue("hello");
+  await expect(input).toBeEnabled();
+  await expect(page.getByTestId("gai-composer-send")).toBeEnabled();
+  await expect(page.getByTestId("gai-bubble-user")).toHaveCount(0);
+
+  const errors = await page.evaluate(() => (window as unknown as { __chatErrors: Array<{ message: string; status?: number }> }).__chatErrors);
+  expect(errors).toHaveLength(1);
+  expect(errors[0].status).toBe(500);
+  expect(errors[0].message).toContain("attachment upload HTTP 500");
+  // The flow stopped at the failed upload: no batch link, no chat.
+  expect((await mockRequests(page)).map(flowStep).filter((s) => s !== null)).toEqual([
+    "hcmAiStudioConversations", "attachDocTracker", "attachUpload",
+  ]);
+});
+
+test("files_disabled_hides_attach_ui", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
+      agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
+      auth: { kind: "fusionShell" },
+      protocol: { checkVersion: "2607100", hcmRestBase: "/hcmRestApi/rest/latest/en/11.13.18.05:9" },
+      ui: { starterQuestions: "fromWorkflow" },
+      files: { enabled: false },
+    };
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("gai-composer-input")).toBeEnabled();
+  await expect(page.getByTestId("gai-attach")).toHaveCount(0);
+  await expect(page.getByTestId("gai-attach-input")).toHaveCount(0);
+
+  await page.getByTestId("gai-composer-input").fill("hello");
+  await page.getByTestId("gai-composer-send").click();
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  expect((await mockRequests(page)).map(flowStep).filter((s) => s !== null)).toEqual(["chat"]);
 });
 
 test("sixth_file_is_rejected_with_count_reason", async ({ page }) => {

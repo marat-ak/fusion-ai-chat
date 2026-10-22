@@ -74,6 +74,8 @@ export interface ChatController {
   /** Set when the workflow lookup failed for a reason other than auth (auth failures show the auth banner). */
   workflowError: ChatErrorDetail | null;
   conversations: ConversationList;
+  /** A reply stream is open (until its `done`); the HITL bar stays disabled meanwhile. */
+  inFlight: boolean;
   /** Null when `files.enabled` is false. */
   attachments: AttachmentTray | null;
   /**
@@ -164,6 +166,8 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
 
   // Set while a turn streams; doubles as the one-turn-at-a-time guard (synchronous, unlike the reducer status).
   const inflight = useRef<AbortController | null>(null);
+  // The same, as state, for the UI.
+  const [inFlight, setInFlight] = useState(false);
 
   // Any AuthError (relogin, unauthorized, or invalid: missing xsrf node, undecodable token, clock skew) is an auth state;
   // the in-flight turn is closed with `done` so nothing stays "sending".
@@ -297,6 +301,8 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       if (seq !== historySeq.current) return reset();
       return uploaded;
     } catch (e) {
+      // Abandoned (new/open meanwhile): not this conversation's failure, so nothing is marked or reported.
+      if (seq !== historySeq.current) return reset();
       const error = messageOf(e);
       const failed = current;
       setTray((t) => ({
@@ -317,6 +323,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   const run = useCallback(async (input: SendInput) => {
     const ctrl = new AbortController();
     inflight.current = ctrl;
+    setInFlight(true);
     let failed = false;
     try {
       for await (const event of transport.send(input, ctrl.signal)) {
@@ -332,7 +339,10 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       failed = true;
       if (!ctrl.signal.aborted) fail(e, true);
     } finally {
-      if (inflight.current === ctrl) inflight.current = null;
+      if (inflight.current === ctrl) {
+        inflight.current = null;
+        setInFlight(false);
+      }
     }
     // Until the name lookup has answered, every reply that completes without error triggers it (new/open clear the
     // pending id, so an aborted turn never matches); a failed reply leaves it pending for the next one.
@@ -340,8 +350,10 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     lookUpName(input.conversationId);
   }, [transport, report, fail, lookUpName]);
 
-  const canStart = (): boolean =>
+  const ready = (): boolean =>
     !inflight.current && !trayRef.current.uploading && !historyLoading.current && stateRef.current.authState === "ok";
+  // A new turn never starts while the agent waits on the user: only resume() answers a wait.
+  const canStart = (): boolean => ready() && stateRef.current.status !== "waiting";
 
   const startTurn = useCallback((id: string, t: string, uploaded?: UploadedAttachment[]) => {
     if (fresh.current) {
@@ -380,7 +392,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
 
   const resume = useCallback((action: ResumeAction, content?: string, opts?: ResumeOptions) => {
     const wait = stateRef.current.wait;
-    if (!wait || !canStart()) return;
+    if (!wait || !ready()) return;
     const statusCheckOnly = opts?.statusCheckOnly === true;
     dispatch({ type: "resume_sent", action, ...(content !== undefined && { content }), ...(statusCheckOnly && { statusCheckOnly }) });
     void run({
@@ -396,6 +408,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   const stop = (): void => {
     inflight.current?.abort();
     inflight.current = null;
+    setInFlight(false);
   };
 
   const newConversation = useCallback(() => {
@@ -501,5 +514,5 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     [fileService, tray, addFiles, removeFile],
   );
 
-  return { state, workflowInfo, workflowError, conversations, attachments, send, sendStarter, resume, newConversation, openConversation };
+  return { state, workflowInfo, workflowError, conversations, inFlight, attachments, send, sendStarter, resume, newConversation, openConversation };
 }

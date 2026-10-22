@@ -1,0 +1,3 @@
+data: {"jobId":"job-2"}
+
+data: {"message":{"finishReason":"wait"},"waitingNodeDetails":{"type":"WAIT","initialMessage":"Waiting for the timer","callbackToken":"cb-2","waitTimeInMinutes":1}}
