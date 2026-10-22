@@ -6,6 +6,8 @@
 //   GET/DELETE /__mock/requests         -> read / clear the request log
 //   POST /__mock/reset                  -> reload the fixture conversation rows and clear the armed one-shots (log kept)
 //   GET /__mock/arm?workflows=<status>  -> the next BOSS workflows query answers <status> (4xx/5xx) once
+//   GET /__mock/arm?listDelay=<ms>      -> the next BOSS userConversations list answers <ms> (0..30000) late, once
+//                                          (both parameters may be armed in one call)
 //   GET /fscmRestApi/tokenrelay?$mock=expired -> the next relay answers login HTML once (this call is logged)
 import http from "node:http";
 import { readFileSync } from "node:fs";
@@ -23,6 +25,7 @@ const state = {
   conversations: JSON.parse(fixture("conversations.json")),
   relayExpiredNext: false,
   workflowsStatusNext: null,
+  listDelayNext: null,
   requests: [],
 };
 
@@ -96,16 +99,24 @@ const routes = [
       state.conversations = JSON.parse(fixture("conversations.json"));
       state.relayExpiredNext = false;
       state.workflowsStatusNext = null;
+      state.listDelayNext = null;
       return json(res, 204);
     },
   },
   {
     method: "GET", path: /^\/__mock\/arm$/, open: true,
     handle: ({ res, url }) => {
-      const status = Number(url.searchParams.get("workflows"));
-      if (!Number.isInteger(status) || status < 400 || status > 599) return json(res, 400, { detail: "arm: workflows=<4xx|5xx> required" });
-      state.workflowsStatusNext = status;
-      return json(res, 200, { armed: { workflows: status } });
+      const p = url.searchParams;
+      const usage = "arm: workflows=<4xx|5xx> and/or listDelay=<0..30000 ms> required";
+      if (!p.has("workflows") && !p.has("listDelay")) return json(res, 400, { detail: usage });
+      const status = Number(p.get("workflows"));
+      const delay = Number(p.get("listDelay"));
+      if (p.has("workflows") && (!Number.isInteger(status) || status < 400 || status > 599)) return json(res, 400, { detail: usage });
+      if (p.has("listDelay") && (!Number.isInteger(delay) || delay < 0 || delay > 30000)) return json(res, 400, { detail: usage });
+      const armed = {};
+      if (p.has("workflows")) state.workflowsStatusNext = armed.workflows = status;
+      if (p.has("listDelay")) state.listDelayNext = armed.listDelay = delay;
+      return json(res, 200, { armed });
     },
   },
   {
@@ -150,7 +161,14 @@ const routes = [
   },
   {
     method: "GET", path: new RegExp(`^${BOSS}/userConversations$`),
-    handle: ({ res }) => json(res, 200, { items: state.conversations.map(rowOut), hasMore: false, count: state.conversations.length }),
+    handle: async ({ res }) => {
+      if (state.listDelayNext !== null) {
+        const ms = state.listDelayNext;
+        state.listDelayNext = null;
+        await sleep(ms);
+      }
+      return json(res, 200, { items: state.conversations.map(rowOut), hasMore: false, count: state.conversations.length });
+    },
   },
   {
     method: "GET", path: new RegExp(`^${BOSS}/userConversations/([^/]+)$`),

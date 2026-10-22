@@ -90,10 +90,15 @@ export function ChatShell(props: ChatShellProps) {
     lastId.current = id;
   }, [state.conversationId]);
 
-  // In: the host set a different conversation id.
+  // In: a host-set id is opened (its history loads), both the one the chat mounts with and a different one set later;
+  // the id the chat wrote back itself is skipped. At mount the Out effect has already recorded it, hence `atMount`.
+  const inSeen = useRef(false);
   useEffect(() => {
     const ext = props.conversationId;
-    if (ext !== undefined && ext !== "" && ext !== lastId.current) ctl.openConversation(ext);
+    const atMount = !inSeen.current;
+    inSeen.current = true;
+    if (ext === undefined || ext === "") return;
+    if (atMount || ext !== lastId.current) ctl.openConversation(ext);
   }, [props.conversationId]);
 
   const renderer = useMarkdownRenderer(props.onError);

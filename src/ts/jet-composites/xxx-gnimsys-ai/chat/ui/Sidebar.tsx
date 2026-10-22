@@ -1,17 +1,10 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { formatDate } from "../lib/history/formatDate";
 import type { ConversationSummary } from "../lib/history/HistoryStore";
 import type { ChatErrorDetail, ConversationList } from "./useChatController";
 
 /** A delete needs a second click within this window. */
 const CONFIRM_MS = 3000;
-
-let dateFormat: Intl.DateTimeFormat | null = null;
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (iso === "" || Number.isNaN(d.getTime())) return "";
-  if (dateFormat === null) dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
-  return dateFormat.format(d);
-}
 
 const why = (e: ChatErrorDetail): string => (e.status ? "HTTP " + e.status : e.message);
 

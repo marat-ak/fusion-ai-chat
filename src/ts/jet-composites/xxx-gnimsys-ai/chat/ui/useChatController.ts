@@ -23,7 +23,7 @@ export interface ChatControllerProps {
   personId?: string;
   /** Page values for `{{key}}` substitution in `agent.additionalContext`. */
   context?: Record<string, unknown>;
-  /** Host-provided conversation to start in; a new id is minted when absent. */
+  /** Host-provided conversation to start in (the shell opens it, loading its history); a new id is minted when absent. */
   conversationId?: string;
   onError?: (detail: ChatErrorDetail) => void;
 }
@@ -126,9 +126,10 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   stateRef.current = state;
   // Updated synchronously by new/open so a send() in the same tick targets the new conversation.
   const conversationId = useRef(state.conversationId);
-  // The current conversation was minted here and has no message yet: its first send adds it to the list.
+  // The current conversation is new (minted here, or unknown to the pod) and has no message yet: its first send adds it
+  // to the list. A host-provided id is opened by the shell, which marks it fresh once its history proves it new.
   const fresh = useRef(!props.conversationId);
-  // The conversation whose first reply, once it completes without error, triggers the pod name lookup.
+  // The new conversation still waiting for its pod name lookup to answer (see lookUpName).
   const namePending = useRef<string | null>(null);
   // Set from open until its messages arrive (or fail): sends wait, since the loaded history replaces the turns.
   const historyLoading = useRef(false);
@@ -161,6 +162,8 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   listRef.current = list;
   // Bumped by every list load (and on unmount): a response for an earlier load is dropped.
   const listSeq = useRef(0);
+  // Rows this controller added for conversations started here, until a pod page lists them.
+  const localIds = useRef(new Set<string>());
 
   const loadList = useCallback((offset: number) => {
     const seq = ++listSeq.current;
@@ -168,9 +171,13 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     history.list(offset).then(
       (page) => {
         if (seq !== listSeq.current) return;
+        for (const it of page.items) localIds.current.delete(it.id);
         setList((l) => {
           const fromPod = new Set(page.items.map((it) => it.id));
-          const kept = offset === 0 ? [] : l.items.filter((it) => !fromPod.has(it.id));
+          // A first page replaces the list but keeps, first, the local rows the pod does not list yet; a later page appends.
+          const kept = offset === 0
+            ? l.items.filter((it) => localIds.current.has(it.id) && !fromPod.has(it.id))
+            : l.items.filter((it) => !fromPod.has(it.id));
           return { items: [...kept, ...page.items], hasMore: page.hasMore, loading: false, error: null, next: offset + page.items.length };
         });
       },
@@ -197,11 +204,18 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     setList((l) => ({ ...l, items: l.items.map((it) => (it.id === id ? { ...it, name } : it)) }));
   }, []);
 
-  // Oracle's chat names a new conversation after its first reply; a pod without the row yet (null) keeps the local title.
+  // Oracle's chat names a new conversation after its first reply. The lookup is done once it answers: a name renames the
+  // row, null (the pod has no row yet) keeps the local title. A failed lookup is reported and retried after the next
+  // successful reply, unless the chat has moved to another conversation (new/open bump historySeq) in between.
   const lookUpName = useCallback((id: string) => {
+    namePending.current = null; // one lookup at a time
+    const seq = historySeq.current;
     history.name(id).then(
       (name) => { if (name) setName(id, name); },
-      (e: unknown) => { fail(e, false); },
+      (e: unknown) => {
+        if (seq === historySeq.current && namePending.current === null) namePending.current = id;
+        fail(e, false);
+      },
     );
   }, [history, fail, setName]);
 
@@ -227,10 +241,10 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     } finally {
       if (inflight.current === ctrl) inflight.current = null;
     }
-    // new/open clear namePending, so an aborted turn never gets here with a match.
-    if (namePending.current !== input.conversationId) return;
-    namePending.current = null;
-    if (!failed && !ctrl.signal.aborted) lookUpName(input.conversationId);
+    // Until the name lookup has answered, every reply that completes without error triggers it (new/open clear the
+    // pending id, so an aborted turn never matches); a failed reply leaves it pending for the next one.
+    if (failed || ctrl.signal.aborted || namePending.current !== input.conversationId) return;
+    lookUpName(input.conversationId);
   }, [transport, report, fail, lookUpName]);
 
   const send = useCallback((text: string) => {
@@ -242,8 +256,11 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       if (listEnabled) {
         namePending.current = id;
         const now = new Date().toISOString();
-        setList((l) => (l.items.some((it) => it.id === id) ? l
-          : { ...l, items: [{ id, name: localTitle(t), createdAt: now, updatedAt: now, etag: "" }, ...l.items] }));
+        setList((l) => {
+          if (l.items.some((it) => it.id === id)) return l;
+          localIds.current.add(id); // idempotent, so a repeated updater call is harmless
+          return { ...l, items: [{ id, name: localTitle(t), createdAt: now, updatedAt: now, etag: "" }, ...l.items] };
+        });
       }
     }
     dispatch({ type: "user_send", text: t });
@@ -294,6 +311,9 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
         if (seq !== historySeq.current) return;
         historyLoading.current = false;
         dispatch({ type: "history_loaded", messages });
+        // No history and no row in the list: a conversation the pod does not know yet (e.g. minted by the host), so its
+        // first send adds and names a row like a conversation started here.
+        if (messages.length === 0 && !listRef.current.items.some((it) => it.id === id)) fresh.current = true;
       },
       (e: unknown) => {
         if (seq !== historySeq.current) return;
@@ -323,7 +343,9 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       fail(e, false);
       return detailOf(e);
     }
-    setList((l) => ({ ...l, items: l.items.filter((it) => it.id !== id), next: Math.max(0, l.next - 1) }));
+    // `next` counts pod-listed rows only, so removing a local row leaves it as is.
+    const wasLocal = localIds.current.delete(id);
+    setList((l) => ({ ...l, items: l.items.filter((it) => it.id !== id), next: wasLocal ? l.next : Math.max(0, l.next - 1) }));
     if (conversationId.current === id) newConversation();
     return null;
   }, [history, fail, newConversation]);

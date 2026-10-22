@@ -23,6 +23,9 @@ const row = (page: Page, id: string) => page.locator(`[data-testid="gai-conv-row
 const currentRow = (page: Page) => page.locator('[data-testid="gai-conv-row"][aria-current="true"]');
 const componentConversationId = (page: Page) =>
   page.evaluate(() => (document.getElementById("chat") as unknown as { conversationId?: string }).conversationId);
+/** GETs of one conversation's BOSS row (the controller's name lookup). */
+const nameLookups = async (page: Page, id: string) =>
+  (await mockRequests(page)).filter((r) => r.method === "GET" && r.url.includes(`/userConversations/${id}?`));
 
 test.beforeEach(async ({ page }) => {
   await page.request.post(`${MOCK_POD}/__mock/reset`);
@@ -188,8 +191,75 @@ test("first_reply_of_new_conversation_looks_up_its_name", async ({ page }) => {
   await expect(currentRow(page)).toHaveAttribute("data-conv-id", id);
   await expect(currentRow(page).locator(".gai-conv-name")).toHaveText(text.slice(0, 42) + "…");
   // After the first reply the pod is asked for the name once (the mock has no row: the local title stays).
-  const nameLookups = async () =>
-    (await mockRequests(page)).filter((r) => r.method === "GET" && r.url.includes(`/userConversations/${id}?`));
-  await expect.poll(async () => (await nameLookups()).length).toBe(1);
-  expect((await nameLookups())[0].url).toContain("$fields=name");
+  await expect.poll(async () => (await nameLookups(page, id)).length).toBe(1);
+  expect((await nameLookups(page, id))[0].url).toContain("$fields=name");
+});
+
+test("first_reply_survives_list_reload_race", async ({ page }) => {
+  // The mount-time list answers 1.5 s late, i.e. after the first reply of the new conversation has completed.
+  await page.request.get(`${MOCK_POD}/__mock/arm?listDelay=1500`);
+  await page.goto("/");
+  await page.getByTestId("gai-starter").first().click();
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  const id = (await componentConversationId(page)) as string;
+
+  // Once the delayed page arrives, the local row of the conversation is kept, first and current.
+  await expect(page.getByTestId("gai-conv-row")).toHaveCount(4);
+  await expect(page.getByTestId("gai-conv-row").first()).toHaveAttribute("data-conv-id", id);
+  await expect(currentRow(page)).toHaveAttribute("data-conv-id", id);
+  await expect(currentRow(page).locator(".gai-conv-name")).toHaveText("Show my invoices");
+  await expect.poll(async () => (await nameLookups(page, id)).length).toBe(1);
+});
+
+test("name_lookup_waits_for_first_successful_reply", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("gai-conv-row")).toHaveCount(3);
+  const id = (await componentConversationId(page)) as string;
+
+  await sendText(page, "fail");
+  await expect(page.getByTestId("gai-error")).toContainText("ErrorRecord[boom]");
+  await expect(page.getByTestId("gai-composer-input")).toBeEnabled();
+  expect(await nameLookups(page, id)).toHaveLength(0);
+
+  await sendText(page, "hello");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  await expect.poll(async () => (await nameLookups(page, id)).length).toBe(1);
+  // A third reply does not ask again: the lookup answered (no row yet, so the local title stays).
+  await sendText(page, "hello");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?", "Hello! How can I help?"]);
+  await page.waitForTimeout(300);
+  expect(await nameLookups(page, id)).toHaveLength(1);
+  await expect(currentRow(page).locator(".gai-conv-name")).toHaveText("fail");
+});
+
+test("host_conversation_id_at_mount_loads_history", async ({ page }) => {
+  await page.addInitScript(() => { (window as unknown as { __CHAT_CONVERSATION_ID__: string }).__CHAT_CONVERSATION_ID__ = "conv-1"; });
+  await page.goto("/");
+  await expect(page.locator(".gai-feed .gai-bubble")).toHaveText([
+    "hello",
+    "Hello! How can I help?",
+    "Show my invoices",
+    "You have 3 open invoices.",
+  ]);
+  await expect(currentRow(page)).toHaveAttribute("data-conv-id", "conv-1");
+  expect(await componentConversationId(page)).toBe("conv-1");
+  const msgs = (await mockRequests(page)).filter((r) => r.url.endsWith("/orchestrator/conversations/v1/conv-1/messages"));
+  expect(msgs).toHaveLength(1);
+});
+
+test("host_conversation_id_unknown_to_pod_starts_fresh", async ({ page }) => {
+  // A host-minted id: empty history and no BOSS row, so its first reply adds and names a row like a new conversation.
+  await page.addInitScript(() => { (window as unknown as { __CHAT_CONVERSATION_ID__: string }).__CHAT_CONVERSATION_ID__ = "host-new-1"; });
+  await page.goto("/");
+  await expect(page.getByTestId("gai-conv-row")).toHaveCount(3);
+  await expect(page.getByTestId("gai-history-loading")).toHaveCount(0);
+  await expect(currentRow(page)).toHaveCount(0);
+
+  await sendText(page, "hello");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  await expect(currentRow(page)).toHaveAttribute("data-conv-id", "host-new-1");
+  await expect(currentRow(page).locator(".gai-conv-name")).toHaveText("hello");
+  await expect.poll(async () => (await nameLookups(page, "host-new-1")).length).toBe(1);
+  const chat = (await mockRequests(page)).filter((r) => r.url.includes("/chat"));
+  expect((chat.at(-1)?.body as { conversationId?: string }).conversationId).toBe("host-new-1");
 });
