@@ -9,12 +9,23 @@ import * as ko from "knockout";
 import * as ResponsiveUtils from "ojs/ojresponsiveutils";
 import * as ResponsiveKnockoutUtils from "ojs/ojresponsiveknockoututils";
 import Context = require("ojs/ojcontext");
+import "xxx-gnimsys-ai/chat/loader";
+
+// Dev host page config: the mock pod (tests/mock-pod) answers for pod "mockpod".
+const defaultMockConfig = {
+  agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
+  auth: { kind: "fusionShell" },
+  protocol: { checkVersion: "2607100", hcmRestBase: "/hcmRestApi/rest/latest/en/11.13.18.05:9" },
+  ui: { starterQuestions: "fromWorkflow" },
+  files: { enabled: true },
+};
 
 class RootViewModel {
   smScreen: ko.Observable<boolean>|undefined;
   appName: ko.Observable<string>;
   userLogin: ko.Observable<string>;
   footerLinks: Array<object>;
+  chatConfig: object | string;
 
   constructor() {
     // media queries for responsive layouts
@@ -39,6 +50,8 @@ class RootViewModel {
       { name: "Terms Of Use", id: "termsOfUse", linkTarget: "http://www.oracle.com/us/legal/terms/index.html" },
       { name: "Your Privacy Rights", id: "yourPrivacyRights", linkTarget: "http://www.oracle.com/us/legal/privacy/index.html" },
     ];
+
+    this.chatConfig = window.__CHAT_CONFIG__ ?? defaultMockConfig;
 
     // release the application bootstrap busy state
     Context.getPageContext().getBusyContext().applicationBootstrapComplete();        

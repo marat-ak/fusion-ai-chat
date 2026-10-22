@@ -31,6 +31,21 @@ module.exports = function (configObj) {
         next();
       });
 
+      // e2e host page only (MOCK_POD=1): the page's same-origin pod calls go to the local mock pod.
+      // In the real dev loop the page is on the pod and this server serves only the bundle.
+      if (process.env.MOCK_POD === '1') {
+        const { createProxyMiddleware } = require('http-proxy-middleware');
+        configObj.preMiddleware = [
+          createProxyMiddleware({
+            target: 'http://localhost:8787',
+            pathFilter: ['/api', '/fscmRestApi', '/hcmRestApi'],
+            changeOrigin: false,
+            ws: false,
+          }),
+        ];
+        console.log('[Hook] MOCK_POD=1: proxying /api, /fscmRestApi, /hcmRestApi to http://localhost:8787');
+      }
+
       // Pass the Express instance (with CORS) to the JET tooling
       configObj.express = app;
 

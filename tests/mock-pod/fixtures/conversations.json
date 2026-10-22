@@ -1,0 +1,38 @@
+[
+  {
+    "personIdentifier": "-1",
+    "id": "conv-1",
+    "objectCode": "MOCK_WF",
+    "objectType": "AGENT_TEAM",
+    "name": "Invoice questions",
+    "status": "ACTIVE",
+    "createdBy": "test.user@example.com",
+    "timeCreated": "2026-10-20T09:00:00.000Z",
+    "updatedBy": "test.user@example.com",
+    "timeUpdated": "2026-10-20T09:05:00.000Z"
+  },
+  {
+    "personIdentifier": "-1",
+    "id": "conv-2",
+    "objectCode": "MOCK_WF",
+    "objectType": "AGENT_TEAM",
+    "name": "Purchase order draft",
+    "status": "ACTIVE",
+    "createdBy": "test.user@example.com",
+    "timeCreated": "2026-10-19T14:00:00.000Z",
+    "updatedBy": "test.user@example.com",
+    "timeUpdated": "2026-10-19T14:10:00.000Z"
+  },
+  {
+    "personIdentifier": "-1",
+    "id": "broken",
+    "objectCode": "MOCK_WF",
+    "objectType": "AGENT_TEAM",
+    "name": "Broken history",
+    "status": "ACTIVE",
+    "createdBy": "test.user@example.com",
+    "timeCreated": "2026-10-18T08:00:00.000Z",
+    "updatedBy": "test.user@example.com",
+    "timeUpdated": "2026-10-18T08:01:00.000Z"
+  }
+]

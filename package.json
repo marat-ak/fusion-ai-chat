@@ -9,11 +9,13 @@
   "devDependencies": {
     "@oracle/ojet-cli": "~18.0.3",
     "@oracle/oraclejet-jest-preset": "~18.0.0",
+    "@playwright/test": "1.56.0",
     "@testing-library/preact": "^3.2.3",
     "@types/jest": "^29.5.3",
     "extract-zip": "^1.7.0",
     "fs-extra": "^8.1.0",
     "glob": "10.4.5",
+    "http-proxy-middleware": "^3.0.7",
     "jest": "^29.6.2",
     "jest-environment-jsdom": "^29.6.2",
     "typescript": "5.7.2",
@@ -27,9 +29,10 @@
   "scripts": {
     "build": "ojet build",
     "build:release": "ojet build --release",
-    "serve": "ojet serve --server-port=8000 --livereload=false",
+    "serve": "ojet serve --server-only --server-port=8000 --livereload=false",
     "test": "jest -c test-config/jest.config.cjs",
-    "package": "ojet package pack xxx-gnimsys-ai"
+    "package": "ojet package pack xxx-gnimsys-ai",
+    "e2e": "playwright test"
   },
   "overrides": {
     "@types/minimatch": "5.1.2"

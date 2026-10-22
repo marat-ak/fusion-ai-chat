@@ -6,6 +6,7 @@
   "displayName": "A user friendly, translatable name of the pack.",
   "description": "A translatable high-level description for the pack.",
   "dependencies": {
-    "xxx-gnimsys-ai-chat": "0.1.0"
+    "xxx-gnimsys-ai-chat": "0.1.0",
+    "xxx-gnimsys-ai-libs": "0.1.0"
   }
 }

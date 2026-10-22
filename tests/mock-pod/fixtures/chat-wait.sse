@@ -1,0 +1,4 @@
+data: {"jobId":"job-1"}
+
+data: {"message":{"finishReason":"wait"},"waitingNodeDetails":{"type":"HUMAN","initialMessage":"Approve the transfer?","callbackToken":"cb-1","approvalEnabledFlag":true,"feedbackEnabledFlag":true,"requestChangeMessage":"What should change?"}}
+
