@@ -49,6 +49,11 @@ module.exports = function (configObj) {
       // Pass the Express instance (with CORS) to the JET tooling
       configObj.express = app;
 
+      // The server runs inside the dev.sh container: ojet's default bind 127.0.0.1 is unreachable
+      // through Docker's published port, so the VB page could not load the bundle from the host.
+      // ojet serve has no host flag; connectOpts is the object serveWeb passes to the server.
+      configObj.connectOpts.hostname = '0.0.0.0';
+
       console.log('Running before_serve hook end.');
       resolve(configObj);
     } catch (error) {
