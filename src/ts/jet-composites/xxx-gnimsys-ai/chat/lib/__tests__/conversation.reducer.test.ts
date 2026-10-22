@@ -156,11 +156,11 @@ describe("conversation reducer", () => {
   });
 
   test("auth_unavailable_carries_reason_across_conversations", () => {
-    const s = run(initialState("c"), { type: "auth", state: "unavailable", reason: "xsrf-missing" });
+    const s = run(initialState("c"), { type: "auth", state: "unavailable", reason: "xsrf-unavailable" });
     expect(s.authState).toBe("unavailable");
-    expect(s.authReason).toBe("xsrf-missing");
-    expect(run(s, { type: "new_conversation", id: "c2" })).toEqual({ ...initialState("c2"), authState: "unavailable", authReason: "xsrf-missing" });
-    expect(run(s, { type: "open_conversation", id: "c3" })).toMatchObject({ authState: "unavailable", authReason: "xsrf-missing" });
+    expect(s.authReason).toBe("xsrf-unavailable");
+    expect(run(s, { type: "new_conversation", id: "c2" })).toEqual({ ...initialState("c2"), authState: "unavailable", authReason: "xsrf-unavailable" });
+    expect(run(s, { type: "open_conversation", id: "c3" })).toMatchObject({ authState: "unavailable", authReason: "xsrf-unavailable" });
     const r = run(s, { type: "auth", state: "relogin" });
     expect(r.authState).toBe("relogin");
     expect("authReason" in r).toBe(false);

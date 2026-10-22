@@ -75,7 +75,7 @@ export function ChatShell(props: ChatShellProps) {
       ...(props.conversationId !== undefined && props.conversationId !== "" && { conversationId: props.conversationId }),
       onError: props.onError,
     },
-    { document },
+    {},
   );
   const { state } = ctl;
 
@@ -128,7 +128,7 @@ export function ChatShell(props: ChatShellProps) {
       <div class="gai-main">
         {title !== undefined && <div class="gai-header">{title}</div>}
         {state.authState !== "ok" && (
-          <AuthBanner state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} />
+          <AuthBanner state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })} />
         )}
         <Feed turns={state.turns} busy={busy && authOk} renderer={renderer} historyStatus={state.historyStatus}
           {...(state.historyError !== undefined && { historyError: state.historyError })}

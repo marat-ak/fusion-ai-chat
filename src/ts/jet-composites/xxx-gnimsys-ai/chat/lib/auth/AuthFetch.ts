@@ -5,8 +5,8 @@ export interface AuthFetch {
 }
 
 export type AuthErrorKind = "relogin" | "unauthorized" | "invalid";
-/** Why auth is unavailable (kind "invalid"): no `#fndsectkn` on the page, a relay token without a readable expiry, or a fresh token already expired at the browser clock. */
-export type AuthReason = "xsrf-missing" | "token-undecodable" | "clock-skew";
+/** Why auth is unavailable (kind "invalid"): the anti-CSRF token request failed, a relay token without a readable expiry, or a fresh token already expired at the browser clock. */
+export type AuthReason = "xsrf-unavailable" | "token-undecodable" | "clock-skew";
 
 export class AuthError extends Error {
   kind: AuthErrorKind;

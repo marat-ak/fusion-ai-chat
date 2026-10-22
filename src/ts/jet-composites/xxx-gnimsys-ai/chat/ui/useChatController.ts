@@ -32,7 +32,7 @@ export interface ChatControllerProps {
   onError?: (detail: ChatErrorDetail) => void;
 }
 
-export interface ChatControllerDeps { document: Document; origin?: string }
+export interface ChatControllerDeps { origin?: string }
 
 export type ResumeAction = ResumeInput["action"];
 /** statusCheckOnly: a WAIT node's Refresh (asks whether the wait is over; adds no user turn). */
@@ -105,15 +105,15 @@ const detailOf = (e: unknown): ChatErrorDetail => {
 
 /** Single owner of the chat services and the conversation reducer. Call only with a validated config. */
 export function useChatController(config: ChatConfig, props: ChatControllerProps, deps: ChatControllerDeps): ChatController {
-  const { document: doc, origin } = deps;
+  const { origin } = deps;
   const { userName, personId, context } = props;
   const pod = config.agent.pod;
   const listEnabled = config.ui.conversations;
 
-  // Keyed on the pod, not the config object: one token cache per pod (the shell's xsrf node is read once per document).
+  // Keyed on the pod, not the config object: one token cache per pod (the anti-CSRF token is fetched once per origin).
   const auth = useMemo(
-    () => new FusionShellAuthFetch({ pod, document: doc, ...(origin !== undefined && { origin }) }),
-    [pod, doc, origin],
+    () => new FusionShellAuthFetch({ pod, ...(origin !== undefined && { origin }) }),
+    [pod, origin],
   );
 
   const transport = useMemo(() => {
@@ -177,7 +177,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   // undecodable token, clock skew); the in-flight turn is closed with `done`, which ends it as "No reply received".
   const fail = useCallback((e: unknown, endTurn: boolean) => {
     if (e instanceof AuthError) {
-      if (e.kind === "invalid") dispatch({ type: "auth", state: "unavailable", ...(e.reason !== undefined && { reason: e.reason }) });
+      if (e.kind === "invalid") dispatch({ type: "auth", state: "unavailable", ...(e.reason !== undefined && { reason: e.reason }), ...(e.status !== undefined && { status: e.status }) });
       else dispatch({ type: "auth", state: e.kind });
       if (endTurn) dispatch({ type: "event", event: { type: "done" } });
     } else if (endTurn) {

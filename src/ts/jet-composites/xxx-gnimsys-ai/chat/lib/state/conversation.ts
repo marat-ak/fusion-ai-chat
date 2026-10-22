@@ -20,6 +20,8 @@ export interface ChatState {
   /** "unavailable": auth cannot work on this page or clock (see `authReason`); "relogin"/"unauthorized": the relay refused. */
   authState: "ok" | "relogin" | "unauthorized" | "unavailable";
   authReason?: AuthReason;
+  /** HTTP status of the failed auth call, when it had one. */
+  authStatus?: number;
   nextTurnId: number;
 }
 export type ChatAction =
@@ -29,7 +31,7 @@ export type ChatAction =
   | { type: "new_conversation"; id: string } | { type: "open_conversation"; id: string }
   // statusCheckOnly: a WAIT node's Refresh — the user said nothing, so no user turn is added.
   | { type: "resume_sent"; action: "APPROVE_ACTION" | "REJECT_ACTION" | "RFI_ACTION"; content?: string; statusCheckOnly?: boolean }
-  | { type: "auth"; state: ChatState["authState"]; reason?: AuthReason };
+  | { type: "auth"; state: ChatState["authState"]; reason?: AuthReason; status?: number };
 
 export function initialState(conversationId: string): ChatState {
   return { conversationId, turns: [], status: "idle", followups: [], historyStatus: "none", authState: "ok", nextTurnId: 1 };
@@ -157,13 +159,13 @@ export function reduce(state: ChatState, action: ChatAction): ChatState {
       return rest;
     }
     case "auth": {
-      const { authReason: _r, ...rest } = state;
-      return { ...rest, authState: action.state, ...(action.reason !== undefined && { authReason: action.reason }) };
+      const { authReason: _r, authStatus: _s, ...rest } = state;
+      return { ...rest, authState: action.state, ...(action.reason !== undefined && { authReason: action.reason }), ...(action.status !== undefined && { authStatus: action.status }) };
     }
   }
 }
 
 /** The auth state outlives a conversation switch. */
-function authOf(s: ChatState): Pick<ChatState, "authState" | "authReason"> {
-  return { authState: s.authState, ...(s.authReason !== undefined && { authReason: s.authReason }) };
+function authOf(s: ChatState): Pick<ChatState, "authState" | "authReason" | "authStatus"> {
+  return { authState: s.authState, ...(s.authReason !== undefined && { authReason: s.authReason }), ...(s.authStatus !== undefined && { authStatus: s.authStatus }) };
 }

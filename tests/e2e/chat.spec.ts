@@ -130,9 +130,9 @@ test("relogin_banner_on_html_relay", async ({ page }) => {
   await expect(page.getByTestId("gai-auth-banner")).toHaveCount(0);
 });
 
-test("missing_xsrf_shows_unavailable_banner", async ({ page }) => {
+test("anticsrf_failure_shows_unavailable_banner", async ({ page }) => {
   // Explicit starters and no sidebar: no workflow lookup or conversation list at mount, so the send is the first call
-  // that needs the shell's xsrf node.
+  // that needs the anti-CSRF token.
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
       agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
@@ -140,8 +140,8 @@ test("missing_xsrf_shows_unavailable_banner", async ({ page }) => {
       protocol: { checkVersion: "2607100" },
       ui: { starterQuestions: ["Show my invoices"], conversations: false },
     };
-    document.addEventListener("DOMContentLoaded", () => document.getElementById("fndsectkn")?.remove());
   });
+  await page.request.get(`${MOCK_POD}/__mock/arm?anticsrf=500`);
   await page.goto("/");
   await expect(page.getByTestId("gai-starter")).toHaveText(["Show my invoices"]);
   await expect(page.getByTestId("gai-sidebar")).toHaveCount(0);
@@ -155,15 +155,14 @@ test("missing_xsrf_shows_unavailable_banner", async ({ page }) => {
   });
 
   await sendText(page, "hello");
-  await expect(page.getByTestId("gai-auth-banner")).toHaveText("Chat auth unavailable on this page: #fndsectkn not found");
-  // A reload brings back the same page without the node: no Reload button.
-  await expect(page.getByTestId("gai-auth-reload")).toHaveCount(0);
+  await expect(page.getByTestId("gai-auth-banner")).toContainText("anti-CSRF token request failed (HTTP 500)");
+  await expect(page.getByTestId("gai-auth-reload")).toBeVisible();
   await expect(page.getByTestId("gai-composer-input")).toBeDisabled();
   // The turn that never reached the agent ends explicitly.
   await expect(page.getByTestId("gai-error")).toHaveText("No reply received");
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(0);
   expect(await chatRequests(page)).toEqual([]);
-  await expect.poll(() => errors.map((d) => d.reason)).toEqual(["xsrf-missing"]);
+  await expect.poll(() => errors.map((d) => d.reason)).toEqual(["xsrf-unavailable"]);
 });
 
 test("unsafe_reply_html_is_neutralized", async ({ page }) => {

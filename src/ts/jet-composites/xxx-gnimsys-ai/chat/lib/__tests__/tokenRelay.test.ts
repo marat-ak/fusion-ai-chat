@@ -1,4 +1,4 @@
-import { relayUrl, readXsrfToken, tokenExpiry, TokenCache, fetchRelayToken } from "../auth/tokenRelay";
+import { relayUrl, fetchXsrfToken, clearXsrfCache, tokenExpiry, TokenCache, fetchRelayToken } from "../auth/tokenRelay";
 import { AuthError } from "../auth/AuthFetch";
 import { makeJwt, fakeResponse } from "./helpers.auth";
 
@@ -11,28 +11,39 @@ test("relayUrl_for_each_audience", () => {
   expect(relayUrl(O, "POD1", "rest")).toBe(`${O}/fscmRestApi/tokenrelay`);
 });
 
-// Fresh documents: the token is cached per document for the module's lifetime.
-const freshDoc = (): Document => document.implementation.createHTMLDocument("t");
+beforeEach(() => clearXsrfCache());
 
-test("readXsrfToken_reads_once_and_keeps_node", () => {
-  const doc = freshDoc();
-  doc.body.innerHTML = '<div id="fndsectkn" data="tok-1"></div>';
-  expect(readXsrfToken(doc)).toBe("tok-1");
-  expect(doc.getElementById("fndsectkn")?.getAttribute("data")).toBe("tok-1");
-  // Another instance on the same page (the node gone or not) gets the value read first.
-  doc.getElementById("fndsectkn")?.remove();
-  expect(readXsrfToken(doc)).toBe("tok-1");
+test("fetchXsrfToken_returns_token_and_caches_per_origin", async () => {
+  const calls: Array<[string, RequestInit]> = [];
+  const fetchImpl = (async (url: string, init: RequestInit) => {
+    calls.push([url, init]);
+    return fakeResponse(JSON.stringify({ xsrftoken: "tok-" + calls.length }));
+  }) as unknown as typeof fetch;
+  expect(await fetchXsrfToken(O, fetchImpl)).toBe("tok-1");
+  expect(calls[0][0]).toBe(`${O}/fscmRestApi/anticsrf`);
+  expect(calls[0][1]).toMatchObject({ credentials: "same-origin", cache: "no-cache", redirect: "manual" });
+  expect(await fetchXsrfToken(O, fetchImpl)).toBe("tok-1");
+  expect(calls).toHaveLength(1);
+  expect(await fetchXsrfToken("https://other.example.com", fetchImpl)).toBe("tok-2");
+  expect(calls).toHaveLength(2);
 });
 
-test("readXsrfToken_throws_when_missing", () => {
-  const doc = freshDoc();
-  expect(() => readXsrfToken(doc)).toThrow(AuthError);
-  try { readXsrfToken(doc); } catch (e) {
-    expect((e as AuthError).kind).toBe("invalid");
-    expect((e as AuthError).reason).toBe("xsrf-missing");
-  }
-  doc.body.innerHTML = '<div id="fndsectkn" data=""></div>';
-  expect(() => readXsrfToken(doc)).toThrow(expect.objectContaining({ kind: "invalid", reason: "xsrf-missing" }));
+test("fetchXsrfToken_non2xx_is_xsrf_unavailable", async () => {
+  const mk = (body: string, status: number) => (async () => fakeResponse(body, { status })) as unknown as typeof fetch;
+  await expect(fetchXsrfToken(O, mk("{}", 500))).rejects.toMatchObject({ kind: "invalid", status: 500, reason: "xsrf-unavailable" });
+  await expect(fetchXsrfToken(O, mk("<html>", 200))).rejects.toMatchObject({ kind: "invalid", reason: "xsrf-unavailable" });
+  await expect(fetchXsrfToken(O, mk("{}", 200))).rejects.toMatchObject({ kind: "invalid", reason: "xsrf-unavailable" });
+  await expect(fetchXsrfToken(O, mk('{"xsrftoken":""}', 200))).rejects.toMatchObject({ kind: "invalid", reason: "xsrf-unavailable" });
+  await expect(fetchXsrfToken(O, mk("{}", 401))).rejects.toMatchObject({ kind: "unauthorized", status: 401 });
+  // A failed fetch caches nothing.
+  expect(await fetchXsrfToken(O, mk('{"xsrftoken":"ok"}', 200))).toBe("ok");
+});
+
+test("fetchXsrfToken_redirect_is_relogin", async () => {
+  const f302 = (async () => fakeResponse("", { status: 302 })) as unknown as typeof fetch;
+  await expect(fetchXsrfToken(O, f302)).rejects.toMatchObject({ kind: "relogin", status: 302 });
+  const opaque = (async () => ({ type: "opaqueredirect", status: 0, ok: false, text: async () => "" })) as unknown as typeof fetch;
+  await expect(fetchXsrfToken(O, opaque)).rejects.toMatchObject({ kind: "relogin" });
 });
 
 test("tokenExpiry_decodes_and_rejects_garbage", () => {

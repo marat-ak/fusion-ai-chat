@@ -6,17 +6,30 @@ export function relayUrl(origin: string, pod: string, audience: Audience): strin
   return `${base}?scopesfq=${encodeURIComponent(`urn:opc:resource:fusion:${pod}:${audience}/`)}`;
 }
 
-// The shell's xsrf token, read once per document. The node stays in place: every chat instance on the page (and the
-// shell itself) may need it, so later readers get the value read first.
-const xsrfByDocument = new WeakMap<Document, string>();
+// The anti-CSRF token, fetched once per origin from /fscmRestApi/anticsrf: every chat instance on the page (and any
+// other reader) gets the value fetched first. A failed fetch caches nothing.
+const xsrfByOrigin = new Map<string, string>();
 
-export function readXsrfToken(doc: Document): string {
-  const cached = xsrfByDocument.get(doc);
+export function clearXsrfCache(): void {
+  xsrfByOrigin.clear();
+}
+
+export async function fetchXsrfToken(origin: string, fetchImpl: typeof fetch): Promise<string> {
+  const cached = xsrfByOrigin.get(origin);
   if (cached !== undefined) return cached;
-  const data = doc.getElementById("fndsectkn")?.getAttribute("data");
-  if (!data) throw new AuthError("invalid", undefined, "xsrf-missing");
-  xsrfByDocument.set(doc, data);
-  return data;
+  const res = await fetchImpl(`${origin}/fscmRestApi/anticsrf`, { credentials: "same-origin", cache: "no-cache", redirect: "manual" });
+  if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) throw new AuthError("relogin", res.status || undefined);
+  if (res.status === 401) throw new AuthError("unauthorized", 401);
+  if (!res.ok) throw new AuthError("invalid", res.status, "xsrf-unavailable");
+  let tok: unknown;
+  try {
+    tok = (JSON.parse(await res.text()) as { xsrftoken?: unknown } | null)?.xsrftoken;
+  } catch {
+    throw new AuthError("invalid", res.status, "xsrf-unavailable");
+  }
+  if (typeof tok !== "string" || !tok) throw new AuthError("invalid", res.status, "xsrf-unavailable");
+  xsrfByOrigin.set(origin, tok);
+  return tok;
 }
 
 export function tokenExpiry(jwt: string): { exp: number; iat: number } | null {

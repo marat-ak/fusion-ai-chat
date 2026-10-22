@@ -22,8 +22,8 @@ export function StatePanel(props: { kind: "needs-input" | "invalid"; problems: P
 }
 
 /** Re-login / not-authorized / unavailable state: no retry loop, only an explicit page reload when one can help. */
-export function AuthBanner(props: { state: Exclude<ChatState["authState"], "ok">; reason?: AuthReason }) {
-  const notice = authNotice(props.state, props.reason);
+export function AuthBanner(props: { state: Exclude<ChatState["authState"], "ok">; reason?: AuthReason; status?: number }) {
+  const notice = authNotice(props.state, props.reason, props.status);
   return (
     <div class="gai-auth-banner" data-testid="gai-auth-banner" role="alert">
       <span class="gai-auth-text">{notice.text}</span>

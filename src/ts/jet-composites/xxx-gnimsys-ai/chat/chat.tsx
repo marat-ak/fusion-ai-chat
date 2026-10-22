@@ -33,7 +33,7 @@ type Props = Readonly<{
    * Fired when a reply fails, the session needs a re-login, chat auth is unavailable (`reason`), the agent lookup fails,
    * or a conversation list/history/name/rename/delete call fails.
    */
-  onAiChatError?: Action<{ message: string; status?: number; reason?: "xsrf-missing" | "token-undecodable" | "clock-skew" }>;
+  onAiChatError?: Action<{ message: string; status?: number; reason?: "xsrf-unavailable" | "token-undecodable" | "clock-skew" }>;
 }>;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);

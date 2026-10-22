@@ -14,8 +14,9 @@ Design: `../docs/superpowers/specs/2026-10-21-fusion-ai-chat-design.md`. Develop
 - A Fusion **App UI extension** page (VB Studio extension served from the pod). The component calls
   `/api/fusion-ai`, `/api/boss`, `/fscmRestApi` and `/hcmRestApi` on the **page's own origin**: same-origin
   only, no cross-origin, no proxy.
-- Auth kind `fusionShell` (the only kind in v1.0): the page must carry the Fusion shell's xsrf node
-  `#fndsectkn`; the component gets a bearer per audience from `/fscmRestApi/tokenrelay` and adds it itself.
+- Auth kind `fusionShell` (the only kind in v1.0): the component fetches an anti-CSRF token from
+  `GET /fscmRestApi/anticsrf` (same-origin, session cookie), then gets a bearer per audience from
+  `/fscmRestApi/tokenrelay` and adds it itself. This works on any same-origin Fusion/VB page: no shell node is needed.
 - The pod's AI Studio protocol version pinned in the config (`protocol.checkVersion`, `2607100` when built).
   Oracle's API is undocumented and drifts per release: re-test on every pod upgrade.
 
@@ -68,7 +69,7 @@ value shows an **invalid** panel. Nothing is fetched until the config passes. `{
 | `rest-helper`, `endpoint` | object / object or string | accepted for the future `vb` auth kind, unused in v1.0 |
 
 Events: `ai-chat-conversation-changed` (`detail.conversationId`), `ai-chat-error` (`detail.message`,
-`detail.status?`, `detail.reason?` = `xsrf-missing` | `token-undecodable` | `clock-skew` when chat auth is
+`detail.status?`, `detail.reason?` = `xsrf-unavailable` | `token-undecodable` | `clock-skew` when chat auth is
 unavailable). Methods: `newConversation()`, `send(text)`, `openConversation(id)`; they throw while
 the component shows a needs-input/invalid panel. `ai-chat-submit` and `ai-chat-action` arrive with the
 widgets in v1.1.
@@ -158,14 +159,13 @@ extension is not yet proven on a pod: the dev1 spike confirms it.
   `wsl -d CloudBeaver -u root -e bash -lc 'bash /mnt/c/Marat/OSaaS/ClaudeShared/oservices/fusion-ai-chat/scripts/e2e.sh npm run e2e'`.
   It starts the **mock pod** (`tests/mock-pod/server.mjs`, port 8787: token relay, `/chat` SSE, BOSS
   conversations, messages, attachments) and `MOCK_POD=1 npm run serve`, which proxies the page's
-  `/api`, `/fscmRestApi`, `/hcmRestApi` calls to the mock. The host page (`src/index.html`) carries a
-  mocked shell node `<div id="fndsectkn" data="test-xsrf">`, so the real `fusionShell` path runs offline.
+  `/api`, `/fscmRestApi`, `/hcmRestApi` calls to the mock. The mock answers `GET /fscmRestApi/anticsrf` with `test-xsrf`, so the real `fusionShell` path runs offline.
 
 ## Known limits (v1.0)
 
 - Same-origin only: works in a Fusion App UI extension, not in a standalone VB app on another origin.
 - Auth kind `fusionShell` only; `vb` (service connections through `rest-helper`/`endpoint`) waits for the
-  dev1 spike. `#fndsectkn` on a Redwood App UI extension page is also proven there.
+  dev1 spike. The anti-CSRF token comes from `/fscmRestApi/anticsrf` (a VB App UI extension page has no shell node).
 - Conversation history (`conversations/v1/{id}/messages`) answered HTTP 500 on dev1: opening an older
   conversation then shows "History unavailable (HTTP n): <error text>" at the top of the feed and the user
   can continue it.

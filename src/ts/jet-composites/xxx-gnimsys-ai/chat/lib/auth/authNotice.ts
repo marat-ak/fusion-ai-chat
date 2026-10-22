@@ -1,7 +1,7 @@
 import type { AuthReason } from "./AuthFetch";
 
 /** The auth banner for a failed auth state: its text, and whether a page reload can help. */
-export function authNotice(state: "relogin" | "unauthorized" | "unavailable", reason?: AuthReason): { text: string; reload: boolean } {
+export function authNotice(state: "relogin" | "unauthorized" | "unavailable", reason?: AuthReason, status?: number): { text: string; reload: boolean } {
   switch (state) {
     case "relogin":
       return { text: "Session expired. Reload the page to sign in again.", reload: true };
@@ -9,9 +9,8 @@ export function authNotice(state: "relogin" | "unauthorized" | "unavailable", re
       return { text: "Not authorized to use this agent.", reload: true };
     case "unavailable":
       switch (reason) {
-        // The page has no shell node: a reload brings back the same page.
-        case "xsrf-missing":
-          return { text: "Chat auth unavailable on this page: #fndsectkn not found", reload: false };
+        case "xsrf-unavailable":
+          return { text: `Chat auth unavailable: anti-CSRF token request failed (HTTP ${status ?? "?"})`, reload: true };
         case "token-undecodable":
           return { text: "Chat auth unavailable: token could not be read", reload: true };
         case "clock-skew":
