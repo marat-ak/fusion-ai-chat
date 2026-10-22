@@ -4,6 +4,7 @@
 //   node tests/mock-pod/server.mjs        (PORT env, default 8787; binds 0.0.0.0)
 // Test controls (open; /__mock/* is never logged):
 //   GET/DELETE /__mock/requests         -> read / clear the request log
+//   POST /__mock/reset                  -> reload the fixture conversation rows and clear the armed one-shots (log kept)
 //   GET /__mock/arm?workflows=<status>  -> the next BOSS workflows query answers <status> (4xx/5xx) once
 //   GET /fscmRestApi/tokenrelay?$mock=expired -> the next relay answers login HTML once (this call is logged)
 import http from "node:http";
@@ -88,6 +89,15 @@ const routes = [
   {
     method: "DELETE", path: /^\/__mock\/requests$/, open: true,
     handle: ({ res }) => { state.requests = []; json(res, 204); },
+  },
+  {
+    method: "POST", path: /^\/__mock\/reset$/, open: true,
+    handle: ({ res }) => {
+      state.conversations = JSON.parse(fixture("conversations.json"));
+      state.relayExpiredNext = false;
+      state.workflowsStatusNext = null;
+      return json(res, 204);
+    },
   },
   {
     method: "GET", path: /^\/__mock\/arm$/, open: true,

@@ -7,6 +7,7 @@ import type { MarkdownRenderer } from "./Bubble";
 import { Composer } from "./Composer";
 import { Feed } from "./Feed";
 import { FollowUps } from "./FollowUps";
+import { Sidebar } from "./Sidebar";
 import { Starters, StartersUnavailable } from "./Starters";
 import { AuthBanner } from "./StatePanel";
 import { useChatController } from "./useChatController";
@@ -17,12 +18,12 @@ export type ChatHandle = {
   /** Starts a new, empty conversation with a newly minted conversation id. */
   newConversation: () => void;
   /**
-   * Sends a user message in the current conversation; ignored while a reply is streaming.
+   * Sends a user message in the current conversation; ignored while a reply is streaming or the history is loading.
    * @param text the message text
    */
   send: (text: string) => void;
   /**
-   * Switches the chat to an existing conversation.
+   * Switches the chat to an existing conversation and loads its history.
    * @param id the conversation id
    */
   openConversation: (id: string) => void;
@@ -103,21 +104,29 @@ export function ChatShell(props: ChatShellProps) {
   const starters = config.ui.starterQuestions === "fromWorkflow" ? workflowInfo?.starterQuestions ?? [] : config.ui.starterQuestions;
   const busy = state.status === "sending" || state.status === "streaming";
   const authOk = state.authState === "ok";
-  const canSend = authOk && !busy;
+  // The loaded history replaces the turns, so nothing is sent until it has arrived (or failed).
+  const historyLoading = state.historyStatus === "loading";
+  const canSend = authOk && !busy && !historyLoading;
 
   return (
     <div class="gai-shell">
-      {title !== undefined && <div class="gai-header">{title}</div>}
-      {state.authState !== "ok" && <AuthBanner state={state.authState} />}
-      <Feed turns={state.turns} busy={busy && authOk} renderer={renderer}
-        {...(state.progressText !== undefined && { progressText: state.progressText })}>
-        {state.turns.length === 0 && (ctl.workflowError
-          ? <StartersUnavailable error={ctl.workflowError} />
-          : <Starters questions={starters} disabled={!canSend} onPick={ctl.sendStarter} />)}
-        {!busy && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
-      </Feed>
-      <Composer disabled={!canSend} onSend={ctl.send}
-        {...(config.ui.placeholder !== undefined && { placeholder: config.ui.placeholder })} />
+      {config.ui.conversations && (
+        <Sidebar list={ctl.conversations} activeId={state.conversationId} onOpen={ctl.openConversation} onNew={ctl.newConversation} />
+      )}
+      <div class="gai-main">
+        {title !== undefined && <div class="gai-header">{title}</div>}
+        {state.authState !== "ok" && <AuthBanner state={state.authState} />}
+        <Feed turns={state.turns} busy={busy && authOk} renderer={renderer} historyStatus={state.historyStatus}
+          {...(state.historyError !== undefined && { historyError: state.historyError })}
+          {...(state.progressText !== undefined && { progressText: state.progressText })}>
+          {state.turns.length === 0 && !historyLoading && (ctl.workflowError
+            ? <StartersUnavailable error={ctl.workflowError} />
+            : <Starters questions={starters} disabled={!canSend} onPick={ctl.sendStarter} />)}
+          {!busy && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
+        </Feed>
+        <Composer disabled={!canSend} onSend={ctl.send}
+          {...(config.ui.placeholder !== undefined && { placeholder: config.ui.placeholder })} />
+      </div>
     </div>
   );
 }

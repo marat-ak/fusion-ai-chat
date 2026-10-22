@@ -29,7 +29,7 @@ type Props = Readonly<{
   onConversationIdChanged?: PropertyChanged<string>;
   /** Fired when the chat switches to another conversation (new or opened). */
   onAiChatConversationChanged?: Action<{ conversationId: string }>;
-  /** Fired when a reply fails, the session needs a re-login, or the agent lookup fails. */
+  /** Fired when a reply fails, the session needs a re-login, the agent lookup fails, or a conversation list/history/name/rename/delete call fails. */
   onAiChatError?: Action<{ message: string; status?: number }>;
 }>;
 

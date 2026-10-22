@@ -23,14 +23,22 @@ xxx-gnimsys-ai-chat[hidden] {
 
 /* ---- shell ---------------------------------------------------------------------------------- */
 
+/* Two columns: the optional conversation sidebar and the chat itself. */
 .gai-shell {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100%;
   min-height: 24rem;
   border: 1px solid var(--oj-core-divider-color);
   border-radius: var(--oj-core-border-radius-lg);
   overflow: hidden;
+}
+
+.gai-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .gai-header {
@@ -144,6 +152,21 @@ xxx-gnimsys-ai-chat[hidden] {
 @keyframes gai-blink {
   0%, 80%, 100% { opacity: 0.2; }
   40% { opacity: 1; }
+}
+
+/* History of an opened conversation: loading / unavailable, at the end of the feed (above the composer). */
+.gai-history-notice {
+  align-self: center;
+  color: var(--oj-core-text-color-secondary);
+  font-size: 0.8125rem;
+}
+
+.gai-history-notice--unavailable {
+  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-3x);
+  border: 1px solid var(--oj-core-warning-3);
+  border-radius: var(--oj-core-border-radius-md);
+  background: var(--oj-core-warning-secondary-1);
+  color: var(--oj-core-text-color-primary);
 }
 
 /* ---- chips (starters, follow-ups) ----------------------------------------------------------- */
@@ -268,4 +291,174 @@ xxx-gnimsys-ai-chat[hidden] {
   background: var(--oj-core-danger-secondary-1);
   color: var(--oj-core-text-color-danger);
   border-bottom: 1px solid var(--oj-core-danger-3);
+}
+
+/* ---- conversation sidebar ------------------------------------------------------------------- */
+
+.gai-sidebar {
+  flex: 0 0 260px;
+  width: 260px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--oj-core-divider-color);
+  background: var(--oj-core-bg-color-content);
+}
+
+.gai-sidebar--collapsed {
+  flex-basis: auto;
+  width: auto;
+}
+
+.gai-sidebar-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--oj-core-spacing-2x);
+  padding: var(--oj-core-spacing-2x);
+  border-bottom: 1px solid var(--oj-core-divider-color);
+}
+
+.gai-sidebar--collapsed .gai-sidebar-bar {
+  border-bottom: 0;
+}
+
+.gai-sidebar-toggle {
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-2x);
+  border: 1px solid transparent;
+  border-radius: var(--oj-core-border-radius-md);
+  background: transparent;
+  color: var(--oj-core-text-color-secondary);
+  cursor: pointer;
+}
+
+.gai-sidebar-toggle:hover {
+  background: var(--oj-core-bg-color-hover);
+}
+
+.gai-conv-new {
+  margin-left: auto;
+}
+
+.gai-sidebar-bar .gai-button {
+  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-3x);
+}
+
+.gai-conv-notice {
+  padding: var(--oj-core-spacing-2x) var(--oj-core-spacing-3x);
+  color: var(--oj-core-text-color-secondary);
+  font-size: 0.8125rem;
+}
+
+.gai-conv-notice--error {
+  color: var(--oj-core-text-color-danger);
+}
+
+.gai-conv-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--oj-core-spacing-1x) 0;
+  list-style: none;
+}
+
+.gai-conv-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--oj-core-spacing-2x) var(--oj-core-spacing-3x);
+  cursor: pointer;
+}
+
+.gai-conv-row:hover {
+  background: var(--oj-core-bg-color-hover);
+}
+
+.gai-conv-row--active,
+.gai-conv-row--active:hover {
+  background: var(--oj-core-bg-color-selected);
+}
+
+.gai-conv-open {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gai-conv-open:focus-visible {
+  outline: 2px solid var(--oj-core-focus-border-color);
+  outline-offset: 1px;
+}
+
+.gai-conv-name {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gai-conv-row--active .gai-conv-name {
+  font-weight: 600;
+}
+
+.gai-conv-rename-input {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: var(--oj-core-bg-color-content);
+  border: 1px solid var(--oj-core-divider-color);
+  border-radius: var(--oj-core-border-radius-sm);
+  padding: 0 var(--oj-core-spacing-1x);
+}
+
+.gai-conv-rename-input:focus {
+  outline: 2px solid var(--oj-core-focus-border-color);
+  outline-offset: -1px;
+}
+
+.gai-conv-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--oj-core-spacing-2x);
+  font-size: 0.75rem;
+  color: var(--oj-core-text-color-secondary);
+}
+
+.gai-conv-actions {
+  display: flex;
+  gap: var(--oj-core-spacing-1x);
+  margin-left: auto;
+}
+
+.gai-conv-action {
+  font: inherit;
+  padding: 0 var(--oj-core-spacing-1x);
+  border: 0;
+  border-radius: var(--oj-core-border-radius-sm);
+  background: transparent;
+  color: var(--oj-core-text-color-brand);
+  cursor: pointer;
+}
+
+.gai-conv-action:hover {
+  background: var(--oj-core-bg-color-active);
+}
+
+.gai-conv-action--armed {
+  color: var(--oj-core-text-color-danger);
+  font-weight: 600;
+}
+
+.gai-conv-more {
+  margin: var(--oj-core-spacing-2x) var(--oj-core-spacing-3x);
 }

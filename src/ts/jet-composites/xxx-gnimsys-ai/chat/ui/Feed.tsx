@@ -1,6 +1,6 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
-import type { Turn } from "../lib/state/conversation";
+import type { ChatState, Turn } from "../lib/state/conversation";
 import { Bubble } from "./Bubble";
 import type { MarkdownRenderer } from "./Bubble";
 
@@ -10,6 +10,10 @@ export function Feed(props: {
   busy: boolean;
   progressText?: string;
   renderer: MarkdownRenderer | null;
+  /** History of an opened conversation: loading / unavailable show a notice at the end of the feed, above the composer. */
+  historyStatus: ChatState["historyStatus"];
+  /** HTTP status of the failed history load (0 when the request did not get an HTTP answer). */
+  historyError?: number;
   children?: ComponentChildren;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -31,6 +35,14 @@ export function Feed(props: {
         </div>
       )}
       {props.children}
+      {props.historyStatus === "loading" && (
+        <div class="gai-history-notice" data-testid="gai-history-loading" role="status">{"Loading history…"}</div>
+      )}
+      {props.historyStatus === "unavailable" && (
+        <div class="gai-history-notice gai-history-notice--unavailable" data-testid="gai-history-unavailable" role="status">
+          History unavailable{props.historyError ? ` (HTTP ${props.historyError})` : ""}
+        </div>
+      )}
     </div>
   );
 }

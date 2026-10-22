@@ -130,18 +130,20 @@ test("relogin_banner_on_html_relay", async ({ page }) => {
 });
 
 test("invalid_xsrf_shows_relogin_banner", async ({ page }) => {
-  // Explicit starters: no workflow lookup at mount, so the send is the first call that needs the shell's xsrf node.
+  // Explicit starters and no sidebar: no workflow lookup or conversation list at mount, so the send is the first call
+  // that needs the shell's xsrf node.
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
       agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100" },
-      ui: { starterQuestions: ["Show my invoices"] },
+      ui: { starterQuestions: ["Show my invoices"], conversations: false },
     };
     document.addEventListener("DOMContentLoaded", () => document.getElementById("fndsectkn")?.remove());
   });
   await page.goto("/");
   await expect(page.getByTestId("gai-starter")).toHaveText(["Show my invoices"]);
+  await expect(page.getByTestId("gai-sidebar")).toHaveCount(0);
 
   await sendText(page, "hello");
   await expect(page.getByTestId("gai-auth-banner")).toContainText("Session expired");
