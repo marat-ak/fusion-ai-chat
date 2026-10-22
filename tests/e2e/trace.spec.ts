@@ -11,9 +11,9 @@ const TRACE_CONFIG = {
 
 async function setup(page: Page, opts: { config?: object; roles?: string[] }): Promise<void> {
   await page.addInitScript((o) => {
-    const w = window as unknown as { __CHAT_CONFIG__?: object; __CHAT_USER_ROLES__?: string[] };
+    const w = window as unknown as { __CHAT_CONFIG__?: object; __CHAT_USER__?: object };
     if (o.config) w.__CHAT_CONFIG__ = o.config;
-    if (o.roles) w.__CHAT_USER_ROLES__ = o.roles;
+    if (o.roles) w.__CHAT_USER__ = { userName: "test.user@example.com", roles: o.roles };
   }, opts);
   await page.goto("/");
 }

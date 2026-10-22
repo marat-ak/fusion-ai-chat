@@ -58,7 +58,7 @@ export interface ChatShellProps {
   userName: string;
   personId?: string;
   /** Roles of the signed-in user; with `config.ui.trace` they decide whether the trace panel shows. */
-  userRoles?: string[];
+  userRoles: string[];
   context?: Record<string, unknown>;
   /** The element's `conversation-id` property (in/out). */
   conversationId?: string;

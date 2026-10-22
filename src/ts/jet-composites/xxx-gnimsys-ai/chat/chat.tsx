@@ -4,8 +4,7 @@ import { forwardRef } from "preact/compat";
 import { useCallback, useImperativeHandle, useMemo, useRef } from "preact/hooks";
 import componentStrings = require("ojL10n!./resources/nls/chat-strings");
 import "css!xxx-gnimsys-ai/chat/chat-styles.css";
-import { parseConfigProp, validateConfig } from "./lib/config/validate";
-import type { Problem, ValidateResult } from "./lib/config/types";
+import { checkInputs } from "./lib/config/checkInputs";
 import { ChatShell } from "./ui/ChatShell";
 import type { ChatHandle } from "./ui/ChatShell";
 import { StatePanel } from "./ui/StatePanel";
@@ -14,12 +13,10 @@ import type { ChatErrorDetail } from "./ui/useChatController";
 type Props = Readonly<{
   /** Agent configuration (config-v1 schema), as an object or a JSON string. Required. */
   config?: object | string;
-  /** Fusion user name: the owner filter for the user's conversations. Required. */
-  userName?: string;
+  /** The VB application user object (`$application.user`); the component reads `userName` and `roles`. `userName` is required: it is the owner filter for the user's conversations. With `config.ui.trace` set, a user holding one of its `roles` sees the agent's node trace under each reply. */
+  user?: { userName?: string; roles?: string[]; [k: string]: unknown };
   /** Oracle PersonId of the user. Required when config.files.enabled is true. */
   personId?: string;
-  /** Roles of the signed-in user (VB: `[[ $application.user.roles ]]`). With `config.ui.trace` set, a user holding one of its roles sees the agent's node trace under each reply; without roles the trace stays hidden. */
-  userRoles?: string[];
   /** Page values substituted into {{key}} placeholders of config.agent.additionalContext. */
   context?: Record<string, unknown>;
   /** Id of the current conversation (in/out). Setting it switches the chat to that conversation. */
@@ -38,21 +35,6 @@ type Props = Readonly<{
   onAiChatError?: Action<{ message: string; status?: number; reason?: "xsrf-unavailable" | "token-undecodable" | "clock-skew" }>;
 }>;
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-
-/** Config validation plus the required element properties; nothing is fetched until this passes. */
-function checkInputs(configProp: Props["config"], userName: string | undefined, personId: string | undefined): ValidateResult {
-  const parsed = parseConfigProp(configProp);
-  const result = validateConfig(parsed);
-  const missing: Problem[] = [];
-  if (!userName) missing.push({ path: "user-name", message: "required" });
-  const files = isObj(parsed) ? parsed.files : undefined;
-  if (isObj(files) && files.enabled === true && !personId) missing.push({ path: "person-id", message: "required when files.enabled" });
-  if (missing.length === 0) return result;
-  if (result.ok) return { ok: false, kind: "needs-input", problems: missing };
-  return { ...result, problems: [...result.problems, ...missing] };
-}
-
 /**
  * @ojmetadata pack "xxx-gnimsys-ai"
  * @ojmetadata version "0.1.0"
@@ -60,8 +42,8 @@ function checkInputs(configProp: Props["config"], userName: string | undefined, 
  * @ojmetadata description "Chat with an Oracle AI Agent Studio agent"
  */
 function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
-  const { config, userName, personId } = props;
-  const check = useMemo(() => checkInputs(config, userName, personId), [config, userName, personId]);
+  const { config, user, personId } = props;
+  const check = useMemo(() => checkInputs(config, user, personId), [config, user, personId]);
 
   // Methods delegate to the mounted shell; with a needs-input/invalid config there is none and they throw.
   const shell = useRef<ChatHandle | null>(null);
@@ -90,9 +72,9 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
           // Another agent is another chat: remount so no turns or conversation id carry over to it.
           key={`${check.config.agent.pod}/${check.config.agent.workflowCode}`}
           config={check.config}
-          userName={userName as string /* checkInputs: non-empty */}
+          userName={(user as { userName: string } /* checkInputs: userName non-empty */).userName}
           {...(personId !== undefined && { personId })}
-          {...(props.userRoles !== undefined && { userRoles: props.userRoles })}
+          userRoles={user?.roles ?? []}
           {...(props.context !== undefined && { context: props.context })}
           {...(props.conversationId !== undefined && { conversationId: props.conversationId })}
           handleRef={shell}

@@ -112,6 +112,18 @@ test("needs_input_makes_no_requests", async ({ page }) => {
   expect(await mockRequests(page)).toEqual([]);
 });
 
+test("needs_input_lists_user_userName_when_user_missing", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_USER__: object }).__CHAT_USER__ = {};
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("gai-state-panel")).toContainText("user.userName");
+  await expect(page.getByTestId("gai-composer-input")).toHaveCount(0);
+
+  await page.waitForLoadState("networkidle");
+  expect(await mockRequests(page)).toEqual([]);
+});
+
 test("relogin_banner_on_html_relay", async ({ page }) => {
   await page.goto("/");
   // The starters fetch has minted the BOSS token; the fusion-ai audience has no cached token on this fresh page,

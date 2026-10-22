@@ -50,7 +50,7 @@ Required inputs (never defaulted):
 | `auth.kind` | config | `"fusionShell"` |
 | `protocol.checkVersion` | config | AI Studio `X-Ora-Ai-Api-V2-*` check version |
 | `protocol.hcmRestBase` | config | only when `files.enabled`: the `hcmRestApi` base for `hcmAiStudioConversations` |
-| `user-name` | element attribute | owner filter of the user's conversation list |
+| `user.userName` | element property `user` | owner filter of the user's conversation list |
 | `person-id` | element attribute | only when `files.enabled`: Oracle `PersonId` (dev1 rows show `"-1"`) |
 
 A missing required input shows a **needs-input** panel listing what is missing; an unknown key or a wrong
@@ -62,9 +62,8 @@ value shows an **invalid** panel. Nothing is fetched until the config passes. `{
 | Property (attribute) | Type | |
 |---|---|---|
 | `config` | object or JSON string | required |
-| `user-name` | string | required |
+| `user` | object (`$application.user`) | required: `userName` (string, owner filter of the conversation list); `roles` (string[], optional) used by `ui.trace` |
 | `person-id` | string | required when `files.enabled` |
-| `user-roles` | string[] | roles of the signed-in user; with `ui.trace` they open the trace panel (see below) |
 | `context` | object | values for `{{key}}` in `agent.additionalContext` |
 | `conversation-id` | string, writeback | current conversation; setting it opens that conversation |
 | `rest-helper`, `endpoint` | object / object or string | accepted for the future `vb` auth kind, unused in v1.0 |
@@ -72,11 +71,11 @@ value shows an **invalid** panel. Nothing is fetched until the config passes. `{
 ### Role-gated trace panel
 
 `ui.trace: { "roles": ["AGENT_DEBUG"] }` (optional; absent = trace off for everyone; `roles` is a required
-non-empty string array when present). A user whose `user-roles` contain at least one of those roles (exact,
+non-empty string array when present). A user whose `user.roles` contain at least one of those roles (exact,
 case-sensitive match) sees, under each assistant reply, a `Trace (N)` toggle that expands to the agent's node
 progress frames (`NODE_START CHAT_LLM (LLM) — Processing chat input…`) and the `traceId`. The panel grows live
-while the reply streams. Without `user-roles` (or without a match) nothing is rendered. Roles come from the page:
-in VB bind `user-roles="[[ $application.user.roles ]]"`.
+while the reply streams. Without `user.roles` (or without a match) nothing is rendered. Roles come from the page:
+in VB bind `user="[[ $application.user ]]"`.
 
 Events: `ai-chat-conversation-changed` (`detail.conversationId`), `ai-chat-error` (`detail.message`,
 `detail.status?`, `detail.reason?` = `xsrf-unavailable` | `token-undecodable` | `clock-skew` when chat auth is
@@ -126,8 +125,7 @@ code is loaded from your local `ojet serve`.
 
    ```html
    <xxx-gnimsys-ai-chat config="[[ $page.variables.chatConfig ]]"
-                        user-name="[[ $application.user.username ]]"
-                        user-roles="[[ $application.user.roles ]]"
+                        user="[[ $application.user ]]"
                         person-id="-1"></xxx-gnimsys-ai-chat>
    ```
 
