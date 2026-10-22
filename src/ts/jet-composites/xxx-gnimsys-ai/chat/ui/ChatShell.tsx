@@ -124,14 +124,14 @@ export function ChatShell(props: ChatShellProps) {
   const wait = state.status === "waiting" ? state.wait : undefined;
 
   return (
-    <div class="gai-shell">
+    <div class="gai-shell oj-panel oj-sm-padding-0 oj-flex oj-sm-flex-wrap-nowrap">
       {config.ui.conversations && (
         <Sidebar list={ctl.conversations} activeId={state.conversationId} onOpen={ctl.openConversation} onNew={ctl.newConversation} />
       )}
-      <div class="gai-main">
-        {title !== undefined && <div class="gai-header">{title}</div>}
+      <div class="gai-shrink oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-flex-1">
+        {title !== undefined && <div class="oj-typography-subheading-xs oj-sm-padding-3x-vertical oj-sm-padding-4x-horizontal oj-border-bottom">{title}</div>}
         {state.authState !== "ok" && (
-          <AuthBanner state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })} />
+          <AuthBanner class="oj-sm-margin-2x" state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })} />
         )}
         <Feed turns={state.turns} showTrace={traceGateOpen(config.ui.trace, props.userRoles)} busy={busy && authOk} renderer={renderer} historyStatus={state.historyStatus}
           {...(state.historyError !== undefined && { historyError: state.historyError })}

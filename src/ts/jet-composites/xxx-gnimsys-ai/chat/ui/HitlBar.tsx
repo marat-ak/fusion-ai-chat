@@ -1,5 +1,8 @@
+import "oj-c/button";
+import "oj-c/toggle-button";
 import { useEffect, useState } from "preact/hooks";
 import type { WaitInfo } from "../lib/state/conversation";
+import { MessageArea } from "./MessageArea";
 import type { ResumeAction, ResumeOptions } from "./useChatController";
 
 /** Seconds before a WAIT node's Refresh is offered: the node's wait time plus a 15 s margin. */
@@ -34,27 +37,15 @@ function ReplyText(props: {
     props.onSend(text.trim());
   };
   return (
-    <form class="gai-hitl-reply" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-      <textarea
-        class="gai-hitl-input"
-        data-testid={props.testId}
-        rows={2}
-        aria-label={props.label}
-        value={text}
-        disabled={props.disabled}
+    <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-flex-end">
+      <MessageArea testId={props.testId} label={props.label} value={text} disabled={props.disabled}
         {...(props.placeholder !== undefined && { placeholder: props.placeholder })}
-        onInput={(e) => setText((e.currentTarget as HTMLTextAreaElement).value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-      />
-      <button type="submit" class="gai-button gai-button--primary" data-testid={props.sendTestId} disabled={props.disabled || empty}>
-        Send
-      </button>
-    </form>
+        onInput={setText} onEnter={submit} />
+      <oj-c-button class="oj-sm-margin-2x-start" data-testid={props.sendTestId} chroming="callToAction" label="Send"
+        disabled={props.disabled || empty} onojAction={submit}>
+        <span slot="startIcon" class="oj-ux-ico-send" />
+      </oj-c-button>
+    </div>
   );
 }
 
@@ -77,31 +68,29 @@ export function HitlBar(props: {
   const [changing, setChanging] = useState(false);
 
   return (
-    <div class="gai-hitl" data-testid="gai-hitl" role="group" aria-label="Your response">
+    <div class="oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-padding-3x-vertical oj-sm-padding-4x-horizontal oj-border-top"
+      data-testid="gai-hitl" role="group" aria-label="Your response">
       {timed && (left > 0 ? (
-        <div class="gai-hitl-countdown" data-testid="gai-hitl-countdown" role="timer" aria-live="off">{mmss(left)}</div>
+        <div class="oj-typography-body-md oj-text-color-secondary oj-helper-tabular-nums oj-sm-margin-2x-bottom" data-testid="gai-hitl-countdown"
+          role="timer" aria-live="off">{mmss(left)}</div>
       ) : (
-        <button type="button" class="gai-button gai-button--primary" data-testid="gai-hitl-refresh" disabled={disabled}
-          onClick={() => onResume("RFI_ACTION", undefined, { statusCheckOnly: true })}>
-          Refresh
-        </button>
+        <div class="oj-sm-margin-2x-bottom">
+          <oj-c-button data-testid="gai-hitl-refresh" chroming="callToAction" label="Refresh" disabled={disabled}
+            onojAction={() => onResume("RFI_ACTION", undefined, { statusCheckOnly: true })}>
+            <span slot="startIcon" class="oj-ux-ico-refresh" />
+          </oj-c-button>
+        </div>
       ))}
       {wait.approval && (
-        <div class="gai-hitl-actions">
-          <button type="button" class="gai-button gai-button--primary" data-testid="gai-hitl-approve" disabled={inputsDisabled}
-            onClick={() => onResume("APPROVE_ACTION")}>
-            Approve
-          </button>
+        <div class="oj-flex oj-sm-margin-2x-bottom">
+          <oj-c-button class="oj-sm-margin-2x-end" data-testid="gai-hitl-approve" chroming="callToAction" label="Approve"
+            disabled={inputsDisabled} onojAction={() => onResume("APPROVE_ACTION")} />
           {wait.feedback ? (
-            <button type="button" class="gai-button" data-testid="gai-hitl-request-change" disabled={inputsDisabled}
-              aria-expanded={changing} onClick={() => setChanging((c) => !c)}>
-              Request change
-            </button>
+            <oj-c-toggle-button data-testid="gai-hitl-request-change" label="Request change" value={changing}
+              disabled={inputsDisabled} onvalueChanged={(e) => setChanging(e.detail.value === true)} />
           ) : (
-            <button type="button" class="gai-button" data-testid="gai-hitl-reject" disabled={inputsDisabled}
-              onClick={() => onResume("REJECT_ACTION")}>
-              Reject
-            </button>
+            <oj-c-button data-testid="gai-hitl-reject" chroming="outlined" label="Reject" disabled={inputsDisabled}
+              onojAction={() => onResume("REJECT_ACTION")} />
           )}
         </div>
       )}

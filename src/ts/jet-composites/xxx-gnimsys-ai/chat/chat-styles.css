@@ -1,117 +1,80 @@
-/* xxx-gnimsys-ai-chat — plain CSS on Redwood core tokens. Every class is prefixed `gai-`. */
+/* xxx-gnimsys-ai-chat: layout, typography, colour and controls come from Redwood utility classes and Core Pack (oj-c)
+   components. Only what neither expresses stays here; each rule says why. No colours. Classes are prefixed `gai-`. */
 
+/* JET custom-element convention: hide the element until it has rendered (no utility class can target the tag). */
 xxx-gnimsys-ai-chat:not(.oj-complete) {
   visibility: hidden;
 }
 
-/* A definite default height (the page can set its own): the chat fills it and the feed scrolls inside. */
+/* Host sizing: a definite default height the page can override, so the feed scrolls inside (no height utility). */
 xxx-gnimsys-ai-chat {
   display: block;
   height: 560px;
 }
 
+/* `display: block` above would otherwise override the `hidden` attribute. */
 xxx-gnimsys-ai-chat[hidden] {
   display: none;
 }
 
-.gai-chat {
-  height: 100%;
-  color: var(--oj-core-text-color-primary);
-  background: var(--oj-core-bg-color-content);
-  font-size: 0.875rem;
-  line-height: 1.4;
-}
-
-/* ---- shell ---------------------------------------------------------------------------------- */
-
-/* Two columns: the optional conversation sidebar and the chat itself. */
+/* The chat fills the host's height (Redwood has no height utility). */
+.gai-chat,
 .gai-shell {
-  display: flex;
-  flex-direction: row;
   height: 100%;
-  min-height: 0;
-  box-sizing: border-box;
-  border: 1px solid var(--oj-core-divider-color);
-  border-radius: var(--oj-core-border-radius-lg);
-  overflow: hidden;
 }
 
-.gai-main {
-  flex: 1 1 auto;
+/* Flex items do not shrink below their content by default; these must, so long content wraps or scrolls (no utility). */
+.gai-shrink,
+.gai-truncate {
   min-width: 0;
+}
+
+/* The feed and the conversation list scroll inside their column (Redwood has no min-height or overflow utility). */
+.gai-feed,
+.gai-conv-list {
   min-height: 0;
-  display: flex;
-  flex-direction: column;
 }
-
-.gai-header {
-  padding: var(--oj-core-spacing-3x) var(--oj-core-spacing-4x);
-  border-bottom: 1px solid var(--oj-core-divider-color);
-  font-weight: 600;
-  font-size: 1rem;
-}
-
-/* ---- feed ----------------------------------------------------------------------------------- */
 
 .gai-feed {
-  flex: 1 1 auto;
-  min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--oj-core-spacing-2x);
-  padding: var(--oj-core-spacing-4x);
 }
 
+/* Feed items keep their content height (a panel's overflow:hidden would let it shrink) so the feed scrolls instead
+   (Redwood has no flex-shrink utility). */
+.gai-feed > * {
+  flex-shrink: 0;
+}
+
+/* Fixed sidebar width (no px-width utility); collapsed it shrinks to its toggle via oj-sm-flex-initial. */
+.gai-sidebar {
+  flex: 0 0 260px;
+}
+
+/* Starters (or their unavailable notice) sit at the bottom of an empty feed (Redwood has no top-auto margin helper). */
+.gai-push-down {
+  margin-top: auto;
+}
+
+/* Bubbles keep a gap to the opposite side (no max-width utility). */
 .gai-bubble {
   max-width: 80%;
-  padding: var(--oj-core-spacing-2x) var(--oj-core-spacing-3x);
-  border-radius: var(--oj-core-border-radius-lg);
-  overflow-wrap: anywhere;
 }
 
-.gai-bubble--user {
-  align-self: flex-end;
-  white-space: pre-wrap;
-  background: var(--oj-core-bg-color-selected);
+/* One-line names end in an ellipsis (Redwood 18 has no text-truncation utility). */
+.gai-truncate {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.gai-bubble--assistant {
-  align-self: flex-start;
-  background: var(--oj-core-neutral-secondary-2);
-}
+/* ---- reply markdown: sanitized HTML has no classes of ours, so its elements are styled by selector -------------- */
 
-.gai-bubble--plain {
-  white-space: pre-wrap;
-}
-
-.gai-bubble--error {
-  white-space: pre-wrap;
-  background: var(--oj-core-danger-secondary-1);
-  color: var(--oj-core-text-color-danger);
-  border: 1px solid var(--oj-core-danger-3);
-}
-
-.gai-bubble-text + .gai-error-message {
-  margin-top: var(--oj-core-spacing-1x);
-  font-weight: 600;
-}
-
-.gai-error-meta {
-  margin-top: var(--oj-core-spacing-1x);
-  font-size: 0.75rem;
-  color: var(--oj-core-text-color-secondary);
-}
-
-/* Reply HTML stays inside its bubble: nothing it contains paints outside it, and images fit. */
+/* Nothing in a reply paints outside its bubble (defence in depth for the sanitized HTML). */
 .gai-md {
   contain: paint;
 }
 
-.gai-md img {
-  max-width: 100%;
-}
-
+/* The bubble's padding is the only outer spacing of the reply. */
 .gai-md > :first-child {
   margin-top: 0;
 }
@@ -120,6 +83,12 @@ xxx-gnimsys-ai-chat[hidden] {
   margin-bottom: 0;
 }
 
+/* Images fit the bubble. */
+.gai-md img {
+  max-width: 100%;
+}
+
+/* Code blocks scroll instead of widening the bubble. */
 .gai-md pre {
   overflow-x: auto;
   padding: var(--oj-core-spacing-2x);
@@ -127,6 +96,7 @@ xxx-gnimsys-ai-chat[hidden] {
   background: var(--oj-core-bg-color-content);
 }
 
+/* Tables get cell borders and padding. */
 .gai-md table {
   border-collapse: collapse;
 }
@@ -135,502 +105,4 @@ xxx-gnimsys-ai-chat[hidden] {
 .gai-md td {
   padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-2x);
   border: 1px solid var(--oj-core-divider-color);
-}
-
-.gai-progress {
-  align-self: flex-start;
-  color: var(--oj-core-text-color-secondary);
-  font-size: 0.8125rem;
-  padding: 0 var(--oj-core-spacing-1x);
-}
-
-.gai-typing {
-  display: inline-flex;
-  gap: 4px;
-}
-
-.gai-typing > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.4;
-  animation: gai-blink 1.2s infinite ease-in-out;
-}
-
-.gai-typing > span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.gai-typing > span:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes gai-blink {
-  0%, 80%, 100% { opacity: 0.2; }
-  40% { opacity: 1; }
-}
-
-/* History of an opened conversation: unavailable at the top of the feed, loading at its end (above the composer). */
-.gai-history-notice {
-  align-self: center;
-  color: var(--oj-core-text-color-secondary);
-  font-size: 0.8125rem;
-}
-
-.gai-history-notice--unavailable {
-  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-3x);
-  border: 1px solid var(--oj-core-warning-3);
-  border-radius: var(--oj-core-border-radius-md);
-  background: var(--oj-core-warning-secondary-1);
-  color: var(--oj-core-text-color-primary);
-}
-
-/* ---- chips (starters, follow-ups) ----------------------------------------------------------- */
-
-.gai-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--oj-core-spacing-2x);
-}
-
-.gai-starters {
-  margin-top: auto;
-}
-
-.gai-workflow-error {
-  margin-top: auto;
-  color: var(--oj-core-text-color-secondary);
-  font-size: 0.8125rem;
-}
-
-.gai-chip {
-  font: inherit;
-  color: var(--oj-core-text-color-brand);
-  background: var(--oj-core-bg-color-content);
-  border: 1px solid var(--oj-core-divider-color);
-  border-radius: 999px;
-  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-3x);
-  cursor: pointer;
-}
-
-.gai-chip:hover:not(:disabled) {
-  background: var(--oj-core-bg-color-hover);
-}
-
-.gai-chip:disabled {
-  color: var(--oj-core-text-color-disabled);
-  cursor: default;
-}
-
-/* ---- composer ------------------------------------------------------------------------------- */
-
-.gai-composer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--oj-core-spacing-2x);
-  padding: var(--oj-core-spacing-3x) var(--oj-core-spacing-4x);
-  border-top: 1px solid var(--oj-core-divider-color);
-}
-
-.gai-composer-row {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--oj-core-spacing-2x);
-}
-
-.gai-composer-input,
-.gai-hitl-input {
-  flex: 1 1 auto;
-  resize: none;
-  font: inherit;
-  color: inherit;
-  background: var(--oj-core-bg-color-content);
-  border: 1px solid var(--oj-core-divider-color);
-  border-radius: var(--oj-core-border-radius-md);
-  padding: var(--oj-core-spacing-2x);
-}
-
-.gai-composer-input:focus,
-.gai-hitl-input:focus {
-  outline: 2px solid var(--oj-core-focus-border-color);
-  outline-offset: -1px;
-}
-
-.gai-composer-input:disabled,
-.gai-hitl-input:disabled {
-  color: var(--oj-core-text-color-disabled);
-}
-
-.gai-button {
-  font: inherit;
-  padding: var(--oj-core-spacing-2x) var(--oj-core-spacing-4x);
-  border-radius: var(--oj-core-border-radius-md);
-  border: 1px solid var(--oj-core-divider-color);
-  background: var(--oj-core-bg-color-content);
-  color: var(--oj-core-text-color-primary);
-  cursor: pointer;
-}
-
-.gai-button--primary {
-  border-color: var(--oj-button-call-to-action-chrome-border-color);
-  background: var(--oj-button-call-to-action-chrome-bg-color);
-  color: var(--oj-button-call-to-action-chrome-text-color);
-}
-
-.gai-button--primary:hover:not(:disabled) {
-  border-color: var(--oj-button-call-to-action-chrome-border-color-hover);
-  background: var(--oj-button-call-to-action-chrome-bg-color-hover);
-  color: var(--oj-button-call-to-action-chrome-text-color-hover);
-}
-
-.gai-button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-/* ---- attachments (composer tray, user bubble) ----------------------------------------------- */
-
-.gai-attachments {
-  display: flex;
-  flex-direction: column;
-  gap: var(--oj-core-spacing-1x);
-}
-
-.gai-attach-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--oj-core-spacing-2x);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.gai-attach-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--oj-core-spacing-2x);
-  max-width: 100%;
-  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-1x) var(--oj-core-spacing-1x) var(--oj-core-spacing-3x);
-  border: 1px solid var(--oj-core-divider-color);
-  border-radius: 999px;
-  font-size: 0.8125rem;
-}
-
-.gai-attach-chip--uploading,
-.gai-attach-chip--uploaded {
-  background: var(--oj-core-bg-color-selected);
-}
-
-.gai-attach-chip--failed {
-  border-color: var(--oj-core-danger-3);
-  background: var(--oj-core-danger-secondary-1);
-}
-
-.gai-attach-name {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.gai-attach-size,
-.gai-attach-status {
-  color: var(--oj-core-text-color-secondary);
-  white-space: nowrap;
-}
-
-.gai-attach-error,
-.gai-attach-rejected {
-  color: var(--oj-core-text-color-danger);
-  font-size: 0.8125rem;
-}
-
-.gai-attach-remove {
-  font: inherit;
-  line-height: 1;
-  padding: 0 var(--oj-core-spacing-1x);
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--oj-core-text-color-secondary);
-  cursor: pointer;
-}
-
-.gai-attach-remove:hover:not(:disabled) {
-  background: var(--oj-core-bg-color-hover);
-}
-
-.gai-attach-remove:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.gai-bubble-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--oj-core-spacing-1x);
-  margin: var(--oj-core-spacing-1x) 0 0;
-  padding: 0;
-  list-style: none;
-  white-space: normal;
-}
-
-.gai-bubble-attachment {
-  padding: 0 var(--oj-core-spacing-2x);
-  border: 1px solid var(--oj-core-divider-color);
-  border-radius: 999px;
-  background: var(--oj-core-bg-color-content);
-  font-size: 0.75rem;
-}
-
-/* ---- HITL bar (replaces the composer while the agent waits on the user) --------------------- */
-
-.gai-hitl {
-  display: flex;
-  flex-direction: column;
-  gap: var(--oj-core-spacing-2x);
-  padding: var(--oj-core-spacing-3x) var(--oj-core-spacing-4x);
-  border-top: 1px solid var(--oj-core-divider-color);
-}
-
-.gai-hitl-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--oj-core-spacing-2x);
-}
-
-.gai-hitl-reply {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--oj-core-spacing-2x);
-}
-
-.gai-hitl-countdown {
-  color: var(--oj-core-text-color-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ---- state panel and auth banner ------------------------------------------------------------ */
-
-.gai-state-panel {
-  padding: var(--oj-core-spacing-4x);
-  border: 1px solid var(--oj-core-warning-3);
-  border-radius: var(--oj-core-border-radius-lg);
-  background: var(--oj-core-warning-secondary-1);
-}
-
-.gai-state-title {
-  font-weight: 600;
-  margin-bottom: var(--oj-core-spacing-2x);
-}
-
-.gai-state-problems {
-  margin: 0;
-  padding-left: var(--oj-core-spacing-5x);
-}
-
-.gai-auth-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--oj-core-spacing-3x);
-  padding: var(--oj-core-spacing-2x) var(--oj-core-spacing-4x);
-  background: var(--oj-core-danger-secondary-1);
-  color: var(--oj-core-text-color-danger);
-  border-bottom: 1px solid var(--oj-core-danger-3);
-}
-
-/* ---- conversation sidebar ------------------------------------------------------------------- */
-
-.gai-sidebar {
-  flex: 0 0 260px;
-  width: 260px;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--oj-core-divider-color);
-  background: var(--oj-core-bg-color-content);
-}
-
-.gai-sidebar--collapsed {
-  flex-basis: auto;
-  width: auto;
-}
-
-.gai-sidebar-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--oj-core-spacing-2x);
-  padding: var(--oj-core-spacing-2x);
-  border-bottom: 1px solid var(--oj-core-divider-color);
-}
-
-.gai-sidebar--collapsed .gai-sidebar-bar {
-  border-bottom: 0;
-}
-
-.gai-sidebar-toggle {
-  font: inherit;
-  font-size: 1rem;
-  line-height: 1;
-  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-2x);
-  border: 1px solid transparent;
-  border-radius: var(--oj-core-border-radius-md);
-  background: transparent;
-  color: var(--oj-core-text-color-secondary);
-  cursor: pointer;
-}
-
-.gai-sidebar-toggle:hover {
-  background: var(--oj-core-bg-color-hover);
-}
-
-.gai-conv-new {
-  margin-left: auto;
-}
-
-.gai-sidebar-bar .gai-button {
-  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-3x);
-}
-
-.gai-conv-notice {
-  padding: var(--oj-core-spacing-2x) var(--oj-core-spacing-3x);
-  color: var(--oj-core-text-color-secondary);
-  font-size: 0.8125rem;
-}
-
-.gai-conv-notice--error {
-  color: var(--oj-core-text-color-danger);
-}
-
-.gai-conv-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  margin: 0;
-  padding: var(--oj-core-spacing-1x) 0;
-  list-style: none;
-}
-
-.gai-conv-row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--oj-core-spacing-2x) var(--oj-core-spacing-3x);
-  cursor: pointer;
-}
-
-.gai-conv-row:hover {
-  background: var(--oj-core-bg-color-hover);
-}
-
-.gai-conv-row--active,
-.gai-conv-row--active:hover {
-  background: var(--oj-core-bg-color-selected);
-}
-
-.gai-conv-open {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.gai-conv-open:focus-visible {
-  outline: 2px solid var(--oj-core-focus-border-color);
-  outline-offset: 1px;
-}
-
-.gai-conv-name {
-  display: block;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.gai-conv-row--active .gai-conv-name {
-  font-weight: 600;
-}
-
-.gai-conv-rename-input {
-  width: 100%;
-  font: inherit;
-  color: inherit;
-  background: var(--oj-core-bg-color-content);
-  border: 1px solid var(--oj-core-divider-color);
-  border-radius: var(--oj-core-border-radius-sm);
-  padding: 0 var(--oj-core-spacing-1x);
-}
-
-.gai-conv-rename-input:focus {
-  outline: 2px solid var(--oj-core-focus-border-color);
-  outline-offset: -1px;
-}
-
-.gai-conv-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--oj-core-spacing-2x);
-  font-size: 0.75rem;
-  color: var(--oj-core-text-color-secondary);
-}
-
-.gai-conv-actions {
-  display: flex;
-  gap: var(--oj-core-spacing-1x);
-  margin-left: auto;
-}
-
-.gai-conv-action {
-  font: inherit;
-  padding: 0 var(--oj-core-spacing-1x);
-  border: 0;
-  border-radius: var(--oj-core-border-radius-sm);
-  background: transparent;
-  color: var(--oj-core-text-color-brand);
-  cursor: pointer;
-}
-
-.gai-conv-action:hover {
-  background: var(--oj-core-bg-color-active);
-}
-
-.gai-conv-action--armed {
-  color: var(--oj-core-text-color-danger);
-  font-weight: 600;
-}
-
-.gai-conv-more {
-  margin: var(--oj-core-spacing-2x) var(--oj-core-spacing-3x);
-}
-
-.gai-trace-wrap {
-  align-self: flex-start;
-  max-width: 100%;
-}
-
-.gai-trace-toggle {
-  background: none;
-  border: none;
-  padding: 0 var(--oj-core-spacing-1x);
-  color: var(--oj-core-text-color-secondary);
-  font-size: 0.75rem;
-  cursor: pointer;
-  text-decoration: underline;
-}
-
-.gai-trace {
-  font-family: monospace;
-  font-size: 0.75rem;
-  color: var(--oj-core-text-color-secondary);
-  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-2x);
-  border: 1px solid var(--oj-core-divider-color);
-  overflow-x: auto;
-  white-space: pre-wrap;
 }

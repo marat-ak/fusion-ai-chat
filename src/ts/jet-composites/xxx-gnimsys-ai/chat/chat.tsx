@@ -35,11 +35,24 @@ type Props = Readonly<{
   onAiChatError?: Action<{ message: string; status?: number; reason?: "xsrf-unavailable" | "token-undecodable" | "clock-skew" }>;
 }>;
 
+// The Core Pack (oj-c) components imported by ui/*.tsx, named as in the runtime's oj-c catalog; the pod's JET runtime
+// provides them (dependencyScope "runtime"), so they are declared here and never bundled.
 /**
  * @ojmetadata pack "xxx-gnimsys-ai"
  * @ojmetadata version "0.1.0"
  * @ojmetadata displayName "Gnimsys AI Chat"
  * @ojmetadata description "Chat with an Oracle AI Agent Studio agent"
+ * @ojmetadata dependencies {
+ *   "oj-c-button": "^18.0.15",
+ *   "oj-c-collapsible": "^18.0.15",
+ *   "oj-c-input-text": "^18.0.15",
+ *   "oj-c-list-item-layout": "^18.0.15",
+ *   "oj-c-list-view": "^18.0.15",
+ *   "oj-c-message-banner": "^18.0.15",
+ *   "oj-c-progress-circle": "^18.0.15",
+ *   "oj-c-text-area": "^18.0.15",
+ *   "oj-c-toggle-button": "^18.0.15"
+ * }
  */
 function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
   const { config, user, personId } = props;
@@ -66,7 +79,7 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
   const onError = useCallback((detail: ChatErrorDetail) => propsRef.current.onAiChatError?.(detail), []);
 
   return (
-    <div class="gai-chat">
+    <div class="gai-chat oj-typography-body-md oj-text-color-primary">
       {check.ok ? (
         <ChatShell
           // Another agent is another chat: remount so no turns or conversation id carry over to it.

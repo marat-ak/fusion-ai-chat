@@ -14,9 +14,11 @@ async function mockRequests(page: Page): Promise<MockRequest[]> {
   return (await r.json()) as MockRequest[];
 }
 
+// The testids of Core Pack (oj-c) controls sit on the custom element: typing, clicks and enabled/disabled checks go to its
+// inner <textarea>/<input>/<button> (a click on the custom element would not wait for the inner control to be enabled).
 async function sendText(page: Page, text: string): Promise<void> {
-  await page.getByTestId("gai-composer-input").fill(text);
-  await page.getByTestId("gai-composer-send").click();
+  await page.getByTestId("gai-composer-input").locator("textarea").fill(text);
+  await page.getByTestId("gai-composer-send").locator("button").click();
 }
 
 const row = (page: Page, id: string) => page.locator(`[data-testid="gai-conv-row"][data-conv-id="${id}"]`);
@@ -84,7 +86,8 @@ test("open_broken_conversation_shows_unavailable_and_can_send", async ({ page })
   await page.goto("/");
   await row(page, "broken").click();
   // The mock answers {"detail":"boom"}: the notice carries the readable error body.
-  await expect(page.getByTestId("gai-history-unavailable")).toHaveText("History unavailable (HTTP 500): boom");
+  // A Redwood message banner also holds an off-screen live-region text: the summary is its heading.
+  await expect(page.getByTestId("gai-history-unavailable").getByRole("heading")).toHaveText("History unavailable (HTTP 500): boom");
   await expect(currentRow(page)).toHaveAttribute("data-conv-id", "broken");
   await expect(page.locator(".gai-feed .gai-bubble")).toHaveCount(0);
 
@@ -102,10 +105,10 @@ test("open_broken_conversation_shows_unavailable_and_can_send", async ({ page })
 test("rename_sends_patch_with_if_match", async ({ page }) => {
   await page.goto("/");
   const r = row(page, "conv-2");
-  const input = r.getByTestId("gai-conv-rename-input");
+  const input = r.getByTestId("gai-conv-rename-input").locator("input");
 
   // Escape cancels without a request.
-  await r.getByTestId("gai-conv-rename").click();
+  await r.getByTestId("gai-conv-rename").locator("button").click();
   await expect(input).toHaveValue("Purchase order draft");
   await input.fill("Not this");
   await input.press("Escape");
@@ -113,7 +116,7 @@ test("rename_sends_patch_with_if_match", async ({ page }) => {
   await expect(r.locator(".gai-conv-name")).toHaveText("Purchase order draft");
 
   // Enter saves.
-  await r.getByTestId("gai-conv-rename").click();
+  await r.getByTestId("gai-conv-rename").locator("button").click();
   await input.fill("Renamed");
   await input.press("Enter");
   await expect(input).toHaveCount(0);
@@ -135,7 +138,7 @@ test("delete_removes_row", async ({ page }) => {
   await expect(page.getByTestId("gai-conv-row")).toHaveCount(3);
 
   // First click only arms the confirm; the second one deletes.
-  const del = row(page, "conv-2").getByTestId("gai-conv-delete");
+  const del = row(page, "conv-2").getByTestId("gai-conv-delete").locator("button");
   await del.click();
   await expect(row(page, "conv-2")).toHaveCount(1);
   expect((await mockRequests(page)).filter((x) => x.method === "DELETE")).toHaveLength(0);
@@ -151,8 +154,8 @@ test("delete_removes_row", async ({ page }) => {
   // Deleting the open conversation starts a new one.
   await row(page, "conv-1").click();
   await expect(page.getByTestId("gai-bubble-user")).toHaveCount(2);
-  await row(page, "conv-1").getByTestId("gai-conv-delete").click();
-  await row(page, "conv-1").getByTestId("gai-conv-delete").click();
+  await row(page, "conv-1").getByTestId("gai-conv-delete").locator("button").click();
+  await row(page, "conv-1").getByTestId("gai-conv-delete").locator("button").click();
   await expect(row(page, "conv-1")).toHaveCount(0);
   await expect(page.locator(".gai-feed .gai-bubble")).toHaveCount(0);
   await expect.poll(() => componentConversationId(page)).toMatch(UUID_V4);
@@ -173,7 +176,7 @@ test("new_conversation_mints_uuid_and_emits_event", async ({ page }) => {
     });
   });
 
-  await page.getByTestId("gai-conv-new").click();
+  await page.getByTestId("gai-conv-new").locator("button").click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __lastConv?: string }).__lastConv)).toMatch(UUID_V4);
   const minted = await page.evaluate(() => (window as unknown as { __lastConv: string }).__lastConv);
   expect(minted).not.toBe(initial);
@@ -202,7 +205,7 @@ test("first_reply_survives_list_reload_race", async ({ page }) => {
   // The mount-time list answers 1.5 s late, i.e. after the first reply of the new conversation has completed.
   await page.request.get(`${MOCK_POD}/__mock/arm?listDelay=1500`);
   await page.goto("/");
-  await page.getByTestId("gai-starter").first().click();
+  await page.getByTestId("gai-starter").first().locator("button").click();
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
   const id = (await componentConversationId(page)) as string;
 
@@ -221,7 +224,7 @@ test("name_lookup_waits_for_first_successful_reply", async ({ page }) => {
 
   await sendText(page, "fail");
   await expect(page.getByTestId("gai-error")).toContainText("ErrorRecord[boom]");
-  await expect(page.getByTestId("gai-composer-input")).toBeEnabled();
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeEnabled();
   expect(await nameLookups(page, id)).toHaveLength(0);
 
   await sendText(page, "hello");

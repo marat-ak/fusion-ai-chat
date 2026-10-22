@@ -1,37 +1,34 @@
+import "oj-c/button";
 import type { AuthReason } from "../lib/auth/AuthFetch";
 import { authNotice } from "../lib/auth/authNotice";
 import type { Problem } from "../lib/config/types";
 import type { ChatState } from "../lib/state/conversation";
+import { Banner } from "./Banner";
 
 /** Shown instead of the chat when the config or a required property is missing (needs-input) or wrong (invalid). */
 export function StatePanel(props: { kind: "needs-input" | "invalid"; problems: Problem[] }) {
   return (
-    <div class="gai-state-panel" data-testid="gai-state-panel" role="alert">
-      <div class="gai-state-title">
-        {props.kind === "needs-input" ? "This chat needs more configuration" : "This chat's configuration is invalid"}
-      </div>
-      <ul class="gai-state-problems">
+    <Banner testId="gai-state-panel" severity={props.kind === "needs-input" ? "warning" : "error"}
+      summary={props.kind === "needs-input" ? "This chat needs more configuration" : "This chat's configuration is invalid"}>
+      <ul class="oj-sm-margin-0">
         {props.problems.map((p) => (
           <li key={p.path + ":" + p.message}>
             <code>{p.path === "" ? "config" : p.path}</code>: {p.message}
           </li>
         ))}
       </ul>
-    </div>
+    </Banner>
   );
 }
 
 /** Re-login / not-authorized / unavailable state: no retry loop, only an explicit page reload when one can help. */
-export function AuthBanner(props: { state: Exclude<ChatState["authState"], "ok">; reason?: AuthReason; status?: number }) {
+export function AuthBanner(props: { state: Exclude<ChatState["authState"], "ok">; reason?: AuthReason; status?: number; class?: string }) {
   const notice = authNotice(props.state, props.reason, props.status);
   return (
-    <div class="gai-auth-banner" data-testid="gai-auth-banner" role="alert">
-      <span class="gai-auth-text">{notice.text}</span>
-      {notice.reload && (
-        <button type="button" class="gai-button" data-testid="gai-auth-reload" onClick={() => location.reload()}>
-          Reload
-        </button>
-      )}
-    </div>
+    <Banner testId="gai-auth-banner" severity="error" summary={notice.text} {...(props.class !== undefined && { class: props.class })}>
+      {notice.reload ? (
+        <oj-c-button data-testid="gai-auth-reload" label="Reload" chroming="outlined" onojAction={() => location.reload()} />
+      ) : undefined}
+    </Banner>
   );
 }

@@ -17,9 +17,11 @@ async function chatRequests(page: Page): Promise<MockRequest[]> {
   return (await mockRequests(page)).filter((r) => r.url.includes("/chat"));
 }
 
+// The testids of Core Pack (oj-c) controls sit on the custom element: typing, clicks and enabled/disabled checks go to its
+// inner <textarea>/<input>/<button> (a click on the custom element would not wait for the inner control to be enabled).
 async function sendText(page: Page, text: string): Promise<void> {
-  await page.getByTestId("gai-composer-input").fill(text);
-  await page.getByTestId("gai-composer-send").click();
+  await page.getByTestId("gai-composer-input").locator("textarea").fill(text);
+  await page.getByTestId("gai-composer-send").locator("button").click();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -31,7 +33,7 @@ test("starters_from_workflow_render_and_send", async ({ page }) => {
   const starters = page.getByTestId("gai-starter");
   await expect(starters).toHaveText(["Show my invoices", "Create a PO"]);
 
-  await starters.first().click();
+  await starters.first().locator("button").click();
   await expect(page.getByTestId("gai-bubble-user")).toHaveText(["Show my invoices"]);
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
   await expect(page.getByTestId("gai-starter")).toHaveCount(0);
@@ -40,7 +42,7 @@ test("starters_from_workflow_render_and_send", async ({ page }) => {
 
 test("send_hello_streams_and_shows_followups", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("gai-composer-input")).toBeEnabled();
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeEnabled();
   // Record every text the assistant bubble shows, so the streamed (partial) states are observable.
   await page.evaluate(() => {
     const seen: string[] = [];
@@ -70,7 +72,7 @@ test("followup_click_sends_text", async ({ page }) => {
   const followup = page.getByTestId("gai-followup").filter({ hasText: "Show invoices" });
   await expect(followup).toBeVisible();
 
-  await followup.click();
+  await followup.locator("button").click();
   await expect(page.getByTestId("gai-bubble-user")).toHaveText(["hello", "Show invoices"]);
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?", "Hello! How can I help?"]);
 
@@ -89,10 +91,10 @@ test("error_reply_shows_error_bubble_and_reenables_composer", async ({ page }) =
   await expect(page.locator(".gai-bubble--assistant")).toHaveCount(1);
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(0);
 
-  const input = page.getByTestId("gai-composer-input");
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
   await expect(input).toBeEnabled();
   await input.fill("hello");
-  await expect(page.getByTestId("gai-composer-send")).toBeEnabled();
+  await expect(page.getByTestId("gai-composer-send").locator("button")).toBeEnabled();
 });
 
 test("needs_input_makes_no_requests", async ({ page }) => {
@@ -134,10 +136,10 @@ test("relogin_banner_on_html_relay", async ({ page }) => {
   await sendText(page, "hello");
   const banner = page.getByTestId("gai-auth-banner");
   await expect(banner).toContainText("Session expired");
-  await expect(page.getByTestId("gai-composer-input")).toBeDisabled();
-  await expect(page.getByTestId("gai-composer-send")).toBeDisabled();
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeDisabled();
+  await expect(page.getByTestId("gai-composer-send").locator("button")).toBeDisabled();
 
-  await Promise.all([page.waitForEvent("load"), page.getByTestId("gai-auth-reload").click()]);
+  await Promise.all([page.waitForEvent("load"), page.getByTestId("gai-auth-reload").locator("button").click()]);
   await expect(page.getByTestId("gai-starter")).toHaveCount(2);
   await expect(page.getByTestId("gai-auth-banner")).toHaveCount(0);
 });
@@ -169,7 +171,7 @@ test("anticsrf_failure_shows_unavailable_banner", async ({ page }) => {
   await sendText(page, "hello");
   await expect(page.getByTestId("gai-auth-banner")).toContainText("anti-CSRF token request failed (HTTP 500)");
   await expect(page.getByTestId("gai-auth-reload")).toBeVisible();
-  await expect(page.getByTestId("gai-composer-input")).toBeDisabled();
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeDisabled();
   // The turn that never reached the agent ends explicitly.
   await expect(page.getByTestId("gai-error")).toHaveText("No reply received");
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(0);
@@ -223,7 +225,8 @@ test("default_height_with_scrolling_feed_and_page_override", async ({ page }) =>
 test("workflow_lookup_failure_shows_notice", async ({ page }) => {
   await page.request.get(`${MOCK_POD}/__mock/arm?workflows=404`);
   await page.goto("/");
-  await expect(page.getByTestId("gai-workflow-error")).toHaveText("Starter questions unavailable (HTTP 404)");
+  // A Redwood message banner also holds an off-screen live-region text: the summary is its heading.
+  await expect(page.getByTestId("gai-workflow-error").getByRole("heading")).toHaveText("Starter questions unavailable (HTTP 404)");
   await expect(page.getByTestId("gai-starter")).toHaveCount(0);
   await expect(page.getByTestId("gai-auth-banner")).toHaveCount(0);
 

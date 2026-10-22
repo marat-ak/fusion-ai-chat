@@ -18,9 +18,12 @@ async function setup(page: Page, opts: { config?: object; roles?: string[] }): P
   await page.goto("/");
 }
 
+// The testids of Core Pack (oj-c) controls sit on the custom element: typing and enabled/disabled checks go to its inner
+// <textarea>/<input>/<button>.
+// The testids of Core Pack (oj-c) controls sit on the custom element: typing and clicks go to its inner <textarea>/<button>.
 async function reply(page: Page): Promise<void> {
-  await page.getByTestId("gai-composer-input").fill("hello");
-  await page.getByTestId("gai-composer-send").click();
+  await page.getByTestId("gai-composer-input").locator("textarea").fill("hello");
+  await page.getByTestId("gai-composer-send").locator("button").click();
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
 }
 

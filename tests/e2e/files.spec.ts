@@ -26,6 +26,8 @@ function flowStep(r: MockRequest): string | null {
   return null;
 }
 
+// The testids of Core Pack (oj-c) controls sit on the custom element: typing, clicks and enabled/disabled checks go to its
+// inner <textarea>/<input>/<button> (a click on the custom element would not wait for the inner control to be enabled).
 const file = (name: string, mimeType: string, size: number) => ({ name, mimeType, buffer: Buffer.alloc(size) });
 
 test.beforeEach(async ({ page }) => {
@@ -35,7 +37,7 @@ test.beforeEach(async ({ page }) => {
 
 test("upload_then_send_performs_oracle_sequence", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("gai-attach")).toBeEnabled();
+  await expect(page.getByTestId("gai-attach").locator("button")).toBeEnabled();
   await page.getByTestId("gai-attach-input").setInputFiles(file("test.pdf", "application/pdf", 10240));
   const chip = page.getByTestId("gai-attach-chip");
   await expect(chip).toHaveCount(1);
@@ -46,8 +48,8 @@ test("upload_then_send_performs_oracle_sequence", async ({ page }) => {
   // Nothing is uploaded at selection: the flow runs on send.
   expect((await mockRequests(page)).map(flowStep).filter((s) => s !== null)).toEqual([]);
 
-  await page.getByTestId("gai-composer-input").fill("summarize the file");
-  await page.getByTestId("gai-composer-send").click();
+  await page.getByTestId("gai-composer-input").locator("textarea").fill("summarize the file");
+  await page.getByTestId("gai-composer-send").locator("button").click();
 
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
   const userBubble = page.getByTestId("gai-bubble-user");
@@ -106,16 +108,16 @@ test("failed_upload_blocks_send_and_marks_chip", async ({ page }) => {
     document.getElementById("chat")!.addEventListener("aiChatError", (e) => w.__chatErrors.push((e as CustomEvent).detail));
   });
   await page.getByTestId("gai-attach-input").setInputFiles(file("test.pdf", "application/pdf", 10240));
-  const input = page.getByTestId("gai-composer-input");
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
   await input.fill("hello");
-  await page.getByTestId("gai-composer-send").click();
+  await page.getByTestId("gai-composer-send").locator("button").click();
 
   const chip = page.getByTestId("gai-attach-chip");
   await expect(chip).toHaveAttribute("data-state", "failed");
   await expect(chip).toContainText("attachment upload HTTP 500");
   await expect(input).toHaveValue("hello");
   await expect(input).toBeEnabled();
-  await expect(page.getByTestId("gai-composer-send")).toBeEnabled();
+  await expect(page.getByTestId("gai-composer-send").locator("button")).toBeEnabled();
   await expect(page.getByTestId("gai-bubble-user")).toHaveCount(0);
 
   const errors = await page.evaluate(() => (window as unknown as { __chatErrors: Array<{ message: string; status?: number }> }).__chatErrors);
@@ -139,12 +141,12 @@ test("files_disabled_hides_attach_ui", async ({ page }) => {
     };
   });
   await page.goto("/");
-  await expect(page.getByTestId("gai-composer-input")).toBeEnabled();
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeEnabled();
   await expect(page.getByTestId("gai-attach")).toHaveCount(0);
   await expect(page.getByTestId("gai-attach-input")).toHaveCount(0);
 
-  await page.getByTestId("gai-composer-input").fill("hello");
-  await page.getByTestId("gai-composer-send").click();
+  await page.getByTestId("gai-composer-input").locator("textarea").fill("hello");
+  await page.getByTestId("gai-composer-send").locator("button").click();
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
   expect((await mockRequests(page)).map(flowStep).filter((s) => s !== null)).toEqual(["chat"]);
 });
@@ -163,7 +165,7 @@ test("sixth_file_is_rejected_with_count_reason", async ({ page }) => {
   await expect(rejected).toHaveText("f.pdf: too many files");
 
   // Removing a chip frees a slot.
-  await chips.first().getByTestId("gai-attach-remove").click();
+  await chips.first().getByTestId("gai-attach-remove").locator("button").click();
   await expect(chips).toHaveCount(4);
 });
 

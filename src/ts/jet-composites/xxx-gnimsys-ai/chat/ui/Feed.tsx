@@ -1,10 +1,14 @@
+import "oj-c/progress-circle";
 import { Fragment } from "preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import type { ChatState, Turn } from "../lib/state/conversation";
+import { Banner } from "./Banner";
 import { Bubble } from "./Bubble";
 import { TracePanel } from "./TracePanel";
 import type { MarkdownRenderer } from "./Bubble";
+
+const SECONDARY = "oj-typography-body-sm oj-text-color-secondary oj-sm-margin-2x-bottom";
 
 export function Feed(props: {
   turns: Turn[];
@@ -30,11 +34,10 @@ export function Feed(props: {
     if (el) el.scrollTop = el.scrollHeight;
   });
   return (
-    <div class="gai-feed" ref={ref} role="log" aria-live="polite">
+    <div class="gai-feed oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-flex-1 oj-sm-padding-4x" ref={ref} role="log" aria-live="polite">
       {props.historyStatus === "unavailable" && (
-        <div class="gai-history-notice gai-history-notice--unavailable" data-testid="gai-history-unavailable" role="status">
-          History unavailable{err?.status ? ` (HTTP ${err.status})` : ""}{err?.text ? `: ${err.text}` : ""}
-        </div>
+        <Banner testId="gai-history-unavailable" severity="warning" class="oj-sm-margin-2x-bottom"
+          summary={`History unavailable${err?.status ? ` (HTTP ${err.status})` : ""}${err?.text ? `: ${err.text}` : ""}`} />
       )}
       {props.turns.map((t) => (
         <Fragment key={t.id}>
@@ -44,15 +47,14 @@ export function Feed(props: {
         </Fragment>
       ))}
       {props.busy && (
-        <div class="gai-progress" data-testid="gai-progress" role="status">
-          {props.progressText ? props.progressText : (
-            <span class="gai-typing" aria-label="Working"><span /><span /><span /></span>
-          )}
+        <div class={`oj-flex oj-sm-align-items-center oj-sm-align-self-flex-start oj-sm-padding-1x-horizontal ${SECONDARY}`}
+          data-testid="gai-progress" role="status">
+          {props.progressText ? props.progressText : <oj-c-progress-circle size="sm" value={-1} aria-label="Working" />}
         </div>
       )}
       {props.children}
       {props.historyStatus === "loading" && (
-        <div class="gai-history-notice" data-testid="gai-history-loading" role="status">{"Loading history…"}</div>
+        <div class={`oj-sm-align-self-center ${SECONDARY}`} data-testid="gai-history-loading" role="status">{"Loading history…"}</div>
       )}
     </div>
   );
