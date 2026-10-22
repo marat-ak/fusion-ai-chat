@@ -76,6 +76,18 @@ describe("conversation reducer", () => {
     expect(run(base, { type: "resume_sent", action: "RFI_ACTION", content: "change x" }).turns.slice(-2)[0].text).toBe("change x");
   });
 
+  test("resume_sent_status_check_adds_no_user_turn", () => {
+    const base = run(initialState("c"), { type: "user_send", text: "q" },
+      ev({ type: "wait", kind: "WAIT", token: "tk", message: "Waiting", approval: false, feedback: false, waitMinutes: 1 }),
+      ev({ type: "done" }));
+    const r = run(base, { type: "resume_sent", action: "RFI_ACTION", statusCheckOnly: true });
+    expect(r.wait).toBeUndefined();
+    expect(r.status).toBe("sending");
+    expect(r.turns).toHaveLength(3);
+    expect(r.turns[2]).toMatchObject({ id: "t3", role: "assistant", text: "", streaming: true });
+    expect(r.nextTurnId).toBe(4);
+  });
+
   test("history_failed_marks_unavailable_with_status", () => {
     const s = run(initialState("c"), { type: "history_failed", status: 500 });
     expect(s.historyStatus).toBe("unavailable");

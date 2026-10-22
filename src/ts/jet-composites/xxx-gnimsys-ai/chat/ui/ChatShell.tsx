@@ -7,6 +7,7 @@ import type { MarkdownRenderer } from "./Bubble";
 import { Composer } from "./Composer";
 import { Feed } from "./Feed";
 import { FollowUps } from "./FollowUps";
+import { HitlBar } from "./HitlBar";
 import { Sidebar } from "./Sidebar";
 import { Starters, StartersUnavailable } from "./Starters";
 import { AuthBanner } from "./StatePanel";
@@ -18,7 +19,8 @@ export type ChatHandle = {
   /** Starts a new, empty conversation with a newly minted conversation id. */
   newConversation: () => void;
   /**
-   * Sends a user message in the current conversation; ignored while a reply is streaming or the history is loading.
+   * Sends a user message (with the files pending in the composer) in the current conversation; ignored while a reply
+   * is streaming, files are uploading or the history is loading.
    * @param text the message text
    */
   send: (text: string) => void;
@@ -111,7 +113,10 @@ export function ChatShell(props: ChatShellProps) {
   const authOk = state.authState === "ok";
   // The loaded history replaces the turns, so nothing is sent until it has arrived (or failed).
   const historyLoading = state.historyStatus === "loading";
-  const canSend = authOk && !busy && !historyLoading;
+  const attachments = ctl.attachments;
+  const canSend = authOk && !busy && !historyLoading && !(attachments?.uploading ?? false);
+  // The agent waits on the user: the HITL bar replaces the composer.
+  const wait = state.status === "waiting" ? state.wait : undefined;
 
   return (
     <div class="gai-shell">
@@ -129,8 +134,15 @@ export function ChatShell(props: ChatShellProps) {
             : <Starters questions={starters} disabled={!canSend} onPick={ctl.sendStarter} />)}
           {!busy && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
         </Feed>
-        <Composer disabled={!canSend} onSend={ctl.send}
-          {...(config.ui.placeholder !== undefined && { placeholder: config.ui.placeholder })} />
+        {wait ? (
+          <HitlBar key={wait.token} wait={wait} disabled={!authOk} onResume={ctl.resume} />
+        ) : (
+          <Composer disabled={!canSend} onSend={ctl.send}
+            {...(config.ui.placeholder !== undefined && { placeholder: config.ui.placeholder })}
+            {...(attachments !== null && {
+              attachments: { tray: attachments, accept: config.files.accept, maxSizeMB: config.files.maxSizeMB },
+            })} />
+        )}
       </div>
     </div>
   );

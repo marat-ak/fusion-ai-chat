@@ -11,7 +11,8 @@ import { OracleHistoryStore } from "../lib/history/OracleHistoryStore";
 import { OracleWorkflowInfo } from "../lib/history/OracleWorkflowInfo";
 import type { WorkflowInfo } from "../lib/history/OracleWorkflowInfo";
 import { localTitle } from "../lib/history/localTitle";
-import { OracleAttachmentService } from "../lib/files/OracleAttachmentService";
+import { AttachmentError, OracleAttachmentService } from "../lib/files/OracleAttachmentService";
+import type { Rejection, UploadedAttachment } from "../lib/files/AttachmentService";
 import { initialState, newConversationId, reduce } from "../lib/state/conversation";
 import type { ChatState } from "../lib/state/conversation";
 
@@ -31,6 +32,22 @@ export interface ChatControllerProps {
 export interface ChatControllerDeps { document: Document; origin?: string }
 
 export type ResumeAction = ResumeInput["action"];
+/** statusCheckOnly: a WAIT node's Refresh (asks whether the wait is over; adds no user turn). */
+export interface ResumeOptions { statusCheckOnly?: boolean }
+
+/** A file picked for the next message; `failed` keeps the error of the last send attempt. */
+export interface PendingFile { id: number; file: File; state: "pending" | "uploading" | "uploaded" | "failed"; error?: string }
+
+/** The composer's files (only when `files.enabled`): validated when picked, uploaded and linked when the message is sent. */
+export interface AttachmentTray {
+  pending: PendingFile[];
+  /** Files refused at the last pick. */
+  rejected: Rejection[];
+  /** A send's upload flow is running: nothing is sent, picked or removed until it ends. */
+  uploading: boolean;
+  add(files: File[]): void;
+  remove(id: number): void;
+}
 
 /** The user's conversations with this agent (BOSS `userConversations`); loaded only when `ui.conversations` is on. */
 export interface ConversationList {
@@ -57,9 +74,15 @@ export interface ChatController {
   /** Set when the workflow lookup failed for a reason other than auth (auth failures show the auth banner). */
   workflowError: ChatErrorDetail | null;
   conversations: ConversationList;
-  send(text: string): void;
+  /** Null when `files.enabled` is false. */
+  attachments: AttachmentTray | null;
+  /**
+   * Sends a message with the pending files: when there are any, they are uploaded and linked to the conversation first;
+   * a failed step aborts the send before the chat call (the files stay pending). Resolves whether the message was sent.
+   */
+  send(text: string): Promise<boolean>;
   sendStarter(question: string): void;
-  resume(action: ResumeAction, content?: string): void;
+  resume(action: ResumeAction, content?: string, opts?: ResumeOptions): void;
   newConversation(): void;
   openConversation(id: string): void;
 }
@@ -68,7 +91,7 @@ interface ListState { items: ConversationSummary[]; hasMore: boolean; loading: b
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const statusOf = (e: unknown): number | undefined =>
-  e instanceof AuthError || e instanceof HistoryError ? e.status : undefined;
+  e instanceof AuthError || e instanceof HistoryError || e instanceof AttachmentError ? e.status : undefined;
 const detailOf = (e: unknown): ChatErrorDetail => {
   const status = statusOf(e);
   return { message: messageOf(e), ...(status !== undefined && { status }) };
@@ -100,12 +123,12 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     });
   }, [config, auth, context, origin]);
 
-  // Built here so the controller stays the single owner of services; `attachments` is consumed by the attach flow.
+  // Built here so the controller stays the single owner of services.
   const history = useMemo(
     () => new OracleHistoryStore({ auth, workflowCode: config.agent.workflowCode, userName, ...(origin !== undefined && { origin }) }),
     [config, auth, userName, origin],
   );
-  const attachments = useMemo(() => {
+  const fileService = useMemo(() => {
     if (!config.files.enabled) return null;
     const hcmRestBase = config.protocol.hcmRestBase;
     if (!personId || !hcmRestBase) throw new Error("files.enabled requires person-id and protocol.hcmRestBase");
@@ -219,6 +242,76 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     );
   }, [history, fail, setName]);
 
+  // ---- attachments ----------------------------------------------------------------------------
+
+  type TrayState = { pending: PendingFile[]; rejected: Rejection[]; uploading: boolean };
+  const [tray, setTrayState] = useState<TrayState>({ pending: [], rejected: [], uploading: false });
+  // Source of truth, updated synchronously: `uploading` doubles as the send guard while the upload flow runs.
+  const trayRef = useRef(tray);
+  const setTray = useCallback((patch: (t: TrayState) => TrayState) => {
+    trayRef.current = patch(trayRef.current);
+    setTrayState(trayRef.current);
+  }, []);
+  const nextFileId = useRef(1);
+
+  const addFiles = useCallback((files: File[]) => {
+    if (!fileService || trayRef.current.uploading || files.length === 0) return;
+    const { ok, rejected } = fileService.validate(files, trayRef.current.pending.length);
+    const added = ok.map((file): PendingFile => ({ id: nextFileId.current++, file, state: "pending" }));
+    setTray((t) => ({ ...t, pending: [...t.pending, ...added], rejected }));
+  }, [fileService, setTray]);
+
+  const removeFile = useCallback((id: number) => {
+    if (trayRef.current.uploading) return;
+    setTray((t) => ({ ...t, pending: t.pending.filter((p) => p.id !== id) }));
+  }, [setTray]);
+
+  // ensureConversation, then each file in turn, then the batch link. Null when a step failed (the failing file, or every
+  // file for a conversation-wide step, is marked failed and the error reported) or the chat moved to another
+  // conversation meanwhile (new/open bump historySeq); the files are then pending again.
+  const uploadAll = useCallback(async (id: string, svc: OracleAttachmentService): Promise<UploadedAttachment[] | null> => {
+    const seq = historySeq.current;
+    const files = trayRef.current.pending;
+    const mark = (fid: number, state: PendingFile["state"]): void =>
+      setTray((t) => ({ ...t, pending: t.pending.map((p) => (p.id === fid ? { id: p.id, file: p.file, state } : p)) }));
+    const reset = (): null => {
+      setTray((t) => ({ ...t, pending: t.pending.map((p): PendingFile => ({ id: p.id, file: p.file, state: "pending" })) }));
+      return null;
+    };
+    reset(); // clears the errors of an earlier attempt
+    setTray((t) => ({ ...t, uploading: true }));
+    let current: number | null = null; // the file being uploaded; null during a conversation-wide step
+    try {
+      await svc.ensureConversation(id);
+      const uploaded: UploadedAttachment[] = [];
+      for (const f of files) {
+        if (seq !== historySeq.current) return reset();
+        current = f.id;
+        mark(f.id, "uploading");
+        uploaded.push(await svc.upload(f.file));
+        mark(f.id, "uploaded");
+      }
+      current = null;
+      if (seq !== historySeq.current) return reset();
+      await svc.link(id, uploaded);
+      if (seq !== historySeq.current) return reset();
+      return uploaded;
+    } catch (e) {
+      const error = messageOf(e);
+      const failed = current;
+      setTray((t) => ({
+        ...t,
+        pending: t.pending.map((p): PendingFile => (failed === null || p.id === failed
+          ? { id: p.id, file: p.file, state: "failed", error }
+          : { id: p.id, file: p.file, state: "pending" })),
+      }));
+      fail(e, false);
+      return null;
+    } finally {
+      setTray((t) => ({ ...t, uploading: false }));
+    }
+  }, [setTray, fail]);
+
   // ---- turns ----------------------------------------------------------------------------------
 
   const run = useCallback(async (input: SendInput) => {
@@ -247,10 +340,10 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     lookUpName(input.conversationId);
   }, [transport, report, fail, lookUpName]);
 
-  const send = useCallback((text: string) => {
-    const t = text.trim();
-    if (t === "" || inflight.current || historyLoading.current || stateRef.current.authState !== "ok") return;
-    const id = conversationId.current;
+  const canStart = (): boolean =>
+    !inflight.current && !trayRef.current.uploading && !historyLoading.current && stateRef.current.authState === "ok";
+
+  const startTurn = useCallback((id: string, t: string, uploaded?: UploadedAttachment[]) => {
     if (fresh.current) {
       fresh.current = false;
       if (listEnabled) {
@@ -263,21 +356,40 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
         });
       }
     }
-    dispatch({ type: "user_send", text: t });
+    dispatch({ type: "user_send", text: t, ...(uploaded !== undefined && { attachments: uploaded }) });
     void run({ conversationId: id, text: t });
   }, [run, listEnabled]);
 
-  const sendStarter = useCallback((question: string) => { send(question); }, [send]);
+  const send = useCallback(async (text: string): Promise<boolean> => {
+    const t = text.trim();
+    if (t === "" || !canStart()) return false;
+    const id = conversationId.current;
+    if (!fileService || trayRef.current.pending.length === 0) {
+      startTurn(id, t);
+      return true;
+    }
+    // The flow holds the send guard (`uploading`), so no other turn starts meanwhile.
+    const uploaded = await uploadAll(id, fileService);
+    if (uploaded === null) return false;
+    setTray((s) => ({ ...s, pending: [], rejected: [] }));
+    startTurn(id, t, uploaded);
+    return true;
+  }, [fileService, uploadAll, setTray, startTurn]);
 
-  const resume = useCallback((action: ResumeAction, content?: string) => {
-    const s = stateRef.current;
-    const wait = s.wait;
-    if (!wait || inflight.current || s.authState !== "ok") return;
-    dispatch({ type: "resume_sent", action, ...(content !== undefined && { content }) });
+  const sendStarter = useCallback((question: string) => { void send(question); }, [send]);
+
+  const resume = useCallback((action: ResumeAction, content?: string, opts?: ResumeOptions) => {
+    const wait = stateRef.current.wait;
+    if (!wait || !canStart()) return;
+    const statusCheckOnly = opts?.statusCheckOnly === true;
+    dispatch({ type: "resume_sent", action, ...(content !== undefined && { content }), ...(statusCheckOnly && { statusCheckOnly }) });
     void run({
       conversationId: conversationId.current,
       text: "",
-      resume: { jobId: wait.jobId, token: wait.token, action, ...(content !== undefined && { content }) },
+      resume: {
+        jobId: wait.jobId, token: wait.token, action,
+        ...(content !== undefined && { content }), ...(statusCheckOnly && { statusCheckOnly }),
+      },
     });
   }, [run]);
 
@@ -382,5 +494,12 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     [list, refresh, loadMore, rename, remove],
   );
 
-  return { state, workflowInfo, workflowError, conversations, send, sendStarter, resume, newConversation, openConversation };
+  const attachments = useMemo<AttachmentTray | null>(
+    () => (fileService
+      ? { pending: tray.pending, rejected: tray.rejected, uploading: tray.uploading, add: addFiles, remove: removeFile }
+      : null),
+    [fileService, tray, addFiles, removeFile],
+  );
+
+  return { state, workflowInfo, workflowError, conversations, attachments, send, sendStarter, resume, newConversation, openConversation };
 }

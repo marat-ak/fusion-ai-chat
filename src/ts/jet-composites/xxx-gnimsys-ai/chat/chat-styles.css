@@ -210,13 +210,20 @@ xxx-gnimsys-ai-chat[hidden] {
 
 .gai-composer {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: var(--oj-core-spacing-2x);
   padding: var(--oj-core-spacing-3x) var(--oj-core-spacing-4x);
   border-top: 1px solid var(--oj-core-divider-color);
 }
 
-.gai-composer-input {
+.gai-composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--oj-core-spacing-2x);
+}
+
+.gai-composer-input,
+.gai-hitl-input {
   flex: 1 1 auto;
   resize: none;
   font: inherit;
@@ -227,12 +234,14 @@ xxx-gnimsys-ai-chat[hidden] {
   padding: var(--oj-core-spacing-2x);
 }
 
-.gai-composer-input:focus {
+.gai-composer-input:focus,
+.gai-hitl-input:focus {
   outline: 2px solid var(--oj-core-focus-border-color);
   outline-offset: -1px;
 }
 
-.gai-composer-input:disabled {
+.gai-composer-input:disabled,
+.gai-hitl-input:disabled {
   color: var(--oj-core-text-color-disabled);
 }
 
@@ -261,6 +270,127 @@ xxx-gnimsys-ai-chat[hidden] {
 .gai-button:disabled {
   cursor: default;
   opacity: 0.5;
+}
+
+/* ---- attachments (composer tray, user bubble) ----------------------------------------------- */
+
+.gai-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--oj-core-spacing-1x);
+}
+
+.gai-attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--oj-core-spacing-2x);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gai-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--oj-core-spacing-2x);
+  max-width: 100%;
+  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-1x) var(--oj-core-spacing-1x) var(--oj-core-spacing-3x);
+  border: 1px solid var(--oj-core-divider-color);
+  border-radius: 999px;
+  font-size: 0.8125rem;
+}
+
+.gai-attach-chip--uploading,
+.gai-attach-chip--uploaded {
+  background: var(--oj-core-bg-color-selected);
+}
+
+.gai-attach-chip--failed {
+  border-color: var(--oj-core-danger-3);
+  background: var(--oj-core-danger-secondary-1);
+}
+
+.gai-attach-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gai-attach-size,
+.gai-attach-status {
+  color: var(--oj-core-text-color-secondary);
+  white-space: nowrap;
+}
+
+.gai-attach-error,
+.gai-attach-rejected {
+  color: var(--oj-core-text-color-danger);
+  font-size: 0.8125rem;
+}
+
+.gai-attach-remove {
+  font: inherit;
+  line-height: 1;
+  padding: 0 var(--oj-core-spacing-1x);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--oj-core-text-color-secondary);
+  cursor: pointer;
+}
+
+.gai-attach-remove:hover:not(:disabled) {
+  background: var(--oj-core-bg-color-hover);
+}
+
+.gai-attach-remove:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.gai-bubble-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--oj-core-spacing-1x);
+  margin: var(--oj-core-spacing-1x) 0 0;
+  padding: 0;
+  list-style: none;
+  white-space: normal;
+}
+
+.gai-bubble-attachment {
+  padding: 0 var(--oj-core-spacing-2x);
+  border: 1px solid var(--oj-core-divider-color);
+  border-radius: 999px;
+  background: var(--oj-core-bg-color-content);
+  font-size: 0.75rem;
+}
+
+/* ---- HITL bar (replaces the composer while the agent waits on the user) --------------------- */
+
+.gai-hitl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--oj-core-spacing-2x);
+  padding: var(--oj-core-spacing-3x) var(--oj-core-spacing-4x);
+  border-top: 1px solid var(--oj-core-divider-color);
+}
+
+.gai-hitl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--oj-core-spacing-2x);
+}
+
+.gai-hitl-reply {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--oj-core-spacing-2x);
+}
+
+.gai-hitl-countdown {
+  color: var(--oj-core-text-color-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- state panel and auth banner ------------------------------------------------------------ */

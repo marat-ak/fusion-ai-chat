@@ -22,7 +22,8 @@ export type ChatAction =
   | { type: "event"; event: ChatEvent }
   | { type: "history_loading" } | { type: "history_loaded"; messages: HistoryMessage[] } | { type: "history_failed"; status: number }
   | { type: "new_conversation"; id: string } | { type: "open_conversation"; id: string }
-  | { type: "resume_sent"; action: "APPROVE_ACTION" | "REJECT_ACTION" | "RFI_ACTION"; content?: string }
+  // statusCheckOnly: a WAIT node's Refresh — the user said nothing, so no user turn is added.
+  | { type: "resume_sent"; action: "APPROVE_ACTION" | "REJECT_ACTION" | "RFI_ACTION"; content?: string; statusCheckOnly?: boolean }
   | { type: "auth"; state: ChatState["authState"] };
 
 export function initialState(conversationId: string): ChatState {
@@ -126,6 +127,11 @@ export function reduce(state: ChatState, action: ChatAction): ChatState {
     case "open_conversation":
       return { ...initialState(action.id), historyStatus: "loading", authState: state.authState };
     case "resume_sent": {
+      if (action.statusCheckOnly) {
+        const asst: Turn = { id: "t" + state.nextTurnId, role: "assistant", text: "", streaming: true };
+        const { wait: _w, ...rest } = state;
+        return { ...rest, turns: [...state.turns, asst], nextTurnId: state.nextTurnId + 1, status: "sending", followups: [] };
+      }
       const text = action.action === "APPROVE_ACTION" ? "Approved" : action.action === "REJECT_ACTION" ? "Rejected" : action.content ?? "";
       const { wait: _wait, ...rest } = appendUserAndAssistant(state, text);
       return rest;
