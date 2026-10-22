@@ -1,22 +1,259 @@
-/* This file is where css selectors for the component go.
-   There will be hard coded properties and properties controlled by variables, for example
+/* xxx-gnimsys-ai-chat — plain CSS on Redwood core tokens. Every class is prefixed `gai-`. */
 
-   xxx-gnimsys-ai-chat .xxx-gnimsys-ai-chat-value-text {
-   color: var(--xxx-gnimsys-ai-chat-value-text-color);
-   display: inline-block;
-	 }
-*/
-
-xxx-gnimsys-ai-chat:not(.oj-complete){
+xxx-gnimsys-ai-chat:not(.oj-complete) {
   visibility: hidden;
 }
 
-xxx-gnimsys-ai-chat{
-	min-height: 50px;
-	width: 50px;
+xxx-gnimsys-ai-chat {
+  display: block;
+  min-height: 50px;
 }
 
-xxx-gnimsys-ai-chat[hidden]
-{
+xxx-gnimsys-ai-chat[hidden] {
   display: none;
+}
+
+.gai-chat {
+  height: 100%;
+  color: var(--oj-core-text-color-primary);
+  background: var(--oj-core-bg-color-content);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+/* ---- shell ---------------------------------------------------------------------------------- */
+
+.gai-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 24rem;
+  border: 1px solid var(--oj-core-divider-color);
+  border-radius: var(--oj-core-border-radius-lg);
+  overflow: hidden;
+}
+
+.gai-header {
+  padding: var(--oj-core-spacing-3x) var(--oj-core-spacing-4x);
+  border-bottom: 1px solid var(--oj-core-divider-color);
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+/* ---- feed ----------------------------------------------------------------------------------- */
+
+.gai-feed {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--oj-core-spacing-2x);
+  padding: var(--oj-core-spacing-4x);
+}
+
+.gai-bubble {
+  max-width: 80%;
+  padding: var(--oj-core-spacing-2x) var(--oj-core-spacing-3x);
+  border-radius: var(--oj-core-border-radius-lg);
+  overflow-wrap: anywhere;
+}
+
+.gai-bubble--user {
+  align-self: flex-end;
+  white-space: pre-wrap;
+  background: var(--oj-core-bg-color-selected);
+}
+
+.gai-bubble--assistant {
+  align-self: flex-start;
+  background: var(--oj-core-neutral-2);
+}
+
+.gai-bubble--plain {
+  white-space: pre-wrap;
+}
+
+.gai-bubble--error {
+  white-space: pre-wrap;
+  background: var(--oj-core-danger-secondary-1);
+  color: var(--oj-core-text-color-danger);
+  border: 1px solid var(--oj-core-danger-3);
+}
+
+.gai-error-meta {
+  margin-top: var(--oj-core-spacing-1x);
+  font-size: 0.75rem;
+  color: var(--oj-core-text-color-secondary);
+}
+
+.gai-md > :first-child {
+  margin-top: 0;
+}
+
+.gai-md > :last-child {
+  margin-bottom: 0;
+}
+
+.gai-md pre {
+  overflow-x: auto;
+  padding: var(--oj-core-spacing-2x);
+  border-radius: var(--oj-core-border-radius-md);
+  background: var(--oj-core-bg-color-content);
+}
+
+.gai-md table {
+  border-collapse: collapse;
+}
+
+.gai-md th,
+.gai-md td {
+  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-2x);
+  border: 1px solid var(--oj-core-divider-color);
+}
+
+.gai-progress {
+  align-self: flex-start;
+  color: var(--oj-core-text-color-secondary);
+  font-size: 0.8125rem;
+  padding: 0 var(--oj-core-spacing-1x);
+}
+
+.gai-typing {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.gai-typing > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+  animation: gai-blink 1.2s infinite ease-in-out;
+}
+
+.gai-typing > span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.gai-typing > span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes gai-blink {
+  0%, 80%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
+}
+
+/* ---- chips (starters, follow-ups) ----------------------------------------------------------- */
+
+.gai-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--oj-core-spacing-2x);
+}
+
+.gai-starters {
+  margin-top: auto;
+}
+
+.gai-chip {
+  font: inherit;
+  color: var(--oj-core-text-color-brand);
+  background: var(--oj-core-bg-color-content);
+  border: 1px solid var(--oj-core-divider-color);
+  border-radius: 999px;
+  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-3x);
+  cursor: pointer;
+}
+
+.gai-chip:hover:not(:disabled) {
+  background: var(--oj-core-bg-color-hover);
+}
+
+.gai-chip:disabled {
+  color: var(--oj-core-text-color-disabled);
+  cursor: default;
+}
+
+/* ---- composer ------------------------------------------------------------------------------- */
+
+.gai-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--oj-core-spacing-2x);
+  padding: var(--oj-core-spacing-3x) var(--oj-core-spacing-4x);
+  border-top: 1px solid var(--oj-core-divider-color);
+}
+
+.gai-composer-input {
+  flex: 1 1 auto;
+  resize: none;
+  font: inherit;
+  color: inherit;
+  background: var(--oj-core-bg-color-content);
+  border: 1px solid var(--oj-core-divider-color);
+  border-radius: var(--oj-core-border-radius-md);
+  padding: var(--oj-core-spacing-2x);
+}
+
+.gai-composer-input:focus {
+  outline: 2px solid var(--oj-core-focus-border-color);
+  outline-offset: -1px;
+}
+
+.gai-composer-input:disabled {
+  color: var(--oj-core-text-color-disabled);
+}
+
+.gai-button {
+  font: inherit;
+  padding: var(--oj-core-spacing-2x) var(--oj-core-spacing-4x);
+  border-radius: var(--oj-core-border-radius-md);
+  border: 1px solid var(--oj-core-divider-color);
+  background: var(--oj-core-bg-color-content);
+  color: var(--oj-core-text-color-primary);
+  cursor: pointer;
+}
+
+.gai-button--primary {
+  border-color: transparent;
+  background: var(--oj-core-text-color-primary);
+  color: var(--oj-core-bg-color-content);
+}
+
+.gai-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ---- state panel and auth banner ------------------------------------------------------------ */
+
+.gai-state-panel {
+  padding: var(--oj-core-spacing-4x);
+  border: 1px solid var(--oj-core-warning-3);
+  border-radius: var(--oj-core-border-radius-lg);
+  background: var(--oj-core-warning-secondary-1);
+}
+
+.gai-state-title {
+  font-weight: 600;
+  margin-bottom: var(--oj-core-spacing-2x);
+}
+
+.gai-state-problems {
+  margin: 0;
+  padding-left: var(--oj-core-spacing-5x);
+}
+
+.gai-auth-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--oj-core-spacing-3x);
+  padding: var(--oj-core-spacing-2x) var(--oj-core-spacing-4x);
+  background: var(--oj-core-danger-secondary-1);
+  color: var(--oj-core-text-color-danger);
+  border-bottom: 1px solid var(--oj-core-danger-3);
 }

@@ -3,6 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "tests/e2e",
   retries: 0,
+  // One mock pod with shared state (request log, one-shot expired relay): spec files must not run concurrently.
+  workers: 1,
   reporter: "list",
   use: {
     baseURL: "http://localhost:8000",
