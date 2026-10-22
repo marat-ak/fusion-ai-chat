@@ -55,24 +55,32 @@ export function frameToEvents(frame: AiStudioFrame): ChatEvent[] {
   const m = frame.message;
   const delta = m?.content?.[0]?.text;
   if (typeof delta === "string") ev.push({ type: "delta", text: delta });
+  // Unset = absent, null or "" (Oracle client semantics: a finishReason is set when truthy).
   const fr = m?.finishReason;
-  const wd = frame.waitingNodeDetails;
-  if (fr === "wait" && wd && wd.callbackToken) {
-    const e: ChatEvent = {
-      type: "wait", kind: wd.type, token: wd.callbackToken, message: wd.initialMessage ?? "",
-      approval: wd.approvalEnabledFlag === true, feedback: wd.feedbackEnabledFlag === true,
-    };
-    if (wd.requestChangeMessage !== undefined) e.requestChangeMessage = wd.requestChangeMessage;
-    if (wd.waitTimeInMinutes !== undefined) e.waitMinutes = wd.waitTimeInMinutes;
-    ev.push(e);
-  }
-  if ((fr === "stop" || fr === "paused" || fr === "error") && typeof m?.output === "string") {
-    ev.push({ type: "final", text: m.output, finishReason: fr });
-    if (fr === "error") {
-      const e: ChatEvent = { type: "error", message: m.output };
-      if (frame.errorNodeCode !== undefined) e.code = frame.errorNodeCode;
+  if (fr === "wait") {
+    const wd = frame.waitingNodeDetails;
+    if (wd && wd.callbackToken) {
+      const e: ChatEvent = {
+        type: "wait", kind: wd.type, token: wd.callbackToken, message: wd.initialMessage ?? "",
+        approval: wd.approvalEnabledFlag === true, feedback: wd.feedbackEnabledFlag === true,
+      };
+      if (wd.requestChangeMessage !== undefined) e.requestChangeMessage = wd.requestChangeMessage;
+      if (wd.waitTimeInMinutes !== undefined) e.waitMinutes = wd.waitTimeInMinutes;
       ev.push(e);
+    } else {
+      ev.push({ type: "error", message: "wait without callbackToken" });
     }
+  } else if (fr === "stop" || fr === "paused" || fr === "error") {
+    if (typeof m?.output === "string") {
+      ev.push({ type: "final", text: m.output, finishReason: fr });
+      if (fr === "error") {
+        const e: ChatEvent = { type: "error", message: m.output };
+        if (frame.errorNodeCode !== undefined) e.code = frame.errorNodeCode;
+        ev.push(e);
+      }
+    }
+  } else if (fr !== undefined && fr !== null && fr !== "") {
+    ev.push({ type: "error", message: `unknown finishReason ${fr}` });
   }
   if (m?.followUpQuestions && m.followUpQuestions.length > 0) ev.push({ type: "followups", questions: m.followUpQuestions });
   return ev;

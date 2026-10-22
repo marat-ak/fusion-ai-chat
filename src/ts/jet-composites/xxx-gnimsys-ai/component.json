@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "jetVersion": "^18.0.15",
   "type": "pack",
-  "displayName": "A user friendly, translatable name of the pack.",
-  "description": "A translatable high-level description for the pack.",
+  "displayName": "Gnimsys AI Chat",
+  "description": "Chat component for Oracle AI Agent Studio agents (VB App UI extensions)",
   "dependencies": {
     "xxx-gnimsys-ai-chat": "0.1.0",
     "xxx-gnimsys-ai-libs": "0.1.0"

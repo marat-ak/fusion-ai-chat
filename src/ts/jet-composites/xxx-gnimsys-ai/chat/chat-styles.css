@@ -4,9 +4,10 @@ xxx-gnimsys-ai-chat:not(.oj-complete) {
   visibility: hidden;
 }
 
+/* A definite default height (the page can set its own): the chat fills it and the feed scrolls inside. */
 xxx-gnimsys-ai-chat {
   display: block;
-  min-height: 50px;
+  height: 560px;
 }
 
 xxx-gnimsys-ai-chat[hidden] {
@@ -28,7 +29,8 @@ xxx-gnimsys-ai-chat[hidden] {
   display: flex;
   flex-direction: row;
   height: 100%;
-  min-height: 24rem;
+  min-height: 0;
+  box-sizing: border-box;
   border: 1px solid var(--oj-core-divider-color);
   border-radius: var(--oj-core-border-radius-lg);
   overflow: hidden;
@@ -37,6 +39,7 @@ xxx-gnimsys-ai-chat[hidden] {
 .gai-main {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -89,10 +92,24 @@ xxx-gnimsys-ai-chat[hidden] {
   border: 1px solid var(--oj-core-danger-3);
 }
 
+.gai-bubble-text + .gai-error-message {
+  margin-top: var(--oj-core-spacing-1x);
+  font-weight: 600;
+}
+
 .gai-error-meta {
   margin-top: var(--oj-core-spacing-1x);
   font-size: 0.75rem;
   color: var(--oj-core-text-color-secondary);
+}
+
+/* Reply HTML stays inside its bubble: nothing it contains paints outside it, and images fit. */
+.gai-md {
+  contain: paint;
+}
+
+.gai-md img {
+  max-width: 100%;
 }
 
 .gai-md > :first-child {
@@ -154,7 +171,7 @@ xxx-gnimsys-ai-chat[hidden] {
   40% { opacity: 1; }
 }
 
-/* History of an opened conversation: loading / unavailable, at the end of the feed (above the composer). */
+/* History of an opened conversation: unavailable at the top of the feed, loading at its end (above the composer). */
 .gai-history-notice {
   align-self: center;
   color: var(--oj-core-text-color-secondary);

@@ -1,6 +1,7 @@
 import type { ChatEvent } from "../transport/events";
 import type { HistoryMessage } from "../history/HistoryStore";
 import type { UploadedAttachment } from "../files/AttachmentService";
+import type { AuthReason } from "../auth/AuthFetch";
 
 export interface Turn { id: string; role: "user" | "assistant"; text: string; streaming?: boolean; error?: { message: string; status?: number; code?: string }; attachments?: UploadedAttachment[] }
 export interface WaitInfo { kind: "HUMAN" | "WAIT"; token: string; jobId: string; approval: boolean; feedback: boolean; requestChangeMessage?: string; waitMinutes?: number }
@@ -11,20 +12,24 @@ export interface ChatState {
   progressText?: string;
   wait?: WaitInfo;
   followups: string[];
+  /** The job of the turn in progress (from its `job` event); cleared when a new turn or a resume is sent. */
   jobId?: string;
   historyStatus: "none" | "loading" | "loaded" | "unavailable";
-  historyError?: number;
-  authState: "ok" | "relogin" | "unauthorized";
+  /** Why the history did not load: HTTP status (0 without an HTTP answer) and the readable error body, if any. */
+  historyError?: { status: number; text?: string };
+  /** "unavailable": auth cannot work on this page or clock (see `authReason`); "relogin"/"unauthorized": the relay refused. */
+  authState: "ok" | "relogin" | "unauthorized" | "unavailable";
+  authReason?: AuthReason;
   nextTurnId: number;
 }
 export type ChatAction =
   | { type: "user_send"; text: string; attachments?: UploadedAttachment[] }
   | { type: "event"; event: ChatEvent }
-  | { type: "history_loading" } | { type: "history_loaded"; messages: HistoryMessage[] } | { type: "history_failed"; status: number }
+  | { type: "history_loading" } | { type: "history_loaded"; messages: HistoryMessage[] } | { type: "history_failed"; status: number; text?: string }
   | { type: "new_conversation"; id: string } | { type: "open_conversation"; id: string }
   // statusCheckOnly: a WAIT node's Refresh — the user said nothing, so no user turn is added.
   | { type: "resume_sent"; action: "APPROVE_ACTION" | "REJECT_ACTION" | "RFI_ACTION"; content?: string; statusCheckOnly?: boolean }
-  | { type: "auth"; state: ChatState["authState"] };
+  | { type: "auth"; state: ChatState["authState"]; reason?: AuthReason };
 
 export function initialState(conversationId: string): ChatState {
   return { conversationId, turns: [], status: "idle", followups: [], historyStatus: "none", authState: "ok", nextTurnId: 1 };
@@ -57,7 +62,8 @@ function appendUserAndAssistant(s: ChatState, text: string, attachments?: Upload
   const user: Turn = { id: "t" + s.nextTurnId, role: "user", text };
   if (attachments) user.attachments = attachments;
   const asst: Turn = { id: "t" + (s.nextTurnId + 1), role: "assistant", text: "", streaming: true };
-  return { ...s, turns: [...s.turns, user, asst], nextTurnId: s.nextTurnId + 2, status: "sending", followups: [] };
+  const { jobId: _job, ...rest } = s; // a new turn gets its own job
+  return { ...rest, turns: [...s.turns, user, asst], nextTurnId: s.nextTurnId + 2, status: "sending", followups: [] };
 }
 
 function reduceEvent(s: ChatState, e: ChatEvent): ChatState {
@@ -70,15 +76,19 @@ function reduceEvent(s: ChatState, e: ChatEvent): ChatState {
       return { ...s, progressText: e.text };
     case "final": {
       const { state, idx } = ensureStreaming(s);
-      return { ...patchTurn(state, idx, { text: e.text, streaming: false }), progressText: undefined };
+      // An empty output keeps the text streamed so far.
+      const text = e.text === "" ? state.turns[idx].text : e.text;
+      return { ...patchTurn(state, idx, { text, streaming: false }), progressText: undefined };
     }
     case "followups":
       return { ...s, followups: [...e.questions] };
     case "job":
       return { ...s, jobId: e.jobId };
     case "wait": {
+      // A resume needs the job: a wait whose turn reported none cannot be answered.
+      if (s.jobId === undefined) return reduceEvent(s, { type: "error", message: "wait without jobId" });
       const { state, idx } = ensureStreaming(s);
-      const wait: WaitInfo = { kind: e.kind, token: e.token, jobId: s.jobId ?? "", approval: e.approval, feedback: e.feedback };
+      const wait: WaitInfo = { kind: e.kind, token: e.token, jobId: s.jobId, approval: e.approval, feedback: e.feedback };
       if (e.requestChangeMessage !== undefined) wait.requestChangeMessage = e.requestChangeMessage;
       if (e.waitMinutes !== undefined) wait.waitMinutes = e.waitMinutes;
       return { ...patchTurn(state, idx, { text: e.message, streaming: false }), status: "waiting", wait, progressText: undefined };
@@ -100,6 +110,12 @@ function reduceEvent(s: ChatState, e: ChatEvent): ChatState {
       return { ...s, turns: [...s.turns, turn], nextTurnId: s.nextTurnId + 1, status: "error", progressText: undefined };
     }
     case "done": {
+      // The stream ended while the reply was still in progress (no final, wait or error): an explicit failure.
+      const idx = streamingIdx(s.turns);
+      if (idx >= 0) {
+        const message = s.turns[idx].text === "" ? "No reply received" : "Reply ended before it finished";
+        return { ...patchTurn(s, idx, { streaming: false, error: { message } }), status: "error", progressText: undefined };
+      }
       const last = [...s.turns].reverse().find(t => t.role === "assistant");
       const status: ChatState["status"] = s.wait ? "waiting" : last?.error ? "error" : "idle";
       return { ...s, status, progressText: undefined };
@@ -121,22 +137,33 @@ export function reduce(state: ChatState, action: ChatAction): ChatState {
       return { ...state, turns, nextTurnId: n, historyStatus: "loaded", historyError: undefined };
     }
     case "history_failed":
-      return { ...state, historyStatus: "unavailable", historyError: action.status };
+      return {
+        ...state,
+        historyStatus: "unavailable",
+        historyError: { status: action.status, ...(action.text !== undefined && { text: action.text }) },
+      };
     case "new_conversation":
-      return { ...initialState(action.id), authState: state.authState };
+      return { ...initialState(action.id), ...authOf(state) };
     case "open_conversation":
-      return { ...initialState(action.id), historyStatus: "loading", authState: state.authState };
+      return { ...initialState(action.id), historyStatus: "loading", ...authOf(state) };
     case "resume_sent": {
       if (action.statusCheckOnly) {
         const asst: Turn = { id: "t" + state.nextTurnId, role: "assistant", text: "", streaming: true };
-        const { wait: _w, ...rest } = state;
+        const { wait: _w, jobId: _job, ...rest } = state;
         return { ...rest, turns: [...state.turns, asst], nextTurnId: state.nextTurnId + 1, status: "sending", followups: [] };
       }
       const text = action.action === "APPROVE_ACTION" ? "Approved" : action.action === "REJECT_ACTION" ? "Rejected" : action.content ?? "";
       const { wait: _wait, ...rest } = appendUserAndAssistant(state, text);
       return rest;
     }
-    case "auth":
-      return { ...state, authState: action.state };
+    case "auth": {
+      const { authReason: _r, ...rest } = state;
+      return { ...rest, authState: action.state, ...(action.reason !== undefined && { authReason: action.reason }) };
+    }
   }
+}
+
+/** The auth state outlives a conversation switch. */
+function authOf(s: ChatState): Pick<ChatState, "authState" | "authReason"> {
+  return { authState: s.authState, ...(s.authReason !== undefined && { authReason: s.authReason }) };
 }

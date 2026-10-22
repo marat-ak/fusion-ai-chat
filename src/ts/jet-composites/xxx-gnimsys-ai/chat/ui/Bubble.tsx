@@ -26,9 +26,11 @@ export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null })
   }
   if (turn.error) {
     const meta = [turn.error.code, turn.error.status !== undefined ? "HTTP " + turn.error.status : undefined].filter(Boolean).join(" · ");
+    // The text received before the failure (if any), then the error itself unless it is that same text.
     return (
       <div class="gai-bubble gai-bubble--assistant gai-bubble--error" data-testid="gai-error" role="alert">
-        <div class="gai-bubble-text">{turn.text}</div>
+        {turn.text !== "" && <div class="gai-bubble-text">{turn.text}</div>}
+        {turn.error.message !== turn.text && <div class="gai-error-message" data-testid="gai-error-message">{turn.error.message}</div>}
         {meta !== "" && <div class="gai-error-meta">{meta}</div>}
       </div>
     );

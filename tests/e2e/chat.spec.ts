@@ -2,7 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 // Host page = src/index.html (default mock config: workflow MOCK_WF on pod "mockpod", starters "fromWorkflow").
 // Mock pod chat fixtures by message: "hello" (any other text too) -> "Hel","lo!" deltas, final "Hello! How can I help?"
-// + follow-ups; "fail" -> error final "ErrorRecord[boom]". BOSS workflows -> starters "Show my invoices", "Create a PO".
+// + follow-ups; "fail" -> error final "ErrorRecord[boom]"; "unsafe html" -> a final with an overlay div, a remote image,
+// a raw anchor and form controls. BOSS workflows -> starters "Show my invoices", "Create a PO".
 const MOCK_POD = "http://localhost:8787";
 
 type MockRequest = { method: string; url: string; headers: Record<string, string>; body: unknown };
@@ -129,7 +130,7 @@ test("relogin_banner_on_html_relay", async ({ page }) => {
   await expect(page.getByTestId("gai-auth-banner")).toHaveCount(0);
 });
 
-test("invalid_xsrf_shows_relogin_banner", async ({ page }) => {
+test("missing_xsrf_shows_unavailable_banner", async ({ page }) => {
   // Explicit starters and no sidebar: no workflow lookup or conversation list at mount, so the send is the first call
   // that needs the shell's xsrf node.
   await page.addInitScript(() => {
@@ -145,12 +146,67 @@ test("invalid_xsrf_shows_relogin_banner", async ({ page }) => {
   await expect(page.getByTestId("gai-starter")).toHaveText(["Show my invoices"]);
   await expect(page.getByTestId("gai-sidebar")).toHaveCount(0);
 
+  const errors: Array<{ message: string; reason?: string }> = [];
+  await page.exposeFunction("__chatError", (d: { message: string; reason?: string }) => { errors.push(d); });
+  await page.evaluate(() => {
+    document.getElementById("chat")?.addEventListener("aiChatError", (e) => {
+      (window as unknown as { __chatError: (d: unknown) => void }).__chatError((e as CustomEvent).detail);
+    });
+  });
+
   await sendText(page, "hello");
-  await expect(page.getByTestId("gai-auth-banner")).toContainText("Session expired");
+  await expect(page.getByTestId("gai-auth-banner")).toHaveText("Chat auth unavailable on this page: #fndsectkn not found");
+  // A reload brings back the same page without the node: no Reload button.
+  await expect(page.getByTestId("gai-auth-reload")).toHaveCount(0);
   await expect(page.getByTestId("gai-composer-input")).toBeDisabled();
-  await expect(page.getByTestId("gai-error")).toHaveCount(0);
+  // The turn that never reached the agent ends explicitly.
+  await expect(page.getByTestId("gai-error")).toHaveText("No reply received");
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(0);
   expect(await chatRequests(page)).toEqual([]);
+  await expect.poll(() => errors.map((d) => d.reason)).toEqual(["xsrf-missing"]);
+});
+
+test("unsafe_reply_html_is_neutralized", async ({ page }) => {
+  const remote: string[] = [];
+  page.on("request", (r) => { if (r.url().includes("evil.example.com")) remote.push(r.url()); });
+  await page.goto("/");
+  await sendText(page, "unsafe html");
+  const bubble = page.getByTestId("gai-bubble-assistant");
+  await expect(bubble.locator("strong")).toHaveText("bold");
+  await expect(bubble).toContainText("Overlay");
+  await expect(bubble.locator("[style]")).toHaveCount(0);
+  await expect(bubble.locator("img")).toHaveCount(0);
+  await expect(bubble).toContainText("[image: https://evil.example.com/pixel.png]");
+  const a = bubble.locator("a");
+  await expect(a).toHaveAttribute("target", "_blank");
+  await expect(a).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(bubble.locator("input, button, select, textarea")).toHaveCount(0);
+  expect(remote).toEqual([]);
+});
+
+test("default_height_with_scrolling_feed_and_page_override", async ({ page }) => {
+  await page.goto("/");
+  const host = page.locator("#chat");
+  await expect(page.getByTestId("gai-starter")).toHaveCount(2);
+  expect((await host.boundingBox())?.height).toBe(560);
+
+  // Replies pile up inside the feed: the element keeps its height and the feed scrolls.
+  for (let i = 1; i <= 5; i++) {
+    await sendText(page, "hello");
+    await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(i);
+    await expect(page.getByTestId("gai-followup")).toHaveCount(2);
+  }
+  expect((await host.boundingBox())?.height).toBe(560);
+  const feed = await page.locator(".gai-feed").evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight, top: el.scrollTop }));
+  expect(feed.scroll).toBeGreaterThan(feed.client);
+  expect(feed.top).toBeGreaterThan(0); // kept scrolled to the latest turn
+  const shell = await page.locator(".gai-shell").boundingBox();
+  expect(shell?.height).toBe(560);
+
+  // The page sets its own height.
+  await page.addStyleTag({ content: "#chat { height: 320px; }" });
+  await expect.poll(async () => (await host.boundingBox())?.height).toBe(320);
+  expect((await page.locator(".gai-shell").boundingBox())?.height).toBe(320);
 });
 
 test("workflow_lookup_failure_shows_notice", async ({ page }) => {

@@ -1,0 +1,3 @@
+data: {"jobId":"job-3"}
+
+data: {"message":{"output":"Safe **bold**\n\n<div style=\"position:fixed;inset:0;z-index:99999;background:white\">Overlay</div>\n\n<img src=\"https://evil.example.com/pixel.png\">\n\n<a href=\"https://example.com/raw\" target=\"_self\">raw link</a>\n\n<input type=\"password\" placeholder=\"Password\"><button>Sign in</button>","finishReason":"stop"}}

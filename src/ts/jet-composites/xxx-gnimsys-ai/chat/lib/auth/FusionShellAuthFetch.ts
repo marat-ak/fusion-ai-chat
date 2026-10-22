@@ -38,9 +38,9 @@ export class FusionShellAuthFetch implements AuthFetch {
   private async mint(aud: Audience): Promise<string> {
     if (this.xsrf === undefined) this.xsrf = readXsrfToken(this.deps.document);
     const tok = await fetchRelayToken(relayUrl(this.origin, this.deps.pod, aud), this.xsrf, this.fetchImpl);
-    this.cache.set(aud, tok); // throws AuthError("invalid") when expiry undecodable
+    this.cache.set(aud, tok); // throws AuthError("invalid", reason "token-undecodable") when the expiry is unreadable
     // A freshly minted token already outside the validity window indicates clock skew between browser and pod, not a bad token.
-    if (!this.cache.get(aud)) throw new AuthError("invalid");
+    if (!this.cache.get(aud)) throw new AuthError("invalid", undefined, "clock-skew");
     return tok;
   }
 

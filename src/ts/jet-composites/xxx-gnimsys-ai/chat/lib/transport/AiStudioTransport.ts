@@ -2,6 +2,7 @@ import { resolveOrigin } from "../origin";
 import type { AuthFetch } from "../auth/AuthFetch";
 import type { ChatEvent } from "./events";
 import type { ChatTransport, SendInput } from "./ChatTransport";
+import { errorText } from "./errorText";
 import { createSseDataSplitter, frameToEvents, parseFrame } from "./sseParser";
 import { signedHeaders } from "./signer";
 
@@ -69,10 +70,21 @@ export class AiStudioTransport implements ChatTransport {
 
     if (!res.ok) {
       const text = await res.text();
-      const err: ChatEvent = { type: "error", status: res.status, message: text || res.statusText || `HTTP ${res.status}` };
+      const err: ChatEvent = { type: "error", status: res.status, message: errorText(text) || res.statusText || `HTTP ${res.status}` };
       const code = /FAI-\d+/.exec(text);
       if (code) err.code = code[0];
       yield err;
+      yield { type: "done" };
+      return;
+    }
+    // A 2xx that is not this endpoint's SSE (a login page, a proxy answer, a redirect hop) is an explicit failure.
+    const contentType = res.headers.get("content-type") ?? "";
+    const notSse = res.redirected === true
+      ? `redirected to ${res.url}`
+      : contentType.toLowerCase().startsWith("text/event-stream") ? null : `non-SSE response (${contentType || "no content-type"})`;
+    if (notSse !== null) {
+      res.body?.cancel().catch(() => undefined);
+      yield { type: "error", status: res.status, message: notSse };
       yield { type: "done" };
       return;
     }

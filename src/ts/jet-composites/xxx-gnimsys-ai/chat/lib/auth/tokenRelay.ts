@@ -6,11 +6,16 @@ export function relayUrl(origin: string, pod: string, audience: Audience): strin
   return `${base}?scopesfq=${encodeURIComponent(`urn:opc:resource:fusion:${pod}:${audience}/`)}`;
 }
 
+// The shell's xsrf token, read once per document. The node stays in place: every chat instance on the page (and the
+// shell itself) may need it, so later readers get the value read first.
+const xsrfByDocument = new WeakMap<Document, string>();
+
 export function readXsrfToken(doc: Document): string {
-  const node = doc.getElementById("fndsectkn");
-  const data = node?.getAttribute("data");
-  if (!node || !data) throw new AuthError("invalid");
-  node.parentNode?.removeChild(node);
+  const cached = xsrfByDocument.get(doc);
+  if (cached !== undefined) return cached;
+  const data = doc.getElementById("fndsectkn")?.getAttribute("data");
+  if (!data) throw new AuthError("invalid", undefined, "xsrf-missing");
+  xsrfByDocument.set(doc, data);
   return data;
 }
 
@@ -45,7 +50,7 @@ export class TokenCache {
   }
   set(aud: Audience, token: string): void {
     const x = tokenExpiry(token);
-    if (!x) throw new AuthError("invalid");
+    if (!x) throw new AuthError("invalid", undefined, "token-undecodable");
     this.m.set(aud, { token, exp: x.exp, iat: x.iat });
   }
 }

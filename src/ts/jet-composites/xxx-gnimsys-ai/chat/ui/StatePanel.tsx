@@ -1,3 +1,5 @@
+import type { AuthReason } from "../lib/auth/AuthFetch";
+import { authNotice } from "../lib/auth/authNotice";
 import type { Problem } from "../lib/config/types";
 import type { ChatState } from "../lib/state/conversation";
 
@@ -19,16 +21,17 @@ export function StatePanel(props: { kind: "needs-input" | "invalid"; problems: P
   );
 }
 
-/** Re-login / not-authorized state: no retry loop, only an explicit page reload. */
-export function AuthBanner(props: { state: Exclude<ChatState["authState"], "ok"> }) {
+/** Re-login / not-authorized / unavailable state: no retry loop, only an explicit page reload when one can help. */
+export function AuthBanner(props: { state: Exclude<ChatState["authState"], "ok">; reason?: AuthReason }) {
+  const notice = authNotice(props.state, props.reason);
   return (
     <div class="gai-auth-banner" data-testid="gai-auth-banner" role="alert">
-      <span class="gai-auth-text">
-        {props.state === "relogin" ? "Session expired. Reload the page to sign in again." : "Not authorized to use this agent."}
-      </span>
-      <button type="button" class="gai-button" data-testid="gai-auth-reload" onClick={() => location.reload()}>
-        Reload
-      </button>
+      <span class="gai-auth-text">{notice.text}</span>
+      {notice.reload && (
+        <button type="button" class="gai-button" data-testid="gai-auth-reload" onClick={() => location.reload()}>
+          Reload
+        </button>
+      )}
     </div>
   );
 }

@@ -48,6 +48,19 @@ describe("sseParser", () => {
     ]);
   });
 
+  test("unknown_finishReason_is_error", () => {
+    expect(frameToEvents({ message: { output: "x", finishReason: "length" } })).toEqual([{ type: "error", message: "unknown finishReason length" }]);
+    // null (not set) is no finishReason at all
+    expect(frameToEvents({ message: { content: [{ text: "a" }], finishReason: null as unknown as string } })).toEqual([{ type: "delta", text: "a" }]);
+    expect(frameToEvents({ message: { content: [{ text: "b" }], finishReason: "" } })).toEqual([{ type: "delta", text: "b" }]);
+  });
+
+  test("wait_without_token_is_error", () => {
+    expect(frameToEvents({ message: { finishReason: "wait" }, waitingNodeDetails: { type: "HUMAN", initialMessage: "ok?" } as never }))
+      .toEqual([{ type: "error", message: "wait without callbackToken" }]);
+    expect(frameToEvents({ message: { finishReason: "wait" } })).toEqual([{ type: "error", message: "wait without callbackToken" }]);
+  });
+
   test("followups_frame_maps_to_followups", () => {
     expect(frameToEvents({ message: { followUpQuestions: ["a", "b"] } })).toEqual([{ type: "followups", questions: ["a", "b"] }]);
   });

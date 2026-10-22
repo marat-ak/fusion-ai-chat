@@ -39,8 +39,24 @@ test("fetch_throws_when_token_expiry_undecodable", async () => {
   document.body.innerHTML = '<div id="fndsectkn" data="xs"></div>';
   const fetchImpl = (async () => fakeResponse(JSON.stringify({ access_token: "opaque" }))) as unknown as typeof fetch;
   const af = new FusionShellAuthFetch({ pod: "P", document, origin: O, fetchImpl, now: () => 1 });
-  await expect(af.fetch("rest", `${O}/x`)).rejects.toMatchObject({ kind: "invalid" });
+  await expect(af.fetch("rest", `${O}/x`)).rejects.toMatchObject({ kind: "invalid", reason: "token-undecodable" });
   await expect(af.fetch("rest", `${O}/x`)).rejects.toBeInstanceOf(AuthError);
+});
+
+test("fetch_throws_clock_skew_when_fresh_token_outside_window", async () => {
+  document.body.innerHTML = '<div id="fndsectkn" data="xs"></div>';
+  const now = 1000;
+  // Decodable, but already within the 100 s skew margin of its expiry at this browser clock.
+  const fetchImpl = (async () => fakeResponse(JSON.stringify({ access_token: makeJwt(now + 90, now) }))) as unknown as typeof fetch;
+  const af = new FusionShellAuthFetch({ pod: "P", document, origin: O, fetchImpl, now: () => now });
+  await expect(af.fetch("rest", `${O}/x`)).rejects.toMatchObject({ kind: "invalid", reason: "clock-skew" });
+});
+
+test("missing_xsrf_node_is_invalid_with_reason", async () => {
+  const doc = document.implementation.createHTMLDocument("t");
+  const fetchImpl = (async () => fakeResponse("{}")) as unknown as typeof fetch;
+  const af = new FusionShellAuthFetch({ pod: "P", document: doc, origin: O, fetchImpl, now: () => 1 });
+  await expect(af.fetch("rest", `${O}/x`)).rejects.toMatchObject({ kind: "invalid", reason: "xsrf-missing" });
 });
 
 test("fetch_parallel_calls_same_audience_mint_once", async () => {

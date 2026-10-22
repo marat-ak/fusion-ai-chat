@@ -11,16 +11,28 @@ test("relayUrl_for_each_audience", () => {
   expect(relayUrl(O, "POD1", "rest")).toBe(`${O}/fscmRestApi/tokenrelay`);
 });
 
-test("readXsrfToken_reads_and_removes_node", () => {
-  document.body.innerHTML = '<div id="fndsectkn" data="tok-1"></div>';
-  expect(readXsrfToken(document)).toBe("tok-1");
-  expect(document.getElementById("fndsectkn")).toBeNull();
+// Fresh documents: the token is cached per document for the module's lifetime.
+const freshDoc = (): Document => document.implementation.createHTMLDocument("t");
+
+test("readXsrfToken_reads_once_and_keeps_node", () => {
+  const doc = freshDoc();
+  doc.body.innerHTML = '<div id="fndsectkn" data="tok-1"></div>';
+  expect(readXsrfToken(doc)).toBe("tok-1");
+  expect(doc.getElementById("fndsectkn")?.getAttribute("data")).toBe("tok-1");
+  // Another instance on the same page (the node gone or not) gets the value read first.
+  doc.getElementById("fndsectkn")?.remove();
+  expect(readXsrfToken(doc)).toBe("tok-1");
 });
 
 test("readXsrfToken_throws_when_missing", () => {
-  document.body.innerHTML = "";
-  expect(() => readXsrfToken(document)).toThrow(AuthError);
-  try { readXsrfToken(document); } catch (e) { expect((e as AuthError).kind).toBe("invalid"); }
+  const doc = freshDoc();
+  expect(() => readXsrfToken(doc)).toThrow(AuthError);
+  try { readXsrfToken(doc); } catch (e) {
+    expect((e as AuthError).kind).toBe("invalid");
+    expect((e as AuthError).reason).toBe("xsrf-missing");
+  }
+  doc.body.innerHTML = '<div id="fndsectkn" data=""></div>';
+  expect(() => readXsrfToken(doc)).toThrow(expect.objectContaining({ kind: "invalid", reason: "xsrf-missing" }));
 });
 
 test("tokenExpiry_decodes_and_rejects_garbage", () => {
@@ -37,6 +49,11 @@ test("TokenCache_expires_with_skew", () => {
   const c2 = new TokenCache(() => now);
   c2.set("rest", makeJwt(now + 90, now));
   expect(c2.get("rest")).toBeUndefined();
+});
+
+test("TokenCache_set_undecodable_is_invalid_with_reason", () => {
+  const c = new TokenCache(() => 1000);
+  expect(() => c.set("rest", "opaque")).toThrow(expect.objectContaining({ kind: "invalid", reason: "token-undecodable" }));
 });
 
 async function kindOf(p: Promise<unknown>): Promise<AuthError> {

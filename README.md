@@ -68,9 +68,13 @@ value shows an **invalid** panel. Nothing is fetched until the config passes. `{
 | `rest-helper`, `endpoint` | object / object or string | accepted for the future `vb` auth kind, unused in v1.0 |
 
 Events: `ai-chat-conversation-changed` (`detail.conversationId`), `ai-chat-error` (`detail.message`,
-`detail.status?`). Methods: `newConversation()`, `send(text)`, `openConversation(id)`; they throw while
+`detail.status?`, `detail.reason?` = `xsrf-missing` | `token-undecodable` | `clock-skew` when chat auth is
+unavailable). Methods: `newConversation()`, `send(text)`, `openConversation(id)`; they throw while
 the component shows a needs-input/invalid panel. `ai-chat-submit` and `ai-chat-action` arrive with the
 widgets in v1.1.
+
+Sizing: the element is `display: block; height: 560px` by default; set your own `height` on
+`xxx-gnimsys-ai-chat` in the page CSS, and the chat fills it with the feed scrolling inside.
 
 ## Dev loop (VB page on the pod, bundle from your machine)
 
@@ -148,7 +152,7 @@ extension is not yet proven on a pod: the dev1 spike confirms it.
 
 ## Testing
 
-- Unit (Jest, 89 tests):
+- Unit (Jest, 110 tests):
   `wsl -d CloudBeaver -u root -e bash -lc 'bash /mnt/c/Marat/OSaaS/ClaudeShared/oservices/fusion-ai-chat/scripts/dev.sh npm test'`
 - End-to-end (Playwright, Chromium):
   `wsl -d CloudBeaver -u root -e bash -lc 'bash /mnt/c/Marat/OSaaS/ClaudeShared/oservices/fusion-ai-chat/scripts/e2e.sh npm run e2e'`.
@@ -163,7 +167,8 @@ extension is not yet proven on a pod: the dev1 spike confirms it.
 - Auth kind `fusionShell` only; `vb` (service connections through `rest-helper`/`endpoint`) waits for the
   dev1 spike. `#fndsectkn` on a Redwood App UI extension page is also proven there.
 - Conversation history (`conversations/v1/{id}/messages`) answered HTTP 500 on dev1: opening an older
-  conversation then shows "history unavailable (HTTP n)" and the user can continue it.
+  conversation then shows "History unavailable (HTTP n): <error text>" at the top of the feed and the user
+  can continue it.
 - Widgets (`gnimsys-ui` form/table/choice, `ai-chat-submit`, `ai-chat-action`) are v1.1.
 - No cancel API: a running reply cannot be stopped; leaving the conversation only closes the local stream.
 - Attachments: when a send fails, the files stay pending and are uploaded again on the next send.

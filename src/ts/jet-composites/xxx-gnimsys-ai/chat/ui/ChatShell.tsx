@@ -1,6 +1,7 @@
 import type { Ref } from "preact";
 import { useEffect, useImperativeHandle, useRef, useState } from "preact/hooks";
 import type { ChatConfig } from "../lib/config/types";
+import { resolveOrigin } from "../lib/origin";
 import { createMarkdownRenderer } from "../lib/render/markdown";
 import { loadVendor } from "../render/vendor";
 import type { MarkdownRenderer } from "./Bubble";
@@ -40,7 +41,8 @@ function useMarkdownRenderer(onError: (detail: ChatErrorDetail) => void): Markdo
     let live = true;
     Promise.all([loadVendor("markdown-it"), loadVendor("purify")])
       .then(([markdownit, purify]) => {
-        if (live) setRenderer(createMarkdownRenderer({ markdownit, purify }));
+        // Images in replies may load from the page's own origin only.
+        if (live) setRenderer(createMarkdownRenderer({ markdownit, purify, origin: resolveOrigin() }));
       })
       .catch((e: unknown) => {
         if (live) onErrorRef.current({ message: "markdown renderer unavailable: " + (e instanceof Error ? e.message : String(e)) });
@@ -125,7 +127,9 @@ export function ChatShell(props: ChatShellProps) {
       )}
       <div class="gai-main">
         {title !== undefined && <div class="gai-header">{title}</div>}
-        {state.authState !== "ok" && <AuthBanner state={state.authState} />}
+        {state.authState !== "ok" && (
+          <AuthBanner state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} />
+        )}
         <Feed turns={state.turns} busy={busy && authOk} renderer={renderer} historyStatus={state.historyStatus}
           {...(state.historyError !== undefined && { historyError: state.historyError })}
           {...(state.progressText !== undefined && { progressText: state.progressText })}>

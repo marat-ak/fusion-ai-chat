@@ -83,7 +83,8 @@ test("open_conversation_renders_messages_oldest_first", async ({ page }) => {
 test("open_broken_conversation_shows_unavailable_and_can_send", async ({ page }) => {
   await page.goto("/");
   await row(page, "broken").click();
-  await expect(page.getByTestId("gai-history-unavailable")).toHaveText("History unavailable (HTTP 500)");
+  // The mock answers {"detail":"boom"}: the notice carries the readable error body.
+  await expect(page.getByTestId("gai-history-unavailable")).toHaveText("History unavailable (HTTP 500): boom");
   await expect(currentRow(page)).toHaveAttribute("data-conv-id", "broken");
   await expect(page.locator(".gai-feed .gai-bubble")).toHaveCount(0);
 
@@ -91,6 +92,8 @@ test("open_broken_conversation_shows_unavailable_and_can_send", async ({ page })
   await expect(page.getByTestId("gai-bubble-user")).toHaveText(["hello"]);
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
   await expect(page.getByTestId("gai-followup")).toHaveText(["Show invoices", "Create order"]);
+  // The notice stays at the top of the feed, above the turns sent after it.
+  await expect(page.locator(".gai-feed > :first-child")).toHaveAttribute("data-testid", "gai-history-unavailable");
   const chat = (await mockRequests(page)).filter((r) => r.url.includes("/chat"));
   expect(chat).toHaveLength(1);
   expect((chat.at(-1)?.body as { conversationId?: string }).conversationId).toBe("broken");

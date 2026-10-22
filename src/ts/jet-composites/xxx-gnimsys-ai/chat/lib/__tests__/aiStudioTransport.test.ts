@@ -88,7 +88,26 @@ test("http_403_yields_error_event_with_code", async () => {
   const { auth } = fakeAuth(() => fakeResponse(body, { status: 403 }));
   const t = new AiStudioTransport({ auth, workflowCode: WF, checkVersion: V, origin: O });
   const events = await collect(t.send({ conversationId: "c-1", text: "hi" }));
-  expect(events).toEqual([{ type: "error", status: 403, code: "FAI-40300", message: body }, { type: "done" }]);
+  expect(events).toEqual([{ type: "error", status: 403, code: "FAI-40300", message: "FAI-40300 not published" }, { type: "done" }]);
+});
+
+test("nonsse_2xx_yields_error_then_done", async () => {
+  const { auth } = fakeAuth(() => fakeResponse("<html>login</html>", { contentType: "text/html; charset=utf-8" }));
+  const t = new AiStudioTransport({ auth, workflowCode: WF, checkVersion: V, origin: O });
+  expect(await collect(t.send({ conversationId: "c-1", text: "hi" }))).toEqual([
+    { type: "error", status: 200, message: "non-SSE response (text/html; charset=utf-8)" },
+    { type: "done" },
+  ]);
+});
+
+test("redirected_2xx_yields_error_then_done", async () => {
+  // Even an SSE answer is not trusted after a redirect (a login hop, a proxy): the request did not reach /chat as sent.
+  const { auth } = fakeAuth(() => Object.assign(streamResponse([fixture("chat-hello.sse")]), { redirected: true, url: O + "/login" }));
+  const t = new AiStudioTransport({ auth, workflowCode: WF, checkVersion: V, origin: O });
+  expect(await collect(t.send({ conversationId: "c-1", text: "hi" }))).toEqual([
+    { type: "error", status: 200, message: "redirected to " + O + "/login" },
+    { type: "done" },
+  ]);
 });
 
 test("resume_sends_resumeInput_and_signs_empty_message", async () => {

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "p
 import type { ChatConfig } from "../lib/config/types";
 import { substitute } from "../lib/config/substitute";
 import { AuthError } from "../lib/auth/AuthFetch";
+import type { AuthReason } from "../lib/auth/AuthFetch";
 import { FusionShellAuthFetch } from "../lib/auth/FusionShellAuthFetch";
 import { AiStudioTransport } from "../lib/transport/AiStudioTransport";
+import { errorText } from "../lib/transport/errorText";
 import type { ResumeInput, SendInput } from "../lib/transport/ChatTransport";
 import { HistoryError } from "../lib/history/HistoryStore";
 import type { ConversationSummary } from "../lib/history/HistoryStore";
@@ -16,7 +18,8 @@ import type { Rejection, UploadedAttachment } from "../lib/files/AttachmentServi
 import { initialState, newConversationId, reduce } from "../lib/state/conversation";
 import type { ChatState } from "../lib/state/conversation";
 
-export interface ChatErrorDetail { message: string; status?: number }
+/** `reason`: set for an auth failure that makes chat auth unavailable (see AuthReason). */
+export interface ChatErrorDetail { message: string; status?: number; reason?: AuthReason }
 
 export interface ChatControllerProps {
   userName: string;
@@ -96,7 +99,8 @@ const statusOf = (e: unknown): number | undefined =>
   e instanceof AuthError || e instanceof HistoryError || e instanceof AttachmentError ? e.status : undefined;
 const detailOf = (e: unknown): ChatErrorDetail => {
   const status = statusOf(e);
-  return { message: messageOf(e), ...(status !== undefined && { status }) };
+  const reason = e instanceof AuthError ? e.reason : undefined;
+  return { message: messageOf(e), ...(status !== undefined && { status }), ...(reason !== undefined && { reason }) };
 };
 
 /** Single owner of the chat services and the conversation reducer. Call only with a validated config. */
@@ -106,7 +110,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   const pod = config.agent.pod;
   const listEnabled = config.ui.conversations;
 
-  // Keyed on the pod, not the config object: the relay reads (and removes) the shell's xsrf node once per instance.
+  // Keyed on the pod, not the config object: one token cache per pod (the shell's xsrf node is read once per document).
   const auth = useMemo(
     () => new FusionShellAuthFetch({ pod, document: doc, ...(origin !== undefined && { origin }) }),
     [pod, doc, origin],
@@ -169,11 +173,12 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   // The same, as state, for the UI.
   const [inFlight, setInFlight] = useState(false);
 
-  // Any AuthError (relogin, unauthorized, or invalid: missing xsrf node, undecodable token, clock skew) is an auth state;
-  // the in-flight turn is closed with `done` so nothing stays "sending".
+  // Any AuthError is an auth state: relogin, unauthorized, or invalid -> unavailable with its reason (missing xsrf node,
+  // undecodable token, clock skew); the in-flight turn is closed with `done`, which ends it as "No reply received".
   const fail = useCallback((e: unknown, endTurn: boolean) => {
     if (e instanceof AuthError) {
-      dispatch({ type: "auth", state: e.kind === "unauthorized" ? "unauthorized" : "relogin" });
+      if (e.kind === "invalid") dispatch({ type: "auth", state: "unavailable", ...(e.reason !== undefined && { reason: e.reason }) });
+      else dispatch({ type: "auth", state: e.kind });
       if (endTurn) dispatch({ type: "event", event: { type: "done" } });
     } else if (endTurn) {
       dispatch({ type: "event", event: { type: "error", message: messageOf(e) } });
@@ -443,8 +448,9 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       (e: unknown) => {
         if (seq !== historySeq.current) return;
         historyLoading.current = false;
-        // The conversation stays usable: the notice shows the status and new turns go to the same id.
-        dispatch({ type: "history_failed", status: statusOf(e) ?? 0 });
+        // The conversation stays usable: the notice shows the status (and the error body) and new turns go to the same id.
+        const text = e instanceof HistoryError && e.body ? errorText(e.body) : "";
+        dispatch({ type: "history_failed", status: statusOf(e) ?? 0, ...(text !== "" && { text }) });
         fail(e, false);
       },
     );

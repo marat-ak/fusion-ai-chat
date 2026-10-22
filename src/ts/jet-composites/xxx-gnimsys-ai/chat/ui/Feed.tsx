@@ -10,12 +10,16 @@ export function Feed(props: {
   busy: boolean;
   progressText?: string;
   renderer: MarkdownRenderer | null;
-  /** History of an opened conversation: loading / unavailable show a notice at the end of the feed, above the composer. */
+  /**
+   * History of an opened conversation: "unavailable" shows a notice at the top of the feed (it stays above the turns
+   * sent afterwards); "loading" shows one at the end, above the composer.
+   */
   historyStatus: ChatState["historyStatus"];
-  /** HTTP status of the failed history load (0 when the request did not get an HTTP answer). */
-  historyError?: number;
+  /** The failed history load: HTTP status (0 when the request did not get an HTTP answer) and readable error body. */
+  historyError?: { status: number; text?: string };
   children?: ComponentChildren;
 }) {
+  const err = props.historyError;
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -23,9 +27,14 @@ export function Feed(props: {
   });
   return (
     <div class="gai-feed" ref={ref} role="log" aria-live="polite">
+      {props.historyStatus === "unavailable" && (
+        <div class="gai-history-notice gai-history-notice--unavailable" data-testid="gai-history-unavailable" role="status">
+          History unavailable{err?.status ? ` (HTTP ${err.status})` : ""}{err?.text ? `: ${err.text}` : ""}
+        </div>
+      )}
       {props.turns.map((t) =>
-        // An assistant turn that has not produced text yet is represented by the progress line alone.
-        t.role === "assistant" && t.streaming && t.text === "" ? null : <Bubble key={t.id} turn={t} renderer={props.renderer} />,
+        // An assistant turn that has not produced text (nor failed) yet is represented by the progress line alone.
+        t.role === "assistant" && t.streaming && t.text === "" && !t.error ? null : <Bubble key={t.id} turn={t} renderer={props.renderer} />,
       )}
       {props.busy && (
         <div class="gai-progress" data-testid="gai-progress" role="status">
@@ -37,11 +46,6 @@ export function Feed(props: {
       {props.children}
       {props.historyStatus === "loading" && (
         <div class="gai-history-notice" data-testid="gai-history-loading" role="status">{"Loading history…"}</div>
-      )}
-      {props.historyStatus === "unavailable" && (
-        <div class="gai-history-notice gai-history-notice--unavailable" data-testid="gai-history-unavailable" role="status">
-          History unavailable{props.historyError ? ` (HTTP ${props.historyError})` : ""}
-        </div>
       )}
     </div>
   );

@@ -53,18 +53,64 @@ describe("conversation reducer", () => {
   });
 
   test("wait_event_sets_waiting_and_wait_info", () => {
-    const s = run(initialState("c"), { type: "user_send", text: "q" },
+    const s = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "job", jobId: "j1" }),
       ev({ type: "wait", kind: "HUMAN", token: "tk", message: "Approve?", approval: true, feedback: false }),
       ev({ type: "done" }));
     expect(s.status).toBe("waiting");
     expect(s.turns[1].text).toBe("Approve?");
-    expect(s.wait).toMatchObject({ kind: "HUMAN", token: "tk", approval: true, feedback: false });
+    expect(s.turns[1].error).toBeUndefined();
+    expect(s.wait).toMatchObject({ kind: "HUMAN", token: "tk", jobId: "j1", approval: true, feedback: false });
+  });
+
+  test("wait_without_jobId_is_error", () => {
+    const s = run(initialState("c"), { type: "user_send", text: "q" },
+      ev({ type: "wait", kind: "HUMAN", token: "tk", message: "Approve?", approval: true, feedback: false }),
+      ev({ type: "done" }));
+    expect(s.wait).toBeUndefined();
+    expect(s.status).toBe("error");
+    expect(s.turns[1]).toMatchObject({ role: "assistant", streaming: false, error: { message: "wait without jobId" } });
+  });
+
+  test("jobId_cleared_per_turn", () => {
+    const a = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "job", jobId: "j1" }),
+      ev({ type: "final", text: "a", finishReason: "stop" }), ev({ type: "done" }));
+    expect(a.jobId).toBe("j1");
+    const b = run(a, { type: "user_send", text: "q2" });
+    expect("jobId" in b).toBe(false);
+    // A wait in the new turn never reuses the job of the previous turn.
+    expect(run(b, ev({ type: "wait", kind: "HUMAN", token: "tk", message: "m", approval: true, feedback: false })).wait).toBeUndefined();
+    const w = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "job", jobId: "j2" }),
+      ev({ type: "wait", kind: "WAIT", token: "tk", message: "Waiting", approval: false, feedback: false, waitMinutes: 1 }), ev({ type: "done" }));
+    expect(w.wait?.jobId).toBe("j2");
+    expect("jobId" in run(w, { type: "resume_sent", action: "APPROVE_ACTION" })).toBe(false);
+    expect("jobId" in run(w, { type: "resume_sent", action: "RFI_ACTION", statusCheckOnly: true })).toBe(false);
+  });
+
+  test("done_with_empty_streaming_turn_is_explicit_error", () => {
+    const s = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "progress", text: "working" }), ev({ type: "done" }));
+    expect(s.turns[1]).toMatchObject({ role: "assistant", text: "", streaming: false, error: { message: "No reply received" } });
+    expect(s.status).toBe("error");
+    expect(s.progressText).toBeUndefined();
+  });
+
+  test("done_with_partial_streaming_turn_is_explicit_error", () => {
+    const s = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "delta", text: "Hel" }), ev({ type: "done" }));
+    expect(s.turns[1]).toMatchObject({ role: "assistant", text: "Hel", streaming: false, error: { message: "Reply ended before it finished" } });
+    expect(s.status).toBe("error");
+  });
+
+  test("final_empty_output_keeps_streamed_text", () => {
+    const s = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "delta", text: "Hello" }),
+      ev({ type: "final", text: "", finishReason: "stop" }), ev({ type: "done" }));
+    expect(s.turns[1]).toMatchObject({ text: "Hello", streaming: false });
+    expect(s.turns[1].error).toBeUndefined();
+    expect(s.status).toBe("idle");
   });
 
   test("resume_sent_clears_wait_and_adds_user_turn", () => {
-    const base = run(initialState("c"), { type: "user_send", text: "q" },
+    const base = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "job", jobId: "j1" }),
       ev({ type: "wait", kind: "HUMAN", token: "tk", message: "Approve?", approval: true, feedback: true }),
-      ev({ type: "job", jobId: "j1" }), ev({ type: "followups", questions: ["a"] }));
+      ev({ type: "followups", questions: ["a"] }));
     expect(base.jobId).toBe("j1");
     expect(base.followups).toEqual(["a"]);
     const a = run(base, { type: "resume_sent", action: "APPROVE_ACTION" });
@@ -77,7 +123,7 @@ describe("conversation reducer", () => {
   });
 
   test("resume_sent_status_check_adds_no_user_turn", () => {
-    const base = run(initialState("c"), { type: "user_send", text: "q" },
+    const base = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "job", jobId: "j1" }),
       ev({ type: "wait", kind: "WAIT", token: "tk", message: "Waiting", approval: false, feedback: false, waitMinutes: 1 }),
       ev({ type: "done" }));
     const r = run(base, { type: "resume_sent", action: "RFI_ACTION", statusCheckOnly: true });
@@ -91,7 +137,8 @@ describe("conversation reducer", () => {
   test("history_failed_marks_unavailable_with_status", () => {
     const s = run(initialState("c"), { type: "history_failed", status: 500 });
     expect(s.historyStatus).toBe("unavailable");
-    expect(s.historyError).toBe(500);
+    expect(s.historyError).toEqual({ status: 500 });
+    expect(run(initialState("c"), { type: "history_failed", status: 500, text: "boom" }).historyError).toEqual({ status: 500, text: "boom" });
   });
 
   test("open_conversation_resets_and_loads", () => {
@@ -106,6 +153,17 @@ describe("conversation reducer", () => {
     const d = run(l, ev({ type: "delta", text: "x" }));
     expect(d.turns).toHaveLength(3);
     expect(d.turns[2]).toMatchObject({ role: "assistant", text: "x", streaming: true });
+  });
+
+  test("auth_unavailable_carries_reason_across_conversations", () => {
+    const s = run(initialState("c"), { type: "auth", state: "unavailable", reason: "xsrf-missing" });
+    expect(s.authState).toBe("unavailable");
+    expect(s.authReason).toBe("xsrf-missing");
+    expect(run(s, { type: "new_conversation", id: "c2" })).toEqual({ ...initialState("c2"), authState: "unavailable", authReason: "xsrf-missing" });
+    expect(run(s, { type: "open_conversation", id: "c3" })).toMatchObject({ authState: "unavailable", authReason: "xsrf-missing" });
+    const r = run(s, { type: "auth", state: "relogin" });
+    expect(r.authState).toBe("relogin");
+    expect("authReason" in r).toBe(false);
   });
 
   test("reduce_does_not_mutate_input", () => {
