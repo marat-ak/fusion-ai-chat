@@ -15,6 +15,27 @@ describe("conversation reducer", () => {
     expect(s.nextTurnId).toBe(3);
   });
 
+  test("trace_appends_to_streaming_turn", () => {
+    const e1 = { nodeType: "NODE_START", nodeCode: "A", traceId: "t" };
+    const e2 = { nodeType: "NODE_END", nodeCode: "A" };
+    let s = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "trace", ...e1 }), ev({ type: "trace", ...e2 }));
+    expect(s.turns[1].trace).toEqual([e1, e2]);
+    expect(s.turns[1].streaming).toBe(true);
+    s = run(s, ev({ type: "delta", text: "x" }), ev({ type: "final", text: "x", finishReason: "stop" }));
+    expect(s.turns[1].trace).toEqual([e1, e2]);
+  });
+
+  test("trace_creates_streaming_turn_when_none", () => {
+    const s = run(initialState("c"), ev({ type: "trace", nodeType: "NODE_START", nodeCode: "A" }));
+    expect(s.turns).toHaveLength(1);
+    expect(s.turns[0]).toMatchObject({ role: "assistant", streaming: true, trace: [{ nodeType: "NODE_START", nodeCode: "A" }] });
+  });
+
+  test("history_loaded_turns_have_no_trace", () => {
+    const s = run(initialState("c"), { type: "history_loaded", messages: [{ role: "assistant", text: "hi" }] as any });
+    expect(s.turns[0].trace).toBeUndefined();
+  });
+
   test("deltas_accumulate_then_final_replaces", () => {
     let s = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "delta", text: "Hel" }), ev({ type: "delta", text: "lo!" }));
     expect(s.turns[1].text).toBe("Hello!");

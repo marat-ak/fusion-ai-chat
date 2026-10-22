@@ -27,6 +27,7 @@ class RootViewModel {
   footerLinks: Array<object>;
   chatConfig: object | string;
   chatConversationId: string | undefined;
+  chatUserRoles: string[] | undefined;
 
   constructor() {
     // media queries for responsive layouts
@@ -55,6 +56,9 @@ class RootViewModel {
     this.chatConfig = window.__CHAT_CONFIG__ ?? defaultMockConfig;
     // Unset unless a test starts the chat in a host-chosen conversation.
     this.chatConversationId = window.__CHAT_CONVERSATION_ID__;
+
+    // Unset unless a test gives the user roles (role-gated trace panel).
+    this.chatUserRoles = window.__CHAT_USER_ROLES__;
 
     // release the application bootstrap busy state
     Context.getPageContext().getBusyContext().applicationBootstrapComplete();        

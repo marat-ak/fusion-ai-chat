@@ -1,9 +1,9 @@
-import type { ChatEvent } from "../transport/events";
+import type { ChatEvent, TraceEntry } from "../transport/events";
 import type { HistoryMessage } from "../history/HistoryStore";
 import type { UploadedAttachment } from "../files/AttachmentService";
 import type { AuthReason } from "../auth/AuthFetch";
 
-export interface Turn { id: string; role: "user" | "assistant"; text: string; streaming?: boolean; error?: { message: string; status?: number; code?: string }; attachments?: UploadedAttachment[] }
+export interface Turn { id: string; role: "user" | "assistant"; text: string; streaming?: boolean; error?: { message: string; status?: number; code?: string }; attachments?: UploadedAttachment[]; trace?: TraceEntry[] }
 export interface WaitInfo { kind: "HUMAN" | "WAIT"; token: string; jobId: string; approval: boolean; feedback: boolean; requestChangeMessage?: string; waitMinutes?: number }
 export interface ChatState {
   conversationId: string;
@@ -76,6 +76,11 @@ function reduceEvent(s: ChatState, e: ChatEvent): ChatState {
     }
     case "progress":
       return { ...s, progressText: e.text };
+    case "trace": {
+      const { type: _t, ...entry } = e;
+      const { state, idx } = ensureStreaming(s);
+      return patchTurn(state, idx, { trace: [...(state.turns[idx].trace ?? []), entry] });
+    }
     case "final": {
       const { state, idx } = ensureStreaming(s);
       // An empty output keeps the text streamed so far.

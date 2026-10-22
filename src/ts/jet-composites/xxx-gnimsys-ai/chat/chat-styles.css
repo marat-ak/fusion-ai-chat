@@ -609,3 +609,28 @@ xxx-gnimsys-ai-chat[hidden] {
 .gai-conv-more {
   margin: var(--oj-core-spacing-2x) var(--oj-core-spacing-3x);
 }
+
+.gai-trace-wrap {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.gai-trace-toggle {
+  background: none;
+  border: none;
+  padding: 0 var(--oj-core-spacing-1x);
+  color: var(--oj-core-text-color-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.gai-trace {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--oj-core-text-color-secondary);
+  padding: var(--oj-core-spacing-1x) var(--oj-core-spacing-2x);
+  border: 1px solid var(--oj-core-divider-color);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}

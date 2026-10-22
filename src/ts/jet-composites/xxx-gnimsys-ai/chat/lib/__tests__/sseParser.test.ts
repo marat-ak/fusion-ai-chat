@@ -20,6 +20,24 @@ describe("sseParser", () => {
     if (!r.ok) expect(typeof r.error).toBe("string");
   });
 
+  test("node_frame_emits_trace_and_progress", () => {
+    expect(frameToEvents({ nodeProgressMessage: { type: "NODE_START", nodeCode: "CHAT_LLM", nodeName: "Chat LLM", nodeType: "LLM", progressMessage: "Processing chat input…", traceId: "tr-1" } })).toEqual([
+      { type: "trace", nodeType: "NODE_START", nodeCode: "CHAT_LLM", nodeName: "Chat LLM", kind: "LLM", message: "Processing chat input…", traceId: "tr-1" },
+      { type: "progress", text: "Processing chat input…", nodeCode: "CHAT_LLM" },
+    ]);
+  });
+
+  test("node_executed_emits_trace_only", () => {
+    expect(frameToEvents({ nodeProgressMessage: { type: "NODE_EXECUTED", nodeCode: "N1" } })).toEqual([
+      { type: "trace", nodeType: "NODE_EXECUTED", nodeCode: "N1" },
+    ]);
+  });
+
+  test("unknown_node_type_or_missing_code_emits_no_trace", () => {
+    expect(frameToEvents({ nodeProgressMessage: { type: "NODE_WEIRD", nodeCode: "N1" } }).some((e) => e.type === "trace")).toBe(false);
+    expect(frameToEvents({ nodeProgressMessage: { type: "NODE_END" } }).some((e) => e.type === "trace")).toBe(false);
+  });
+
   test("delta_frame_maps_to_delta", () => {
     expect(frameToEvents({ message: { content: [{ text: "Hel" }] } })).toEqual([{ type: "delta", text: "Hel" }]);
   });

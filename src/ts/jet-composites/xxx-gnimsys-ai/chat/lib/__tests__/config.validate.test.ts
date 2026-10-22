@@ -62,3 +62,23 @@ test("wrong type and mixed problems are invalid and list everything", () => {
   const paths = (r as any).problems.map((p: any) => p.path);
   expect(paths).toEqual(expect.arrayContaining(["agent.workflowCode", "agent.pod", "ui.viewer", "ui.zzz"]));
 });
+
+describe("ui.trace", () => {
+  const withTrace = (trace: unknown) => validateConfig({ ...min, ui: { trace } });
+  test("absent means no trace in the config", () => {
+    const r = validateConfig(min);
+    expect(r.ok && r.config.ui.trace).toBeUndefined();
+  });
+  test("valid roles are accepted", () => {
+    const r = withTrace({ roles: ["AGENT_DEBUG", "X"] });
+    expect(r.ok && r.config.ui.trace).toEqual({ roles: ["AGENT_DEBUG", "X"] });
+  });
+  test("missing roles is needs-input", () => {
+    expect(withTrace({})).toMatchObject({ ok: false, kind: "needs-input", problems: [{ path: "ui.trace.roles" }] });
+  });
+  test("bad shapes are invalid", () => {
+    for (const t of [{ roles: [] }, { roles: "A" }, { roles: [1] }, { roles: [""] }, "yes", [], { roles: ["A"], extra: 1 }]) {
+      expect(withTrace(t)).toMatchObject({ ok: false, kind: "invalid" });
+    }
+  });
+});

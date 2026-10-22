@@ -110,7 +110,7 @@ export function validateConfig(input: unknown): ValidateResult {
   const hcmRestBase = str(protocol, "hcmRestBase", "protocol.hcmRestBase", filesEnabled);
 
   // ui
-  const ui = section("ui", ["title", "placeholder", "starterQuestions", "conversations", "viewer"]);
+  const ui = section("ui", ["title", "placeholder", "starterQuestions", "conversations", "viewer", "trace"]);
   const title = str(ui, "title", "ui.title", false);
   const placeholder = str(ui, "placeholder", "ui.placeholder", false);
   let starterQuestions: "fromWorkflow" | string[] = "fromWorkflow";
@@ -122,6 +122,19 @@ export function validateConfig(input: unknown): ValidateResult {
   }
   const conversations = bool(ui, "conversations", "ui.conversations", true);
   const viewer = bool(ui, "viewer", "ui.viewer", false);
+
+  // ui.trace: absent = trace off for everyone; present = roles required
+  let trace: { roles: string[] } | undefined;
+  if (ui?.trace !== undefined) {
+    if (!isObj(ui.trace)) bad("ui.trace", "must be an object");
+    else {
+      for (const k of Object.keys(ui.trace)) if (k !== "roles") bad(join("ui.trace", k), "unknown key");
+      const r = ui.trace.roles;
+      if (r === undefined) need("ui.trace.roles");
+      else if (!Array.isArray(r) || r.length === 0 || r.some((x) => typeof x !== "string" || x === "")) bad("ui.trace.roles", "must be a non-empty array of non-empty strings");
+      else trace = { roles: r as string[] };
+    }
+  }
 
   // datasources
   const ds = section("datasources", ["allowInline", "allowPrefixes"]);
@@ -160,6 +173,7 @@ export function validateConfig(input: unknown): ValidateResult {
       starterQuestions,
       conversations,
       viewer,
+      ...(trace !== undefined && { trace }),
     },
     files: { enabled: filesEnabled, maxFiles, maxSizeMB, accept },
     datasources: { allowInline, allowPrefixes },

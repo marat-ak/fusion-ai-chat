@@ -31,7 +31,7 @@ export function createSseDataSplitter(): { push(chunk: string): string[]; flush(
   };
 }
 
-export interface AiStudioFrame { jobId?: string; conversationId?: string; nodeProgressMessage?: { type: string; progressMessage?: string; nodeCode?: string }; message?: { content?: { text?: string }[]; output?: string; finishReason?: string; followUpQuestions?: string[] }; waitingNodeDetails?: { type: "HUMAN" | "WAIT"; initialMessage?: string; callbackToken: string; approvalEnabledFlag?: boolean; feedbackEnabledFlag?: boolean; requestChangeMessage?: string; waitTimeInMinutes?: number }; errorNodeCode?: string; }
+export interface AiStudioFrame { jobId?: string; conversationId?: string; nodeProgressMessage?: { type: string; progressMessage?: string; nodeCode?: string; nodeName?: string; nodeType?: string; traceId?: string }; message?: { content?: { text?: string }[]; output?: string; finishReason?: string; followUpQuestions?: string[] }; waitingNodeDetails?: { type: "HUMAN" | "WAIT"; initialMessage?: string; callbackToken: string; approvalEnabledFlag?: boolean; feedbackEnabledFlag?: boolean; requestChangeMessage?: string; waitTimeInMinutes?: number }; errorNodeCode?: string; }
 
 export function parseFrame(payload: string): { ok: true; frame: AiStudioFrame } | { ok: false; error: string } {
   try {
@@ -47,6 +47,14 @@ export function frameToEvents(frame: AiStudioFrame): ChatEvent[] {
   const ev: ChatEvent[] = [];
   if (typeof frame.jobId === "string" && frame.jobId) ev.push({ type: "job", jobId: frame.jobId });
   const np = frame.nodeProgressMessage;
+  if (np && (np.type === "NODE_START" || np.type === "NODE_END" || np.type === "NODE_EXECUTED") && typeof np.nodeCode === "string") {
+    const t: ChatEvent = { type: "trace", nodeType: np.type, nodeCode: np.nodeCode };
+    if (typeof np.nodeName === "string") t.nodeName = np.nodeName;
+    if (typeof np.nodeType === "string") t.kind = np.nodeType;
+    if (typeof np.progressMessage === "string") t.message = np.progressMessage;
+    if (typeof np.traceId === "string") t.traceId = np.traceId;
+    ev.push(t);
+  }
   if (np && np.type !== "NODE_EXECUTED") {
     const e: ChatEvent = { type: "progress", text: np.progressMessage ?? "" };
     if (np.nodeCode !== undefined) e.nodeCode = np.nodeCode;

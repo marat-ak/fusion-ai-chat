@@ -1,3 +1,9 @@
+data: {"nodeProgressMessage":{"type":"NODE_START","nodeCode":"START","nodeName":"Start","nodeType":"START","progressMessage":"Starting…","traceId":"trace-1"}}
+
+data: {"nodeProgressMessage":{"type":"NODE_START","nodeCode":"CHAT_LLM","nodeName":"Chat LLM","nodeType":"LLM","progressMessage":"Processing chat input…","traceId":"trace-1"}}
+
+data: {"nodeProgressMessage":{"type":"NODE_END","nodeCode":"START","nodeName":"Start","nodeType":"START","progressMessage":"Started","traceId":"trace-1"}}
+
 data: {"message":{"content":[{"text":"Hel"}]}}
 
 data: {"message":{"content":[{"text":"lo!"}]}}

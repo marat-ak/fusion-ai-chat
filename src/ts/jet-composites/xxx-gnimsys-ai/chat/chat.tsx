@@ -18,6 +18,8 @@ type Props = Readonly<{
   userName?: string;
   /** Oracle PersonId of the user. Required when config.files.enabled is true. */
   personId?: string;
+  /** Roles of the signed-in user (VB: `[[ $application.user.roles ]]`). With `config.ui.trace` set, a user holding one of its roles sees the agent's node trace under each reply; without roles the trace stays hidden. */
+  userRoles?: string[];
   /** Page values substituted into {{key}} placeholders of config.agent.additionalContext. */
   context?: Record<string, unknown>;
   /** Id of the current conversation (in/out). Setting it switches the chat to that conversation. */
@@ -90,6 +92,7 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
           config={check.config}
           userName={userName as string /* checkInputs: non-empty */}
           {...(personId !== undefined && { personId })}
+          {...(props.userRoles !== undefined && { userRoles: props.userRoles })}
           {...(props.context !== undefined && { context: props.context })}
           {...(props.conversationId !== undefined && { conversationId: props.conversationId })}
           handleRef={shell}

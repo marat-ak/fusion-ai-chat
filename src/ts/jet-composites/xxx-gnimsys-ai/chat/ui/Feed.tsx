@@ -1,7 +1,9 @@
+import { Fragment } from "preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import type { ChatState, Turn } from "../lib/state/conversation";
 import { Bubble } from "./Bubble";
+import { TracePanel } from "./TracePanel";
 import type { MarkdownRenderer } from "./Bubble";
 
 export function Feed(props: {
@@ -10,6 +12,8 @@ export function Feed(props: {
   busy: boolean;
   progressText?: string;
   renderer: MarkdownRenderer | null;
+  /** The trace gate is open: assistant turns show their node trace. */
+  showTrace: boolean;
   /**
    * History of an opened conversation: "unavailable" shows a notice at the top of the feed (it stays above the turns
    * sent afterwards); "loading" shows one at the end, above the composer.
@@ -32,10 +36,13 @@ export function Feed(props: {
           History unavailable{err?.status ? ` (HTTP ${err.status})` : ""}{err?.text ? `: ${err.text}` : ""}
         </div>
       )}
-      {props.turns.map((t) =>
-        // An assistant turn that has not produced text (nor failed) yet is represented by the progress line alone.
-        t.role === "assistant" && t.streaming && t.text === "" && !t.error ? null : <Bubble key={t.id} turn={t} renderer={props.renderer} />,
-      )}
+      {props.turns.map((t) => (
+        <Fragment key={t.id}>
+          {/* An assistant turn that has not produced text (nor failed) yet is represented by the progress line alone. */}
+          {t.role === "assistant" && t.streaming && t.text === "" && !t.error ? null : <Bubble turn={t} renderer={props.renderer} />}
+          {props.showTrace && t.role === "assistant" && t.trace !== undefined && t.trace.length > 0 && <TracePanel entries={t.trace} />}
+        </Fragment>
+      ))}
       {props.busy && (
         <div class="gai-progress" data-testid="gai-progress" role="status">
           {props.progressText ? props.progressText : (

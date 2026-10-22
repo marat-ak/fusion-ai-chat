@@ -1,6 +1,7 @@
 import type { Ref } from "preact";
 import { useEffect, useImperativeHandle, useRef, useState } from "preact/hooks";
 import type { ChatConfig } from "../lib/config/types";
+import { traceGateOpen } from "../lib/trace/gate";
 import { resolveOrigin } from "../lib/origin";
 import { createMarkdownRenderer } from "../lib/render/markdown";
 import { loadVendor } from "../render/vendor";
@@ -56,6 +57,8 @@ export interface ChatShellProps {
   config: ChatConfig;
   userName: string;
   personId?: string;
+  /** Roles of the signed-in user; with `config.ui.trace` they decide whether the trace panel shows. */
+  userRoles?: string[];
   context?: Record<string, unknown>;
   /** The element's `conversation-id` property (in/out). */
   conversationId?: string;
@@ -130,7 +133,7 @@ export function ChatShell(props: ChatShellProps) {
         {state.authState !== "ok" && (
           <AuthBanner state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })} />
         )}
-        <Feed turns={state.turns} busy={busy && authOk} renderer={renderer} historyStatus={state.historyStatus}
+        <Feed turns={state.turns} showTrace={traceGateOpen(config.ui.trace, props.userRoles)} busy={busy && authOk} renderer={renderer} historyStatus={state.historyStatus}
           {...(state.historyError !== undefined && { historyError: state.historyError })}
           {...(state.progressText !== undefined && { progressText: state.progressText })}>
           {state.turns.length === 0 && !historyLoading && (ctl.workflowError
