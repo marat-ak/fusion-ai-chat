@@ -3,7 +3,10 @@ const PLACEHOLDER = /\{\{([^{}]+)\}\}/g;
 function subst(value: unknown, ctx: Record<string, unknown>): unknown {
   if (typeof value === "string") {
     return value.replace(PLACEHOLDER, (whole: string, raw: string) => {
-      const v = ctx[raw.trim()];
+      const key = raw.trim();
+      // Own keys only: `{{constructor}}` must not resolve to Object.prototype members.
+      if (!Object.prototype.hasOwnProperty.call(ctx, key)) return whole;
+      const v = ctx[key];
       return v === undefined ? whole : String(v);
     });
   }

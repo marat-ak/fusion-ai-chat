@@ -34,6 +34,8 @@ export interface ChatController {
   state: ChatState;
   /** Fetched on mount when `ui.starterQuestions === "fromWorkflow"`; null until loaded or when the fetch failed. */
   workflowInfo: WorkflowInfo | null;
+  /** Set when the workflow lookup failed for a reason other than auth (auth failures show the auth banner). */
+  workflowError: ChatErrorDetail | null;
   send(text: string): void;
   sendStarter(question: string): void;
   resume(action: ResumeAction, content?: string): void;
@@ -103,9 +105,12 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   // Set while a turn streams; doubles as the one-turn-at-a-time guard (synchronous, unlike the reducer status).
   const inflight = useRef<AbortController | null>(null);
 
+  // Any AuthError (relogin, unauthorized, or invalid: missing xsrf node, undecodable token, clock skew) is an auth state;
+  // the in-flight turn is closed with `done` so nothing stays "sending".
   const fail = useCallback((e: unknown, endTurn: boolean) => {
-    if (e instanceof AuthError && (e.kind === "relogin" || e.kind === "unauthorized")) {
-      dispatch({ type: "auth", state: e.kind });
+    if (e instanceof AuthError) {
+      dispatch({ type: "auth", state: e.kind === "unauthorized" ? "unauthorized" : "relogin" });
+      if (endTurn) dispatch({ type: "event", event: { type: "done" } });
     } else if (endTurn) {
       dispatch({ type: "event", event: { type: "error", message: messageOf(e) } });
       dispatch({ type: "event", event: { type: "done" } });
@@ -173,17 +178,26 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   useEffect(() => () => inflight.current?.abort(), []);
 
   const [workflowInfo, setWorkflowInfo] = useState<WorkflowInfo | null>(null);
+  const [workflowError, setWorkflowError] = useState<ChatErrorDetail | null>(null);
   const fromWorkflow = config.ui.starterQuestions === "fromWorkflow";
   useEffect(() => {
     setWorkflowInfo(null);
+    setWorkflowError(null);
     if (!fromWorkflow) return undefined;
     let live = true;
     workflowSource.get().then(
       (info) => { if (live) setWorkflowInfo(info); },
-      (e: unknown) => { if (live) fail(e, false); },
+      (e: unknown) => {
+        if (!live) return;
+        if (!(e instanceof AuthError)) {
+          const status = statusOf(e);
+          setWorkflowError({ message: messageOf(e), ...(status !== undefined && { status }) });
+        }
+        fail(e, false);
+      },
     );
     return () => { live = false; };
   }, [workflowSource, fromWorkflow, fail]);
 
-  return { state, workflowInfo, send, sendStarter, resume, newConversation, openConversation };
+  return { state, workflowInfo, workflowError, send, sendStarter, resume, newConversation, openConversation };
 }

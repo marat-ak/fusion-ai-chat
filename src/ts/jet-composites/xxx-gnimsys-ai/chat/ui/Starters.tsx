@@ -11,3 +11,13 @@ export function Starters(props: { questions: string[]; disabled: boolean; onPick
     </div>
   );
 }
+
+/** Shown where the starters would be when the workflow lookup failed (auth failures use the auth banner instead). */
+export function StartersUnavailable(props: { error: { message: string; status?: number } }) {
+  const why = props.error.status ? "HTTP " + props.error.status : props.error.message;
+  return (
+    <div class="gai-workflow-error" data-testid="gai-workflow-error" role="status">
+      Starter questions unavailable ({why})
+    </div>
+  );
+}

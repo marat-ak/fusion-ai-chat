@@ -67,7 +67,7 @@ xxx-gnimsys-ai-chat[hidden] {
 
 .gai-bubble--assistant {
   align-self: flex-start;
-  background: var(--oj-core-neutral-2);
+  background: var(--oj-core-neutral-secondary-2);
 }
 
 .gai-bubble--plain {
@@ -158,6 +158,12 @@ xxx-gnimsys-ai-chat[hidden] {
   margin-top: auto;
 }
 
+.gai-workflow-error {
+  margin-top: auto;
+  color: var(--oj-core-text-color-secondary);
+  font-size: 0.8125rem;
+}
+
 .gai-chip {
   font: inherit;
   color: var(--oj-core-text-color-brand);
@@ -218,9 +224,15 @@ xxx-gnimsys-ai-chat[hidden] {
 }
 
 .gai-button--primary {
-  border-color: transparent;
-  background: var(--oj-core-text-color-primary);
-  color: var(--oj-core-bg-color-content);
+  border-color: var(--oj-button-call-to-action-chrome-border-color);
+  background: var(--oj-button-call-to-action-chrome-bg-color);
+  color: var(--oj-button-call-to-action-chrome-text-color);
+}
+
+.gai-button--primary:hover:not(:disabled) {
+  border-color: var(--oj-button-call-to-action-chrome-border-color-hover);
+  background: var(--oj-button-call-to-action-chrome-bg-color-hover);
+  color: var(--oj-button-call-to-action-chrome-text-color-hover);
 }
 
 .gai-button:disabled {

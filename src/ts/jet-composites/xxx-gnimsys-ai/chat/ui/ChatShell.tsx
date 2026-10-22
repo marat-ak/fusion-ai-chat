@@ -7,7 +7,7 @@ import type { MarkdownRenderer } from "./Bubble";
 import { Composer } from "./Composer";
 import { Feed } from "./Feed";
 import { FollowUps } from "./FollowUps";
-import { Starters } from "./Starters";
+import { Starters, StartersUnavailable } from "./Starters";
 import { AuthBanner } from "./StatePanel";
 import { useChatController } from "./useChatController";
 import type { ChatErrorDetail } from "./useChatController";
@@ -111,7 +111,9 @@ export function ChatShell(props: ChatShellProps) {
       {state.authState !== "ok" && <AuthBanner state={state.authState} />}
       <Feed turns={state.turns} busy={busy && authOk} renderer={renderer}
         {...(state.progressText !== undefined && { progressText: state.progressText })}>
-        {state.turns.length === 0 && <Starters questions={starters} disabled={!canSend} onPick={ctl.sendStarter} />}
+        {state.turns.length === 0 && (ctl.workflowError
+          ? <StartersUnavailable error={ctl.workflowError} />
+          : <Starters questions={starters} disabled={!canSend} onPick={ctl.sendStarter} />)}
         {!busy && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
       </Feed>
       <Composer disabled={!canSend} onSend={ctl.send}

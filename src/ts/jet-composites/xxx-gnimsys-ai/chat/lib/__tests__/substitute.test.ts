@@ -24,3 +24,11 @@ test("substitute_does_not_mutate", () => {
   expect(out.nested).not.toBe(input.nested);
   expect((out.nested as { list: unknown[] }).list).not.toBe(input.nested.list);
 });
+
+test("substitute_ignores_inherited_keys", () => {
+  expect(substitute({ a: "{{constructor}}", b: "{{toString}}", c: "{{own}}" }, { own: "x" })).toEqual({
+    a: "{{constructor}}",
+    b: "{{toString}}",
+    c: "x",
+  });
+});

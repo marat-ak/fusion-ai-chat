@@ -82,6 +82,8 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
     <div class="gai-chat">
       {check.ok ? (
         <ChatShell
+          // Another agent is another chat: remount so no turns or conversation id carry over to it.
+          key={`${check.config.agent.pod}/${check.config.agent.workflowCode}`}
           config={check.config}
           userName={userName as string /* checkInputs: non-empty */}
           {...(personId !== undefined && { personId })}

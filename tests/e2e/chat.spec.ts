@@ -128,3 +128,37 @@ test("relogin_banner_on_html_relay", async ({ page }) => {
   await expect(page.getByTestId("gai-starter")).toHaveCount(2);
   await expect(page.getByTestId("gai-auth-banner")).toHaveCount(0);
 });
+
+test("invalid_xsrf_shows_relogin_banner", async ({ page }) => {
+  // Explicit starters: no workflow lookup at mount, so the send is the first call that needs the shell's xsrf node.
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
+      agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
+      auth: { kind: "fusionShell" },
+      protocol: { checkVersion: "2607100" },
+      ui: { starterQuestions: ["Show my invoices"] },
+    };
+    document.addEventListener("DOMContentLoaded", () => document.getElementById("fndsectkn")?.remove());
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("gai-starter")).toHaveText(["Show my invoices"]);
+
+  await sendText(page, "hello");
+  await expect(page.getByTestId("gai-auth-banner")).toContainText("Session expired");
+  await expect(page.getByTestId("gai-composer-input")).toBeDisabled();
+  await expect(page.getByTestId("gai-error")).toHaveCount(0);
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(0);
+  expect(await chatRequests(page)).toEqual([]);
+});
+
+test("workflow_lookup_failure_shows_notice", async ({ page }) => {
+  await page.request.get(`${MOCK_POD}/__mock/arm?workflows=404`);
+  await page.goto("/");
+  await expect(page.getByTestId("gai-workflow-error")).toHaveText("Starter questions unavailable (HTTP 404)");
+  await expect(page.getByTestId("gai-starter")).toHaveCount(0);
+  await expect(page.getByTestId("gai-auth-banner")).toHaveCount(0);
+
+  await sendText(page, "hello");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  await expect(page.getByTestId("gai-workflow-error")).toHaveCount(0);
+});

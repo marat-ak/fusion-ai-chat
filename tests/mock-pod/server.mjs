@@ -2,6 +2,10 @@
 // Zero dependencies (Node 22 `http`). State is in memory and resets on process start.
 // BOSS PATCH/DELETE on userConversations require `If-Match: "1"` (the rows' etag) and answer 412 without it.
 //   node tests/mock-pod/server.mjs        (PORT env, default 8787; binds 0.0.0.0)
+// Test controls (open; /__mock/* is never logged):
+//   GET/DELETE /__mock/requests         -> read / clear the request log
+//   GET /__mock/arm?workflows=<status>  -> the next BOSS workflows query answers <status> (4xx/5xx) once
+//   GET /fscmRestApi/tokenrelay?$mock=expired -> the next relay answers login HTML once (this call is logged)
 import http from "node:http";
 import { readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -17,6 +21,7 @@ const RECORDED_HEADERS = ["authorization", "content-type", "accept", "if-match",
 const state = {
   conversations: JSON.parse(fixture("conversations.json")),
   relayExpiredNext: false,
+  workflowsStatusNext: null,
   requests: [],
 };
 
@@ -83,6 +88,15 @@ const routes = [
   {
     method: "DELETE", path: /^\/__mock\/requests$/, open: true,
     handle: ({ res }) => { state.requests = []; json(res, 204); },
+  },
+  {
+    method: "GET", path: /^\/__mock\/arm$/, open: true,
+    handle: ({ res, url }) => {
+      const status = Number(url.searchParams.get("workflows"));
+      if (!Number.isInteger(status) || status < 400 || status > 599) return json(res, 400, { detail: "arm: workflows=<4xx|5xx> required" });
+      state.workflowsStatusNext = status;
+      return json(res, 200, { armed: { workflows: status } });
+    },
   },
   {
     method: "GET", path: /^\/fscmRestApi\/tokenrelay$/, open: true,
@@ -157,9 +171,16 @@ const routes = [
   },
   {
     method: "GET", path: new RegExp(`^${BOSS}/workflows$`),
-    handle: ({ res }) => json(res, 200, {
-      items: [{ name: "Mock Agent", firstStarterQuestion: "Show my invoices", secondStarterQuestion: "", thirdStarterQuestion: "Create a PO" }],
-    }),
+    handle: ({ res }) => {
+      if (state.workflowsStatusNext !== null) {
+        const status = state.workflowsStatusNext;
+        state.workflowsStatusNext = null;
+        return json(res, status, { detail: `mock pod: armed workflows ${status}` });
+      }
+      return json(res, 200, {
+        items: [{ name: "Mock Agent", firstStarterQuestion: "Show my invoices", secondStarterQuestion: "", thirdStarterQuestion: "Create a PO" }],
+      });
+    },
   },
   {
     method: "POST", path: /^\/hcmRestApi\/.+\/hcmAiStudioConversations$/,
