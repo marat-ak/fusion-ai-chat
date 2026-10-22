@@ -83,17 +83,20 @@ function reduceEvent(s: ChatState, e: ChatEvent): ChatState {
       return { ...patchTurn(state, idx, { text: e.message, streaming: false }), status: "waiting", wait, progressText: undefined };
     }
     case "error": {
-      const { state, idx } = ensureStreaming(s);
-      const cur = state.turns[idx];
-      return {
-        ...patchTurn(state, idx, {
-          text: cur.text === "" ? e.message : cur.text,
-          streaming: false,
-          error: { message: e.message, status: e.status, code: e.code },
-        }),
-        status: "error",
-        progressText: undefined,
-      };
+      const error = { message: e.message, status: e.status, code: e.code };
+      // The error belongs to the reply in progress, even when a `final` (finishReason "error") already ended its stream.
+      const lastIdx = s.turns.length - 1;
+      const last = s.turns[lastIdx];
+      const inTurn = s.status === "sending" || s.status === "streaming";
+      if (inTurn && last && last.role === "assistant" && !last.error) {
+        return {
+          ...patchTurn(s, lastIdx, { text: last.text === "" ? e.message : last.text, streaming: false, error }),
+          status: "error",
+          progressText: undefined,
+        };
+      }
+      const turn: Turn = { id: "t" + s.nextTurnId, role: "assistant", text: e.message, streaming: false, error };
+      return { ...s, turns: [...s.turns, turn], nextTurnId: s.nextTurnId + 1, status: "error", progressText: undefined };
     }
     case "done": {
       const last = [...s.turns].reverse().find(t => t.role === "assistant");

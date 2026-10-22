@@ -38,12 +38,13 @@ export class OracleAttachmentService implements AttachmentService {
   validate(files: File[], existingCount: number): { ok: File[]; rejected: Rejection[] } {
     const ok: File[] = [];
     const rejected: Rejection[] = [];
-    const accept = this.limits.accept.map((a) => a.toLowerCase());
+    // Accept entries may be written with or without the leading dot ("pdf" or ".pdf"); both match the bare extension.
+    const accept = this.limits.accept.map((a) => a.toLowerCase().replace(/^\.+/, ""));
     for (const file of files) {
       if (existingCount + ok.length >= this.limits.maxFiles) { rejected.push({ file, reason: "count" }); continue; }
       if (file.size > this.limits.maxSizeMB * 1024 * 1024) { rejected.push({ file, reason: "size" }); continue; }
       const dot = file.name.lastIndexOf(".");
-      const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
+      const ext = dot >= 0 ? file.name.slice(dot + 1).toLowerCase() : "";
       const typeOk = (ext !== "" && accept.includes(ext)) || (accept.includes("image/*") && file.type.startsWith("image/"));
       if (!typeOk) { rejected.push({ file, reason: "type" }); continue; }
       ok.push(file);

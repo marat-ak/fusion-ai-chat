@@ -41,6 +41,17 @@ describe("conversation reducer", () => {
     expect(s.turns[0].error?.message).toBe("late");
   });
 
+  test("error_after_error_final_attaches_to_same_turn", () => {
+    const s = run(initialState("c"), { type: "user_send", text: "fail" },
+      ev({ type: "final", text: "ErrorRecord[boom]", finishReason: "error" }),
+      ev({ type: "error", message: "ErrorRecord[boom]", code: "N1" }),
+      ev({ type: "done" }));
+    expect(s.turns).toHaveLength(2);
+    expect(s.turns[1]).toMatchObject({ role: "assistant", text: "ErrorRecord[boom]", streaming: false });
+    expect(s.turns[1].error?.code).toBe("N1");
+    expect(s.status).toBe("error");
+  });
+
   test("wait_event_sets_waiting_and_wait_info", () => {
     const s = run(initialState("c"), { type: "user_send", text: "q" },
       ev({ type: "wait", kind: "HUMAN", token: "tk", message: "Approve?", approval: true, feedback: false }),

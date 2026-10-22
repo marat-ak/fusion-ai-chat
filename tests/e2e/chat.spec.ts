@@ -84,6 +84,9 @@ test("error_reply_shows_error_bubble_and_reenables_composer", async ({ page }) =
   await page.goto("/");
   await sendText(page, "fail");
   await expect(page.getByTestId("gai-error")).toContainText("ErrorRecord[boom]");
+  // The error final and the error event are one reply: exactly one assistant bubble, and it is the errored one.
+  await expect(page.locator(".gai-bubble--assistant")).toHaveCount(1);
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(0);
 
   const input = page.getByTestId("gai-composer-input");
   await expect(input).toBeEnabled();

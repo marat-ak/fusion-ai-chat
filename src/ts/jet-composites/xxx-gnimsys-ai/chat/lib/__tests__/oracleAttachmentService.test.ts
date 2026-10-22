@@ -33,6 +33,14 @@ test("validate_rejects_sixth_file_oversize_and_bad_type", () => {
   expect(r2.rejected.map((x) => [x.file.name, x.reason])).toEqual([["b.pdf", "count"]]);
 });
 
+test("validate_accepts_pdf_with_dotless_accept_list", () => {
+  const { auth } = fake([]);
+  const s = new OracleAttachmentService({ auth, workflowCode: "WF_1", personId: "300", hcmRestBase: HCM, limits: { maxFiles: 5, maxSizeMB: 50, accept: ["pdf"] }, origin: O });
+  const r = s.validate([mk("a.pdf")], 0);
+  expect(r.ok.map((f) => f.name)).toEqual(["a.pdf"]);
+  expect(r.rejected).toEqual([]);
+});
+
 test("ensureConversation_posts_once_per_id", async () => {
   const { auth, calls } = fake([fakeResponse("{}", { status: 201 }), fakeResponse("{}", { status: 201 })]);
   const s = svc(auth);
