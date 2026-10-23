@@ -4,6 +4,7 @@ import ResponsiveUtils = require("ojs/ojresponsiveutils");
 import type { Ref } from "preact";
 import { useEffect, useImperativeHandle, useRef, useState } from "preact/hooks";
 import type { ChatConfig } from "../lib/config/types";
+import type { VbRestHelper } from "xxx-gnimsys-data/rest/index";
 import { traceGateOpen } from "../lib/trace/gate";
 import { resolveOrigin } from "../lib/origin";
 import { createMarkdownRenderer } from "../lib/render/markdown";
@@ -87,6 +88,10 @@ export interface ChatShellProps {
   /** Roles of the signed-in user; with `config.ui.trace` they decide whether the trace panel shows. */
   userRoles: string[];
   context?: Record<string, unknown>;
+  /** The page's VB RestHelper: every pod call goes through it. */
+  restHelper: VbRestHelper;
+  /** The page's endpoint map: contract name -> VB endpoint id. */
+  endpoints: Record<string, string>;
   /** The element's `conversation-id` property (in/out). */
   conversationId?: string;
   handleRef: Ref<ChatHandle>;
@@ -105,7 +110,7 @@ export function ChatShell(props: ChatShellProps) {
       ...(props.conversationId !== undefined && props.conversationId !== "" && { conversationId: props.conversationId }),
       onError: props.onError,
     },
-    {},
+    { restHelper: props.restHelper, endpoints: props.endpoints },
   );
   const { state } = ctl;
 

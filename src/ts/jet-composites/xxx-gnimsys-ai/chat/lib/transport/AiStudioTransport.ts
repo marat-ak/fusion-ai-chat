@@ -1,5 +1,5 @@
-import { resolveOrigin } from "../origin";
-import type { AuthFetch } from "../auth/AuthFetch";
+import { EndpointError, endpointBodyText } from "../endpoints/EndpointFetch";
+import type { EndpointFetch } from "../endpoints/EndpointFetch";
 import type { ChatEvent } from "./events";
 import type { ChatTransport, SendInput } from "./ChatTransport";
 import { errorText } from "./errorText";
@@ -7,25 +7,29 @@ import { createSseDataSplitter, frameToEvents, parseFrame } from "./sseParser";
 import { signedHeaders } from "./signer";
 
 export interface AiStudioTransportDeps {
-  auth: AuthFetch;
+  endpoints: EndpointFetch;
   workflowCode: string;
   checkVersion: string;
   additionalContext?: Record<string, unknown>;
   responseLanguage?: string;
-  origin?: string;
   /** Signing clock in epoch seconds; signedHeaders' own clock when absent. */
   now?: () => number;
 }
 
-/** v1 transport: AI Studio v2 `/chat` SSE with the signed X-Ora-Ai-Api-V2-* headers; HITL resume on the same URL. */
+/** The turn's error when the page's rest helper cannot hand back a streaming response (nothing is sent; no buffering). */
+export const STREAM_UNAVAILABLE = "chat streaming not available through this endpoint";
+
+/**
+ * v1 transport: AI Studio v2 `/chat` SSE with the signed X-Ora-Ai-Api-V2-* headers through the FUAI endpoint's streaming
+ * capability; HITL resume on the same URL.
+ */
 export class AiStudioTransport implements ChatTransport {
   private readonly deps: AiStudioTransportDeps;
   private readonly url: string;
 
   constructor(deps: AiStudioTransportDeps) {
-    const origin = resolveOrigin(deps.origin);
     this.deps = deps;
-    this.url = `${origin}/api/fusion-ai/orchestrator/agent/v2/${encodeURIComponent(deps.workflowCode)}/chat`;
+    this.url = `/api/fusion-ai/orchestrator/agent/v2/${encodeURIComponent(deps.workflowCode)}/chat`;
   }
 
   private body(input: SendInput): Record<string, unknown> {
@@ -57,26 +61,30 @@ export class AiStudioTransport implements ChatTransport {
       Accept: "text/event-stream",
       ...(await signedHeaders(message, this.deps.checkVersion, this.deps.now?.())),
     };
-    const init: RequestInit = { method: "POST", headers, body: JSON.stringify(this.body(input)) };
-    if (signal) init.signal = signal;
+    const body = JSON.stringify(this.body(input));
 
     let res: Response;
     try {
-      res = await this.deps.auth.fetch("fusion-ai", this.url, init);
+      res = await this.deps.endpoints.stream("FUAI", this.url, { method: "POST", headers, body, ...(signal && { signal }) });
     } catch (e) {
       if (signal?.aborted) { yield { type: "done" }; return; }
-      throw e; // AuthError / network failure: the caller owns these states
+      if (e instanceof EndpointError && e.kind === "stream-unavailable") {
+        yield { type: "error", message: STREAM_UNAVAILABLE };
+        yield { type: "done" };
+        return;
+      }
+      if (e instanceof EndpointError && e.kind === "http" && e.status !== 401) {
+        const text = endpointBodyText(e.body) ?? "";
+        const err: ChatEvent = { type: "error", status: e.status, message: errorText(text) || e.statusText || `HTTP ${e.status}` };
+        const code = /FAI-\d+/.exec(text);
+        if (code) err.code = code[0];
+        yield err;
+        yield { type: "done" };
+        return;
+      }
+      throw e; // 401 (re-login), a refused URL, no HTTP answer: the caller owns these states
     }
 
-    if (!res.ok) {
-      const text = await res.text();
-      const err: ChatEvent = { type: "error", status: res.status, message: errorText(text) || res.statusText || `HTTP ${res.status}` };
-      const code = /FAI-\d+/.exec(text);
-      if (code) err.code = code[0];
-      yield err;
-      yield { type: "done" };
-      return;
-    }
     // A 2xx that is not this endpoint's SSE (a login page, a proxy answer, a redirect hop) is an explicit failure.
     const contentType = res.headers.get("content-type") ?? "";
     const notSse = res.redirected === true

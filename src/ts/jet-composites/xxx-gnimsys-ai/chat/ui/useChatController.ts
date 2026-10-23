@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
 import type { ChatConfig } from "../lib/config/types";
 import { substitute } from "../lib/config/substitute";
-import { AuthError } from "../lib/auth/AuthFetch";
-import type { AuthReason } from "../lib/auth/AuthFetch";
-import { FusionShellAuthFetch } from "../lib/auth/FusionShellAuthFetch";
+import { EndpointError, EndpointFetch, streamFetchOf } from "../lib/endpoints/EndpointFetch";
+import type { VbRestHelper } from "xxx-gnimsys-data/rest/index";
+import DashboardRestHelper = require("xxx-gnimsys-data/rest/dashboard-rest-helper");
 import { AiStudioTransport } from "../lib/transport/AiStudioTransport";
 import { errorText } from "../lib/transport/errorText";
 import type { ResumeInput, SendInput } from "../lib/transport/ChatTransport";
@@ -18,8 +18,8 @@ import type { Rejection, UploadedAttachment } from "../lib/files/AttachmentServi
 import { initialState, newConversationId, reduce } from "../lib/state/conversation";
 import type { ChatState } from "../lib/state/conversation";
 
-/** `reason`: set for an auth failure that makes chat auth unavailable (see AuthReason). */
-export interface ChatErrorDetail { message: string; status?: number; reason?: AuthReason }
+/** `status`: the HTTP status of the failed call, when it got an HTTP answer. */
+export interface ChatErrorDetail { message: string; status?: number }
 
 export interface ChatControllerProps {
   userName: string;
@@ -32,7 +32,8 @@ export interface ChatControllerProps {
   onError?: (detail: ChatErrorDetail) => void;
 }
 
-export interface ChatControllerDeps { origin?: string }
+/** The page's VB RestHelper and endpoint map (validated by checkInputs): every pod call goes through them. */
+export interface ChatControllerDeps { restHelper: VbRestHelper; endpoints: Record<string, string> }
 
 export type ResumeAction = ResumeInput["action"];
 /** statusCheckOnly: a WAIT node's Refresh (asks whether the wait is over; adds no user turn). */
@@ -95,44 +96,45 @@ export interface ChatController {
 interface ListState { items: ConversationSummary[]; hasMore: boolean; loading: boolean; error: ChatErrorDetail | null; next: number }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+/** The HTTP status of a failed call, when it got an HTTP answer. */
 const statusOf = (e: unknown): number | undefined =>
-  e instanceof AuthError || e instanceof HistoryError || e instanceof AttachmentError ? e.status : undefined;
+  e instanceof HistoryError || e instanceof AttachmentError || (e instanceof EndpointError && e.kind === "http") ? e.status : undefined;
 const detailOf = (e: unknown): ChatErrorDetail => {
   const status = statusOf(e);
-  const reason = e instanceof AuthError ? e.reason : undefined;
-  return { message: messageOf(e), ...(status !== undefined && { status }), ...(reason !== undefined && { reason }) };
+  return { message: messageOf(e), ...(status !== undefined && { status }) };
 };
+/** An endpoint answered 401: the session behind the page's service connections is gone; a page reload signs in again. */
+const isRelogin = (e: unknown): boolean => statusOf(e) === 401;
 
 /** Single owner of the chat services and the conversation reducer. Call only with a validated config. */
 export function useChatController(config: ChatConfig, props: ChatControllerProps, deps: ChatControllerDeps): ChatController {
-  const { origin } = deps;
+  const { restHelper, endpoints: endpointMap } = deps;
   const { userName, personId, context } = props;
-  const pod = config.agent.pod;
   const listEnabled = config.ui.conversations;
 
-  // Keyed on the pod, not the config object: one token cache per pod (the anti-CSRF token is fetched once per origin).
-  const auth = useMemo(
-    () => new FusionShellAuthFetch({ pod, ...(origin !== undefined && { origin }) }),
-    [pod, origin],
-  );
+  // One endpoint layer per rest helper and endpoint map, keyed on the map's content (a page may rebuild an equal map).
+  const endpointKey = JSON.stringify(endpointMap);
+  const endpoints = useMemo(() => {
+    const stream = streamFetchOf(restHelper, endpointMap);
+    return new EndpointFetch({ helper: new DashboardRestHelper(restHelper, endpointMap), ...(stream !== undefined && { stream }) });
+  }, [restHelper, endpointKey]);
 
   const transport = useMemo(() => {
     const ac = config.agent.additionalContext;
     const lang = config.agent.responseLanguage;
     return new AiStudioTransport({
-      auth,
+      endpoints,
       workflowCode: config.agent.workflowCode,
       checkVersion: config.protocol.checkVersion,
       ...(ac !== undefined && { additionalContext: substitute(ac, context ?? {}) }),
       ...(lang !== undefined && { responseLanguage: lang }),
-      ...(origin !== undefined && { origin }),
     });
-  }, [config, auth, context, origin]);
+  }, [config, endpoints, context]);
 
   // Built here so the controller stays the single owner of services.
   const history = useMemo(
-    () => new OracleHistoryStore({ auth, workflowCode: config.agent.workflowCode, userName, ...(origin !== undefined && { origin }) }),
-    [config, auth, userName, origin],
+    () => new OracleHistoryStore({ endpoints, workflowCode: config.agent.workflowCode, userName }),
+    [config, endpoints, userName],
   );
   const fileService = useMemo(() => {
     if (!config.files.enabled) return null;
@@ -140,14 +142,13 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     if (!personId || !hcmRestBase) throw new Error("files.enabled requires person-id and protocol.hcmRestBase");
     const { maxFiles, maxSizeMB, accept } = config.files;
     return new OracleAttachmentService({
-      auth, workflowCode: config.agent.workflowCode, personId, hcmRestBase,
-      limits: { maxFiles, maxSizeMB, accept }, ...(origin !== undefined && { origin }),
+      endpoints, workflowCode: config.agent.workflowCode, personId, hcmRestBase, limits: { maxFiles, maxSizeMB, accept },
     });
-  }, [config, auth, personId, origin]);
+  }, [config, endpoints, personId]);
 
   const workflowSource = useMemo(
-    () => new OracleWorkflowInfo({ auth, workflowCode: config.agent.workflowCode, ...(origin !== undefined && { origin }) }),
-    [config, auth, origin],
+    () => new OracleWorkflowInfo({ endpoints, workflowCode: config.agent.workflowCode }),
+    [config, endpoints],
   );
 
   const [state, dispatch] = useReducer(reduce, props.conversationId, (id?: string) => initialState(id ? id : newConversationId()));
@@ -173,12 +174,11 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   // The same, as state, for the UI.
   const [inFlight, setInFlight] = useState(false);
 
-  // Any AuthError is an auth state: relogin, unauthorized, or invalid -> unavailable with its reason (missing xsrf node,
-  // undecodable token, clock skew); the in-flight turn is closed with `done`, which ends it as "No reply received".
+  // An endpoint's 401 is the re-login state (a banner with a reload; nothing is retried); the in-flight turn is closed
+  // with `done`, which ends it as "No reply received". Any other failure of a turn ends it with its error.
   const fail = useCallback((e: unknown, endTurn: boolean) => {
-    if (e instanceof AuthError) {
-      if (e.kind === "invalid") dispatch({ type: "auth", state: "unavailable", ...(e.reason !== undefined && { reason: e.reason }), ...(e.status !== undefined && { status: e.status }) });
-      else dispatch({ type: "auth", state: e.kind });
+    if (isRelogin(e)) {
+      dispatch({ type: "auth", state: "relogin" });
       if (endTurn) dispatch({ type: "event", event: { type: "done" } });
     } else if (endTurn) {
       dispatch({ type: "event", event: { type: "error", message: messageOf(e) } });
@@ -215,7 +215,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       },
       (e: unknown) => {
         if (seq !== listSeq.current) return;
-        setList((l) => ({ ...l, loading: false, error: e instanceof AuthError ? null : detailOf(e) }));
+        setList((l) => ({ ...l, loading: false, error: isRelogin(e) ? null : detailOf(e) }));
         fail(e, false);
       },
     );
@@ -501,7 +501,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       (info) => { if (live) setWorkflowInfo(info); },
       (e: unknown) => {
         if (!live) return;
-        if (!(e instanceof AuthError)) setWorkflowError(detailOf(e));
+        if (!isRelogin(e)) setWorkflowError(detailOf(e));
         fail(e, false);
       },
     );

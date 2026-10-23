@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Host page = src/index.html (default mock config: workflow MOCK_WF on pod "mockpod", starters "fromWorkflow").
+// Host page = src/index.html (default mock config: workflow MOCK_WF, starters "fromWorkflow"; rest-helper = the mock VB
+// RestHelper, endpoint = the six contract names -> mock service connections, every call to the mock pod).
 // Mock pod chat fixtures by message: "hello" (any other text too) -> "Hel","lo!" deltas, final "Hello! How can I help?"
 // + follow-ups; "fail" -> error final "ErrorRecord[boom]"; "unsafe html" -> a final with an overlay div, a remote image,
 // a raw anchor and form controls; "long list" -> a heading, a paragraph and a 26-item numbered list + follow-ups
@@ -119,7 +120,7 @@ test("error_reply_shows_error_bubble_and_reenables_composer", async ({ page }) =
 test("needs_input_makes_no_requests", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
-      agent: { pod: "mockpod" },
+      agent: {},
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100" },
     };
@@ -145,42 +146,77 @@ test("needs_input_lists_user_userName_when_user_missing", async ({ page }) => {
   expect(await mockRequests(page)).toEqual([]);
 });
 
-test("relogin_banner_on_html_relay", async ({ page }) => {
+test("needs_input_lists_missing_endpoints", async ({ page }) => {
+  // The page's endpoint map lacks FUAI and BOSS (and, with files on, FA): nothing may be called.
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_ENDPOINTS__: object }).__CHAT_ENDPOINTS__ = { KM: "mockKM" };
+  });
   await page.goto("/");
-  // The starters fetch has minted the BOSS token; the fusion-ai audience has no cached token on this fresh page,
-  // so the relay that send() triggers is the first one after arming and gets the login HTML.
+  const panel = page.getByTestId("gai-state-panel");
+  await expect(panel.getByRole("heading")).toHaveText("This chat needs more configuration");
+  await expect(panel.locator("li")).toHaveText([
+    "endpoint.FUAI: required",
+    "endpoint.BOSS: required",
+    "endpoint.FA: required when files.enabled",
+  ]);
+  await expect(page.getByTestId("gai-composer-input")).toHaveCount(0);
+
+  await page.waitForLoadState("networkidle");
+  expect(await mockRequests(page)).toEqual([]);
+});
+
+test("needs_input_lists_missing_rest_helper", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_REST_HELPER_MODE__: string }).__CHAT_REST_HELPER_MODE__ = "none";
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("gai-state-panel").locator("li")).toHaveText(["rest-helper: required"]);
+  await expect(page.getByTestId("gai-composer-input")).toHaveCount(0);
+
+  await page.waitForLoadState("networkidle");
+  expect(await mockRequests(page)).toEqual([]);
+});
+
+test("relogin_banner_on_endpoint_401", async ({ page }) => {
+  await page.goto("/");
   await expect(page.getByTestId("gai-starter")).toHaveCount(2);
-  await page.request.get(`${MOCK_POD}/fscmRestApi/tokenrelay?$mock=expired`);
+  // The endpoint refuses the session: the next /chat answers 401.
+  await page.request.get(`${MOCK_POD}/__mock/arm?chat=401`);
 
   await sendText(page, "hello");
   const banner = page.getByTestId("gai-auth-banner");
   await expect(banner).toContainText("Session expired");
   await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeDisabled();
   await expect(page.getByTestId("gai-composer-send").locator("button")).toBeDisabled();
+  // The turn whose call was refused ends explicitly; nothing is retried.
+  await expect(page.getByTestId("gai-error")).toHaveText("No reply received");
+  expect(await chatRequests(page)).toHaveLength(1);
 
   await Promise.all([page.waitForEvent("load"), page.getByTestId("gai-auth-reload").locator("button").click()]);
   await expect(page.getByTestId("gai-starter")).toHaveCount(2);
   await expect(page.getByTestId("gai-auth-banner")).toHaveCount(0);
 });
 
-test("anticsrf_failure_shows_unavailable_banner", async ({ page }) => {
-  // Explicit starters and no sidebar: no workflow lookup or conversation list at mount, so the send is the first call
-  // that needs the anti-CSRF token.
-  await page.addInitScript(() => {
-    (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
-      agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
-      auth: { kind: "fusionShell" },
-      protocol: { checkVersion: "2607100" },
-      ui: { starterQuestions: ["Show my invoices"], conversations: false },
-    };
-  });
-  await page.request.get(`${MOCK_POD}/__mock/arm?anticsrf=500`);
+test("relogin_banner_on_boss_401_at_mount", async ({ page }) => {
+  // The mount-time workflow lookup gets 401 from the BOSS endpoint: the re-login banner, not a starters notice.
+  await page.request.get(`${MOCK_POD}/__mock/arm?workflows=401`);
   await page.goto("/");
-  await expect(page.getByTestId("gai-starter")).toHaveText(["Show my invoices"]);
-  await expect(page.getByTestId("gai-sidebar")).toHaveCount(0);
+  await expect(page.getByTestId("gai-auth-banner")).toContainText("Session expired");
+  await expect(page.getByTestId("gai-workflow-error")).toHaveCount(0);
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeDisabled();
+});
 
-  const errors: Array<{ message: string; reason?: string }> = [];
-  await page.exposeFunction("__chatError", (d: { message: string; reason?: string }) => { errors.push(d); });
+test("chat_streaming_unavailable_is_an_explicit_error", async ({ page }) => {
+  // A rest helper with VB's interface only (VB's RestHelper has no streaming capability): BOSS calls work, the chat call
+  // is never sent and never buffered.
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_REST_HELPER_MODE__: string }).__CHAT_REST_HELPER_MODE__ = "no-stream";
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("gai-starter")).toHaveText(["Show my invoices", "Create a PO"]);
+
+  const errors: Array<{ message: string; status?: number }> = [];
+  await page.exposeFunction("__chatError", (d: { message: string; status?: number }) => { errors.push(d); });
   await page.evaluate(() => {
     document.getElementById("chat")?.addEventListener("aiChatError", (e) => {
       (window as unknown as { __chatError: (d: unknown) => void }).__chatError((e as CustomEvent).detail);
@@ -188,14 +224,11 @@ test("anticsrf_failure_shows_unavailable_banner", async ({ page }) => {
   });
 
   await sendText(page, "hello");
-  await expect(page.getByTestId("gai-auth-banner")).toContainText("anti-CSRF token request failed (HTTP 500)");
-  await expect(page.getByTestId("gai-auth-reload")).toBeVisible();
-  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeDisabled();
-  // The turn that never reached the agent ends explicitly.
-  await expect(page.getByTestId("gai-error")).toHaveText("No reply received");
+  await expect(page.getByTestId("gai-error")).toHaveText("chat streaming not available through this endpoint");
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(0);
+  await expect(page.getByTestId("gai-auth-banner")).toHaveCount(0);
   expect(await chatRequests(page)).toEqual([]);
-  await expect.poll(() => errors.map((d) => d.reason)).toEqual(["xsrf-unavailable"]);
+  await expect.poll(() => errors).toEqual([{ message: "chat streaming not available through this endpoint" }]);
 });
 
 test("unsafe_reply_html_is_neutralized", async ({ page }) => {
@@ -258,7 +291,7 @@ test("greeting_shows_without_starters", async ({ page }) => {
   // Explicit empty starters and no sidebar: the greeting alone opens the conversation, with the default texts.
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
-      agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
+      agent: { workflowCode: "MOCK_WF" },
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100" },
       ui: { starterQuestions: [], conversations: false },
@@ -279,7 +312,7 @@ test("greeting_shows_without_starters", async ({ page }) => {
 test("greeting_and_placeholder_from_config", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
-      agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
+      agent: { workflowCode: "MOCK_WF" },
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100" },
       ui: { greeting: "Hi! Ask me about your invoices.", placeholder: "Type a question", starterQuestions: ["Show my invoices"], conversations: false },

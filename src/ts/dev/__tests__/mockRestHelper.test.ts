@@ -108,3 +108,28 @@ test("dashboard_rest_helper_over_the_mock", async () => {
   expect(sent.map((s) => s.url)).toEqual([`${BASE}/api/boss/data/x?$fields=id`]);
   expect((sent[0].init.headers as Record<string, string>).Authorization).toBe(DEV_MOCK_AUTHORIZATION);
 });
+
+test("streamFetch_returns_the_unconsumed_response", async () => {
+  const res = new Response("data: {}\n\n", { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  const { fetchImpl, sent } = fakeFetch(() => res);
+  const helper = new MockRestHelper({ serviceConnections: { mockFUAI: BASE + "/" }, fetchImpl });
+  const ac = new AbortController();
+  const r = await helper.streamFetch("mockFUAI", { url: "/api/fusion-ai/x/chat", method: "POST", headers: { Accept: "text/event-stream" }, body: "{}", signal: ac.signal });
+  expect(r).toBe(res);
+  expect(r.bodyUsed).toBe(false);
+  expect(sent).toEqual([{
+    url: `${BASE}/api/fusion-ai/x/chat`,
+    init: { method: "POST", headers: { Accept: "text/event-stream", Authorization: DEV_MOCK_AUTHORIZATION }, body: "{}", signal: ac.signal },
+  }]);
+});
+
+test("streamFetch_resolves_urls_like_dashboard_rest_helper_and_rejects_unknown_ids", async () => {
+  const { fetchImpl, sent } = fakeFetch(() => new Response(""));
+  const helper = new MockRestHelper({ serviceConnections: { mockFUAI: BASE }, fetchImpl });
+  await helper.streamFetch("mockFUAI", { url: "api/fusion-ai/a", method: "GET", headers: {} });
+  await helper.streamFetch("mockFUAI", { url: "https://other.example.com/b", method: "GET", headers: {} });
+  expect(sent.map((s) => s.url)).toEqual([`${BASE}/api/fusion-ai/a`, "https://other.example.com/b"]);
+  expect("body" in sent[0].init).toBe(false);
+  await expect(helper.streamFetch("nope", { url: "/x", method: "GET", headers: {} })).rejects.toThrow("mock rest helper: unknown service connection nope");
+  expect(sent).toHaveLength(2);
+});

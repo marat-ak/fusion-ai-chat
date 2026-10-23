@@ -9,10 +9,9 @@
     "agent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["workflowCode", "pod"],
+      "required": ["workflowCode"],
       "properties": {
         "workflowCode": { "type": "string", "minLength": 1 },
-        "pod": { "type": "string", "minLength": 1 },
         "triggerType": { "const": "chat" },
         "additionalContext": { "type": "object" },
         "responseLanguage": { "type": "string" }

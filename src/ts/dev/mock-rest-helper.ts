@@ -3,6 +3,7 @@
 // requestTransformationFunctions / fetch(); fetch() resolves VB's {response, body} for every HTTP status, the body
 // already read. The request is a plain fetch to the base URL configured for the service connection, authorized with
 // DEV_MOCK_AUTHORIZATION (the mock pod accepts any bearer). On a pod the page passes VB's own RestHelper instead.
+// Beyond VB's interface the mock has streamFetch(), the chat's optional streaming capability.
 
 /** The mock's only credential: the mock pod accepts any bearer. */
 export const DEV_MOCK_AUTHORIZATION = "Bearer dev-mock";
@@ -108,8 +109,37 @@ export class MockRestHelper {
     this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
   }
 
-  get(endpointId: string): MockRest {
-    const known = Object.prototype.hasOwnProperty.call(this.connections, endpointId);
-    return new MockRest(endpointId, known ? this.connections[endpointId] : undefined, this.fetchImpl);
+  private base(endpointId: string): string | undefined {
+    return Object.prototype.hasOwnProperty.call(this.connections, endpointId) ? this.connections[endpointId] : undefined;
   }
+
+  get(endpointId: string): MockRest {
+    return new MockRest(endpointId, this.base(endpointId), this.fetchImpl);
+  }
+
+  /**
+   * The chat's optional streaming capability (StreamingRestHelper in chat/lib/endpoints/EndpointFetch.ts): the native
+   * Response, unconsumed, for every status. `url` resolves against the service connection exactly as DashboardRestHelper's
+   * transform does (absolute replaces, relative is appended). VB's RestHelper has no such method.
+   */
+  async streamFetch(endpointId: string, request: MockStreamRequest): Promise<Response> {
+    const base = this.base(endpointId);
+    if (base === undefined) throw new Error(`mock rest helper: unknown service connection ${endpointId}`);
+    const { url, method, headers, body, signal } = request;
+    const target = /^https?:\/\//.test(url) ? url : base.replace(/\/$/, "") + "/" + url.replace(/^\//, "");
+    return this.fetchImpl(target, {
+      method,
+      headers: { ...headers, Authorization: DEV_MOCK_AUTHORIZATION },
+      ...(body !== undefined && { body }),
+      ...(signal !== undefined && { signal }),
+    });
+  }
+}
+
+export interface MockStreamRequest {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body?: string;
+  signal?: AbortSignal;
 }

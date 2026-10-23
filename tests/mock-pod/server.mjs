@@ -9,6 +9,7 @@
 //   GET /__mock/arm?listDelay=<ms>      -> the next BOSS userConversations list answers <ms> (0..30000) late, once
 //   GET /__mock/arm?attachUpload=<status> -> the next attachUpload answers <status> (4xx/5xx) once
 //   GET /__mock/arm?anticsrf=<status>   -> the next /fscmRestApi/anticsrf answers <status> (4xx/5xx) once
+//   GET /__mock/arm?chat=<status>       -> the next /chat answers <status> (4xx/5xx) once, JSON {detail}
 //                                          (the parameters may be combined in one call)
 //   GET /fscmRestApi/anticsrf           -> { "xsrftoken": "test-xsrf" } (open; the relay requires it as x-xsrf-token)
 //   GET /fscmRestApi/tokenrelay?$mock=expired -> the next relay answers login HTML once (this call is logged)
@@ -31,6 +32,7 @@ const state = {
   listDelayNext: null,
   attachUploadStatusNext: null,
   anticsrfStatusNext: null,
+  chatStatusNext: null,
   requests: [],
 };
 
@@ -107,6 +109,7 @@ const routes = [
       state.listDelayNext = null;
       state.attachUploadStatusNext = null;
       state.anticsrfStatusNext = null;
+      state.chatStatusNext = null;
       return json(res, 204);
     },
   },
@@ -114,8 +117,8 @@ const routes = [
     method: "GET", path: /^\/__mock\/arm$/, open: true,
     handle: ({ res, url }) => {
       const p = url.searchParams;
-      const usage = "arm: workflows=<4xx|5xx>, listDelay=<0..30000 ms> and/or attachUpload=<4xx|5xx> and/or anticsrf=<4xx|5xx> required";
-      if (!p.has("workflows") && !p.has("listDelay") && !p.has("attachUpload") && !p.has("anticsrf")) return json(res, 400, { detail: usage });
+      const usage = "arm: workflows=<4xx|5xx>, listDelay=<0..30000 ms>, attachUpload=<4xx|5xx>, anticsrf=<4xx|5xx> and/or chat=<4xx|5xx> required";
+      if (!p.has("workflows") && !p.has("listDelay") && !p.has("attachUpload") && !p.has("anticsrf") && !p.has("chat")) return json(res, 400, { detail: usage });
       const status = Number(p.get("workflows"));
       const delay = Number(p.get("listDelay"));
       if (p.has("workflows") && (!Number.isInteger(status) || status < 400 || status > 599)) return json(res, 400, { detail: usage });
@@ -124,11 +127,14 @@ const routes = [
       if (p.has("attachUpload") && (!Number.isInteger(upload) || upload < 400 || upload > 599)) return json(res, 400, { detail: usage });
       const anti = Number(p.get("anticsrf"));
       if (p.has("anticsrf") && (!Number.isInteger(anti) || anti < 400 || anti > 599)) return json(res, 400, { detail: usage });
+      const chat = Number(p.get("chat"));
+      if (p.has("chat") && (!Number.isInteger(chat) || chat < 400 || chat > 599)) return json(res, 400, { detail: usage });
       const armed = {};
       if (p.has("workflows")) state.workflowsStatusNext = armed.workflows = status;
       if (p.has("listDelay")) state.listDelayNext = armed.listDelay = delay;
       if (p.has("attachUpload")) state.attachUploadStatusNext = armed.attachUpload = upload;
       if (p.has("anticsrf")) state.anticsrfStatusNext = armed.anticsrf = anti;
+      if (p.has("chat")) state.chatStatusNext = armed.chat = chat;
       return json(res, 200, { armed });
     },
   },
@@ -166,6 +172,11 @@ const routes = [
   {
     method: "POST", path: /^\/api\/fusion-ai\/orchestrator\/agent\/v2\/[^/]+\/chat$/,
     handle: ({ res, body }) => {
+      if (state.chatStatusNext !== null) {
+        const status = state.chatStatusNext;
+        state.chatStatusNext = null;
+        return json(res, status, { detail: `mock pod: armed chat ${status}` });
+      }
       const b = body && typeof body === "object" ? body : {};
       const pick = b.resumeInput ? "chat-resumed.sse"
         : b.message === "approve me" ? "chat-wait.sse"

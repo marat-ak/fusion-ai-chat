@@ -1,5 +1,5 @@
 export interface ChatConfig {
-  agent: { workflowCode: string; pod: string; triggerType?: "chat"; additionalContext?: Record<string, unknown>; responseLanguage?: string | "auto" };
+  agent: { workflowCode: string; triggerType?: "chat"; additionalContext?: Record<string, unknown>; responseLanguage?: string | "auto" };
   auth: { kind: "fusionShell" };
   // hcmRestBase is required only when files.enabled (validator enforces); no data default exists, so it is optional here.
   protocol: { checkVersion: string; hcmRestBase?: string };

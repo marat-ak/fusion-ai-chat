@@ -1,7 +1,7 @@
 import { validateConfig, parseConfigProp } from "../config/validate";
 
 const min = {
-  agent: { workflowCode: "WF_1", pod: "https://pod.example.com" },
+  agent: { workflowCode: "WF_1" },
   auth: { kind: "fusionShell" },
   protocol: { checkVersion: "2607100" },
 };
@@ -11,8 +11,18 @@ test("minimal valid config is ok", () => {
 });
 
 test("missing workflowCode is needs-input", () => {
-  const r = validateConfig({ ...min, agent: { pod: "https://pod.example.com" } });
+  const r = validateConfig({ ...min, agent: {} });
   expect(r).toMatchObject({ ok: false, kind: "needs-input", problems: [{ path: "agent.workflowCode" }] });
+});
+
+test("agent.pod is an unknown key (the pod lives in the endpoints' service connections)", () => {
+  const r = validateConfig({ ...min, agent: { workflowCode: "WF_1", pod: "evbp-dev1" } });
+  expect(r).toEqual({ ok: false, kind: "invalid", problems: [{ path: "agent.pod", message: "unknown key" }] });
+});
+
+test("a valid config has no pod", () => {
+  const r = validateConfig(min);
+  expect(r.ok && Object.keys(r.config.agent)).toEqual(["workflowCode"]);
 });
 
 test("unknown top-level key is invalid", () => {

@@ -77,9 +77,9 @@ export function validateConfig(input: unknown): ValidateResult {
   }
 
   // agent
-  const agent = section("agent", ["workflowCode", "pod", "triggerType", "additionalContext", "responseLanguage"]);
+  // The pod is not configured here: it lives in the scopes of the page's service connections (the endpoint map).
+  const agent = section("agent", ["workflowCode", "triggerType", "additionalContext", "responseLanguage"]);
   const workflowCode = str(agent, "workflowCode", "agent.workflowCode", true);
-  const pod = str(agent, "pod", "agent.pod", true);
   let triggerType: "chat" | undefined;
   if (agent?.triggerType !== undefined) {
     if (agent.triggerType !== "chat") bad("agent.triggerType", 'must be "chat"');
@@ -161,7 +161,6 @@ export function validateConfig(input: unknown): ValidateResult {
   const cfg: ChatConfig = {
     agent: {
       workflowCode: workflowCode!,
-      pod: pod!,
       ...(triggerType && { triggerType }),
       ...(additionalContext && { additionalContext }),
       ...(responseLanguage !== undefined && { responseLanguage }),

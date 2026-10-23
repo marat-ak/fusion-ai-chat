@@ -9,6 +9,7 @@ import { ChatShell } from "./ui/ChatShell";
 import type { ChatHandle } from "./ui/ChatShell";
 import { StatePanel } from "./ui/StatePanel";
 import type { ChatErrorDetail } from "./ui/useChatController";
+import type { VbRestHelper } from "xxx-gnimsys-data/rest/index";
 
 type Props = Readonly<{
   /** Agent configuration (config-v1 schema), as an object or a JSON string. Required. */
@@ -21,22 +22,27 @@ type Props = Readonly<{
   context?: Record<string, unknown>;
   /** Id of the current conversation (in/out). Setting it switches the chat to that conversation. */
   conversationId?: string;
-  /** VB REST helper, for the VB-connection auth kind (accepted, not used in v1.0). */
+  /** The page's VB RestHelper (`vb/helpers/rest`): every pod call goes through it and the endpoint map. Required. */
   restHelper?: object;
-  /** VB service-connection map, for the VB-connection auth kind (accepted, not used in v1.0). */
-  endpoint?: object | string;
+  /**
+   * The endpoint map: contract endpoint name (FA, FUAI, BOSS, SAASBATCH, KM, SALESCOMMON) -> VB endpoint id of the
+   * service connection that owns those calls and their token (its scope carries the pod). Required: FUAI and BOSS, and FA
+   * when config.files.enabled.
+   */
+  endpoint?: Record<string, string>;
   onConversationIdChanged?: PropertyChanged<string>;
   /** Fired when the chat switches to another conversation (new or opened). */
   onAiChatConversationChanged?: Action<{ conversationId: string }>;
   /**
-   * Fired when a reply fails, the session needs a re-login, chat auth is unavailable (`reason`), the agent lookup fails,
-   * or a conversation list/history/name/rename/delete call fails.
+   * Fired when a reply fails, an endpoint answers 401 (the session needs a re-login), the agent lookup fails, or a
+   * conversation list/history/name/rename/delete or attachment call fails. `status`: the HTTP status, when there was one.
    */
-  onAiChatError?: Action<{ message: string; status?: number; reason?: "xsrf-unavailable" | "token-undecodable" | "clock-skew" }>;
+  onAiChatError?: Action<{ message: string; status?: number }>;
 }>;
 
 // The Core Pack (oj-c) components imported by ui/*.tsx, named as in the runtime's oj-c catalog; the pod's JET runtime
-// provides them (dependencyScope "runtime"), so they are declared here and never bundled.
+// provides them (dependencyScope "runtime"), so they are declared here and never bundled. xxx-gnimsys-data-rest: the
+// endpoint layer (DashboardRestHelper) of the shared data pack, imported by ui/useChatController.ts.
 /**
  * @ojmetadata pack "xxx-gnimsys-ai"
  * @ojmetadata version "0.1.0"
@@ -57,12 +63,13 @@ type Props = Readonly<{
  *   "oj-c-progress-circle": "^19.0.0",
  *   "oj-c-text-area": "^19.0.0",
  *   "oj-c-toggle-button": "^19.0.0",
- *   "oj-c-truncating-text": "^19.0.0"
+ *   "oj-c-truncating-text": "^19.0.0",
+ *   "xxx-gnimsys-data-rest": "^0.1.0"
  * }
  */
 function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
-  const { config, user, personId } = props;
-  const check = useMemo(() => checkInputs(config, user, personId), [config, user, personId]);
+  const { config, user, personId, restHelper, endpoint } = props;
+  const check = useMemo(() => checkInputs(config, user, personId, restHelper, endpoint), [config, user, personId, restHelper, endpoint]);
 
   // Methods delegate to the mounted shell; with a needs-input/invalid config there is none and they throw.
   const shell = useRef<ChatHandle | null>(null);
@@ -88,8 +95,9 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
     <div class="gai-chat oj-sm-height-full oj-typography-body-md oj-text-color-primary">
       {check.ok ? (
         <ChatShell
-          // Another agent is another chat: remount so no turns or conversation id carry over to it.
-          key={`${check.config.agent.pod}/${check.config.agent.workflowCode}`}
+          // Another agent (or another endpoint map, i.e. another pod) is another chat: remount so no turns or conversation id
+          // carry over to it.
+          key={`${JSON.stringify(endpoint)}/${check.config.agent.workflowCode}`}
           config={check.config}
           strings={componentStrings.chat}
           userName={(user as { userName: string } /* checkInputs: userName non-empty */).userName}
@@ -97,6 +105,9 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
           userRoles={user?.roles ?? []}
           {...(props.context !== undefined && { context: props.context })}
           {...(props.conversationId !== undefined && { conversationId: props.conversationId })}
+          // checkInputs: a RestHelper (get()) and an endpoint map with every name the config needs.
+          restHelper={restHelper as VbRestHelper}
+          endpoints={endpoint as Record<string, string>}
           handleRef={shell}
           onConversationIdChanged={onConversationIdChanged}
           onConversationChanged={onConversationChanged}

@@ -12,9 +12,9 @@ import Context = require("ojs/ojcontext");
 import "xxx-gnimsys-ai/chat/loader";
 import { MOCK_ENDPOINTS, MockRestHelper } from "./dev/mock-rest-helper";
 
-// Dev host page config: the mock pod (tests/mock-pod) answers for pod "mockpod".
+// Dev host page config: every call goes through the mock rest helper to the mock pod (tests/mock-pod).
 const defaultMockConfig = {
-  agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
+  agent: { workflowCode: "MOCK_WF" },
   auth: { kind: "fusionShell" },
   protocol: { checkVersion: "2607100", hcmRestBase: "/hcmRestApi/rest/latest/en/11.13.18.05:9" },
   ui: { starterQuestions: "fromWorkflow" },
@@ -29,7 +29,7 @@ class RootViewModel {
   chatConfig: object | string;
   chatConversationId: string | undefined;
   chatUser: { userName?: string; roles?: string[] };
-  chatRestHelper: MockRestHelper;
+  chatRestHelper: MockRestHelper | { get: MockRestHelper["get"] } | undefined;
   chatEndpoints: Record<string, string>;
 
   constructor() {
@@ -65,11 +65,14 @@ class RootViewModel {
 
     // Stand-in for VB's RestHelper and the page's endpoint map: every mock service connection points at this page's
     // origin, whose dev server proxies the pod paths to the mock pod (MOCK_POD=1, scripts/hooks/before_serve.js).
-    // A test may replace the endpoint map.
+    // A test may replace the endpoint map, withhold the rest helper ("none") or offer only VB's interface without the
+    // streaming capability ("no-stream", as VB's own RestHelper).
     const origin = window.location.origin;
-    this.chatRestHelper = new MockRestHelper({
+    const mock = new MockRestHelper({
       serviceConnections: Object.fromEntries(Object.values(MOCK_ENDPOINTS).map((id) => [id, origin])),
     });
+    const mode = window.__CHAT_REST_HELPER_MODE__;
+    this.chatRestHelper = mode === "none" ? undefined : mode === "no-stream" ? { get: (id: string) => mock.get(id) } : mock;
     this.chatEndpoints = window.__CHAT_ENDPOINTS__ ?? { ...MOCK_ENDPOINTS };
 
     // release the application bootstrap busy state

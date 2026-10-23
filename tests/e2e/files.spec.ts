@@ -15,7 +15,7 @@ async function mockRequests(page: Page): Promise<MockRequest[]> {
   return (await r.json()) as MockRequest[];
 }
 
-/** The attachment flow and chat calls only (the log also holds token relays, BOSS list/workflow and name lookups). */
+/** The attachment flow and chat calls only (the log also holds BOSS list/workflow and name lookups). */
 function flowStep(r: MockRequest): string | null {
   if (r.method !== "POST") return null;
   if (r.url === `${HCM_REST_BASE}/hcmAiStudioConversations`) return "hcmAiStudioConversations";
@@ -133,7 +133,7 @@ test("failed_upload_blocks_send_and_marks_chip", async ({ page }) => {
 test("files_disabled_hides_attach_ui", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
-      agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
+      agent: { workflowCode: "MOCK_WF" },
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100", hcmRestBase: "/hcmRestApi/rest/latest/en/11.13.18.05:9" },
       ui: { starterQuestions: "fromWorkflow" },
@@ -172,7 +172,7 @@ test("sixth_file_is_rejected_with_count_reason", async ({ page }) => {
 test("txt_oversize_is_rejected", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
-      agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
+      agent: { workflowCode: "MOCK_WF" },
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100", hcmRestBase: "/hcmRestApi/rest/latest/en/11.13.18.05:9" },
       ui: { starterQuestions: "fromWorkflow" },

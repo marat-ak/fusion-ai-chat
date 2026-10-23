@@ -1,28 +1,24 @@
-import type { AuthFetch } from "../auth/AuthFetch";
+import type { EndpointFetch } from "../endpoints/EndpointFetch";
 import { HistoryError } from "./HistoryStore";
-import { resolveOrigin } from "../origin";
+import { historyCall, historyJson } from "./OracleHistoryStore";
 
 export interface WorkflowInfo { name: string; starterQuestions: string[]; followupEnabled: boolean }
 
 export class OracleWorkflowInfo {
-  private auth: AuthFetch;
+  private endpoints: EndpointFetch;
   private workflowCode: string;
-  private origin: string;
 
-  constructor(deps: { auth: AuthFetch; workflowCode: string; origin?: string }) {
-    this.auth = deps.auth;
+  constructor(deps: { endpoints: EndpointFetch; workflowCode: string }) {
+    this.endpoints = deps.endpoints;
     this.workflowCode = deps.workflowCode;
-    this.origin = resolveOrigin(deps.origin);
   }
 
   async get(): Promise<WorkflowInfo> {
     const filter = `workflowCode='${this.workflowCode.replace(/'/g, "''")}' and status='PUBLISHED'`;
     const fields = "name,firstStarterQuestion,secondStarterQuestion,thirdStarterQuestion,followupEnabledFlag";
-    const url = `${this.origin}/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$fields=${encodeURIComponent(fields)}&$filter=${encodeURIComponent(filter)}`;
-    const r = await this.auth.fetch("boss", url);
-    if (!r.ok) throw new HistoryError(r.status, await r.text());
-    const json = JSON.parse(await r.text());
-    const item = (json.items ?? [])[0];
+    const url = `/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$fields=${encodeURIComponent(fields)}&$filter=${encodeURIComponent(filter)}`;
+    const json = historyJson(await historyCall(this.endpoints, "BOSS", url));
+    const item = ((json.items as any[] | undefined) ?? [])[0];
     if (!item) throw new HistoryError(404, "workflow not published");
     if (typeof item.name !== "string" || item.name === "") throw new HistoryError(0, "workflow name missing");
     return {

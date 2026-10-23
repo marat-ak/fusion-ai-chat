@@ -1,39 +1,48 @@
-import type { AuthFetch } from "../auth/AuthFetch";
-import { resolveOrigin } from "../origin";
+import { EndpointError, endpointBodyText, objectBody } from "../endpoints/EndpointFetch";
+import type { EndpointFetch, EndpointInit, EndpointName, EndpointResponse } from "../endpoints/EndpointFetch";
 import { HistoryError } from "./HistoryStore";
 import type { ConversationSummary, HistoryMessage, HistoryStore } from "./HistoryStore";
 
 const FIELDS = "personIdentifier,id,objectCode,objectType,name,status,createdBy,timeCreated,updatedBy,timeUpdated";
+const BASE = "/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en";
 const q = (s: string): string => s.replace(/'/g, "''");
 
+/**
+ * An endpoint call whose HTTP failure is a HistoryError (status + the error body as text); a call refused by the endpoint
+ * layer or without an HTTP answer stays an EndpointError.
+ */
+export async function historyCall(endpoints: EndpointFetch, target: EndpointName, url: string, init?: EndpointInit): Promise<EndpointResponse> {
+  try {
+    return await endpoints.request(target, url, init);
+  } catch (e) {
+    if (e instanceof EndpointError && e.kind === "http") throw new HistoryError(e.status, endpointBodyText(e.body));
+    throw e;
+  }
+}
+
+/** The JSON object body of a history response; anything else (a login page, text) is a HistoryError. */
+export function historyJson(res: EndpointResponse): Record<string, unknown> {
+  const json = objectBody(res);
+  if (json === null) throw new HistoryError(0, "non-JSON response");
+  return json;
+}
+
 export class OracleHistoryStore implements HistoryStore {
-  private auth: AuthFetch;
+  private endpoints: EndpointFetch;
   private workflowCode: string;
   private userName: string;
-  private origin: string;
 
-  constructor(deps: { auth: AuthFetch; workflowCode: string; userName: string; origin?: string }) {
-    this.auth = deps.auth;
+  constructor(deps: { endpoints: EndpointFetch; workflowCode: string; userName: string }) {
+    this.endpoints = deps.endpoints;
     this.workflowCode = deps.workflowCode;
     this.userName = deps.userName;
-    this.origin = resolveOrigin(deps.origin);
-  }
-
-  private get base(): string {
-    return `${this.origin}/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en`;
-  }
-
-  private async fail(r: Response): Promise<never> {
-    throw new HistoryError(r.status, await r.text());
   }
 
   async list(offset = 0): Promise<{ items: ConversationSummary[]; hasMore: boolean }> {
     const filter = `objectType='AGENT_TEAM' and createdBy~='${q(this.userName)}' and objectCode ~= '${q(this.workflowCode)}'`;
-    const url = `${this.base}/userConversations?$fields=${encodeURIComponent(FIELDS)}&$filter=${encodeURIComponent(filter)}&$limit=100&$offset=${offset}`;
-    const r = await this.auth.fetch("boss", url);
-    if (!r.ok) return this.fail(r);
-    const json = JSON.parse(await r.text());
-    const items: ConversationSummary[] = (json.items ?? []).map((it: any) => ({
+    const url = `${BASE}/userConversations?$fields=${encodeURIComponent(FIELDS)}&$filter=${encodeURIComponent(filter)}&$limit=100&$offset=${offset}`;
+    const json = historyJson(await historyCall(this.endpoints, "BOSS", url));
+    const items: ConversationSummary[] = ((json.items as any[] | undefined) ?? []).map((it: any) => ({
       id: it.id,
       name: it.name ?? "",
       createdAt: it.timeCreated,
@@ -44,20 +53,23 @@ export class OracleHistoryStore implements HistoryStore {
   }
 
   async name(id: string): Promise<string | null> {
-    const r = await this.auth.fetch("boss", `${this.base}/userConversations/${encodeURIComponent(id)}?$fields=name`);
-    if (r.status === 404) return null;
-    if (!r.ok) return this.fail(r);
-    const json = JSON.parse(await r.text());
-    return json.name ?? null;
+    let res: EndpointResponse;
+    try {
+      res = await historyCall(this.endpoints, "BOSS", `${BASE}/userConversations/${encodeURIComponent(id)}?$fields=name`);
+    } catch (e) {
+      if (e instanceof HistoryError && e.status === 404) return null;
+      throw e;
+    }
+    const json = historyJson(res);
+    return typeof json.name === "string" ? json.name : null;
   }
 
   private async etag(id: string): Promise<string> {
-    const r = await this.auth.fetch("boss", `${this.base}/userConversations/${encodeURIComponent(id)}?$fields=id`);
-    if (!r.ok) return this.fail(r);
-    let tag = r.headers.get("ETag");
+    const res = await historyCall(this.endpoints, "BOSS", `${BASE}/userConversations/${encodeURIComponent(id)}?$fields=id`);
+    let tag = res.headers.get("ETag");
     if (!tag) {
-      const json = JSON.parse(await r.text());
-      tag = json.$context?.etag ?? null;
+      const ctx = objectBody(res)?.$context as { etag?: unknown } | undefined;
+      tag = typeof ctx?.etag === "string" ? ctx.etag : null;
     }
     if (!tag) throw new HistoryError(0, "etag missing");
     return tag.replace(/^W\//, "");
@@ -65,28 +77,25 @@ export class OracleHistoryStore implements HistoryStore {
 
   async rename(id: string, name: string): Promise<void> {
     const etag = await this.etag(id);
-    const r = await this.auth.fetch("boss", `${this.base}/userConversations/${encodeURIComponent(id)}`, {
+    await historyCall(this.endpoints, "BOSS", `${BASE}/userConversations/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", "If-Match": etag },
       body: JSON.stringify({ name }),
     });
-    if (!r.ok) return this.fail(r);
   }
 
   async remove(id: string): Promise<void> {
     const etag = await this.etag(id);
-    const r = await this.auth.fetch("boss", `${this.base}/userConversations/${encodeURIComponent(id)}`, {
+    await historyCall(this.endpoints, "BOSS", `${BASE}/userConversations/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: { "If-Match": etag },
     });
-    if (!r.ok) return this.fail(r);
   }
 
   async messages(id: string): Promise<HistoryMessage[]> {
-    const r = await this.auth.fetch("fusion-ai", `${this.origin}/api/fusion-ai/orchestrator/conversations/v1/${encodeURIComponent(id)}/messages`);
-    if (!r.ok) return this.fail(r);
-    const json = JSON.parse(await r.text());
-    const raw: any[] = json.items ?? json.messages ?? [];
+    const res = await historyCall(this.endpoints, "FUAI", `/api/fusion-ai/orchestrator/conversations/v1/${encodeURIComponent(id)}/messages`);
+    const json = historyJson(res);
+    const raw: any[] = (json.items as any[] | undefined) ?? (json.messages as any[] | undefined) ?? [];
     return raw
       .filter((m) => m.type === "AI" || m.type === "USER")
       .map((m): HistoryMessage => ({ role: m.type === "AI" ? "assistant" : "user", text: String(m.text ?? "") }))
