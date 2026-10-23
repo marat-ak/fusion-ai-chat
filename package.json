@@ -31,7 +31,7 @@
     "build:release": "ojet build --release",
     "serve": "ojet serve --server-only --server-port=8000 --livereload=false",
     "test": "jest -c test-config/jest.config.cjs",
-    "package": "ojet package pack xxx-gnimsys-ai",
+    "package": "ojet package pack xxx-gnimsys-data && ojet package pack xxx-gnimsys-ai",
     "e2e": "playwright test"
   },
   "overrides": {

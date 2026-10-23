@@ -1,0 +1,12 @@
+{
+  "name": "rest",
+  "pack": "xxx-gnimsys-data",
+  "type": "resource",
+  "version": "0.1.0",
+  "jetVersion": "^19.0.0",
+  "displayName": "Endpoint layer",
+  "description": "DashboardRestHelper and its logger (AMD JavaScript moved from the dashboard pack; typings in index.d.ts).",
+  "dependencies": {
+    "xxx-gnimsys-data-libs": "0.1.0"
+  }
+}

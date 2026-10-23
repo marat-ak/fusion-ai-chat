@@ -1,0 +1,12 @@
+{
+  "name": "xxx-gnimsys-data",
+  "version": "0.1.0",
+  "jetVersion": "^19.0.0",
+  "type": "pack",
+  "displayName": "Gnimsys Data",
+  "description": "Shared data engine of the Gnimsys dashboard and AI chat. Phase 0: the endpoint layer (DashboardRestHelper over a VB RestHelper and an endpoint map), moved from the dashboard pack as is.",
+  "dependencies": {
+    "xxx-gnimsys-data-rest": "0.1.0",
+    "xxx-gnimsys-data-libs": "0.1.0"
+  }
+}

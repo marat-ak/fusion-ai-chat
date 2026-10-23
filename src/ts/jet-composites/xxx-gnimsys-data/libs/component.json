@@ -1,0 +1,9 @@
+{
+  "name": "libs",
+  "pack": "xxx-gnimsys-data",
+  "type": "resource",
+  "version": "0.1.0",
+  "jetVersion": "^19.0.0",
+  "displayName": "Vendored libraries",
+  "description": "Vendored UMD builds used by the pack's modules (see VENDOR.md)."
+}

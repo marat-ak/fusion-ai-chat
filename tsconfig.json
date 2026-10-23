@@ -32,6 +32,9 @@
       ],
       "xxx-gnimsys-ai/*": [
         "./src/ts/jet-composites/xxx-gnimsys-ai/*"
+      ],
+      "xxx-gnimsys-data/*": [
+        "./src/ts/jet-composites/xxx-gnimsys-data/*"
       ]
     },
     "declaration": true,
