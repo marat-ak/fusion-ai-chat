@@ -54,7 +54,8 @@ function ReplyText(props: {
  * Controls by the node's flags: approval + feedback -> Approve / Request change (opens a reply text); approval only ->
  * Approve / Reject; no approval -> a free-text reply. A WAIT node keeps them disabled and counts down its wait time
  * (+15 s), then offers Refresh, a status check; without a wait time Refresh is offered at once. `disabled` (auth
- * problem, or the reply stream still open) disables every control.
+ * problem) disables every control. The bar is created only after the stream that brought the wait has ended and goes
+ * when a resume is sent (see ChatShell), so its controls never change `disabled` while they are being created.
  */
 export function HitlBar(props: {
   wait: WaitInfo;

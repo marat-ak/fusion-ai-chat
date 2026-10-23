@@ -139,7 +139,10 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     [config, endpoints],
   );
 
-  const [state, dispatch] = useReducer(reduce, props.conversationId, (id?: string) => initialState(id ? id : newConversationId()));
+  // A host-provided conversation is opened (its history loaded) right after mount: the first render already shows that,
+  // so no control is created for a state that changes a moment later (see ChatShell `settled`).
+  const [state, dispatch] = useReducer(reduce, props.conversationId,
+    (id?: string): ChatState => (id ? { ...initialState(id), historyStatus: "loading" } : initialState(newConversationId())));
   const stateRef = useRef(state);
   stateRef.current = state;
   // Updated synchronously by new/open so a send() in the same tick targets the new conversation.

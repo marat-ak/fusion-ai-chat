@@ -1,5 +1,6 @@
 import "oj-c/button";
 import "oj-c/drawer-layout";
+import "oj-c/progress-circle";
 import ResponsiveUtils = require("ojs/ojresponsiveutils");
 import type { Ref } from "preact";
 import { useEffect, useImperativeHandle, useRef, useState } from "preact/hooks";
@@ -74,6 +75,16 @@ function DrawerToggle(props: { open: boolean; onChange: (open: boolean) => void 
       label={props.open ? "Hide conversations" : "Show conversations"} onojAction={() => props.onChange(!props.open)}>
       <span slot="startIcon" class={props.open ? "oj-ux-ico-chevron-double-left" : "oj-ux-ico-chevron-double-right"} />
     </oj-c-button>
+  );
+}
+
+/** Holds the bottom bar's place until what it will show is settled (see `settled` in ChatShell). */
+function PendingBar() {
+  return (
+    <div class="oj-flex oj-sm-justify-content-center oj-sm-align-items-center oj-sm-padding-3x oj-border-top"
+      data-testid="gai-bar-pending" role="status">
+      <oj-c-progress-circle size="sm" value={-1} aria-label="Waiting for the reply to finish" />
+    </div>
   );
 }
 
@@ -152,9 +163,19 @@ export function ChatShell(props: ChatShellProps) {
   // The loaded history replaces the turns, so nothing is sent until it has arrived (or failed).
   const historyLoading = state.historyStatus === "loading";
   const attachments = ctl.attachments;
-  const canSend = authOk && !busy && !historyLoading && !(attachments?.uploading ?? false);
+  const uploading = attachments?.uploading ?? false;
+  const canSend = authOk && !busy && !historyLoading && !uploading;
   // The agent waits on the user: the HITL bar replaces the composer.
   const wait = state.status === "waiting" ? state.wait : undefined;
+  // A Core Pack control keeps the `disabled` it was created with when that value changes before the element has finished
+  // its asynchronous creation (JET replays early property sets, see MessageArea). So the bottom bar is created only once
+  // nothing pending will change it by itself: the HITL bar after the stream that brought the wait has ended, the composer
+  // when no reply, upload or history load is pending (a mounted composer then stays through later sends). Until then a
+  // progress placeholder holds its place.
+  const settled = !ctl.inFlight && !busy && !historyLoading && !uploading;
+  const composerMounted = useRef(false);
+  const showComposer = !wait && (composerMounted.current || settled);
+  composerMounted.current = showComposer;
 
   const listOn = config.ui.conversations;
   // The drawer's toggle: in the drawer's own header while it is open (an overlay drawer covers this header, and neither an
@@ -191,12 +212,14 @@ export function ChatShell(props: ChatShellProps) {
         {!busy && !wait && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
       </Feed>
       {wait ? (
-        <HitlBar key={wait.token} wait={wait} disabled={!authOk || ctl.inFlight} onResume={ctl.resume} />
-      ) : (
+        ctl.inFlight ? <PendingBar /> : <HitlBar key={wait.token} wait={wait} disabled={!authOk} onResume={ctl.resume} />
+      ) : showComposer ? (
         <Composer disabled={!canSend} onSend={ctl.send} placeholder={config.ui.placeholder ?? props.strings.placeholder}
           {...(attachments !== null && {
             attachments: { tray: attachments, accept: config.files.accept, maxSizeMB: config.files.maxSizeMB },
           })} />
+      ) : (
+        <PendingBar />
       )}
     </div>
   );

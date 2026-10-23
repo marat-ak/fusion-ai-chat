@@ -58,6 +58,8 @@ test("sidebar_lists_conversations_from_boss", async ({ page }) => {
   expect(url).toContain("objectType='AGENT_TEAM' and createdBy~='test.user@example.com' and objectCode ~= 'MOCK_WF'");
   expect(url).toContain("$offset=0");
   expect(list[0].headers["authorization"]).toMatch(/^Bearer /);
+  // The list load right after mount does not leave Refresh disabled.
+  await expect(page.getByTestId("gai-conv-refresh").locator("button")).toBeEnabled();
 });
 
 test("open_conversation_renders_messages_oldest_first", async ({ page }) => {
@@ -287,6 +289,8 @@ test("host_conversation_id_at_mount_loads_history", async ({ page }) => {
   expect(await componentConversationId(page)).toBe("conv-1");
   const msgs = (await mockRequests(page)).filter((r) => r.url.endsWith("/orchestrator/conversations/v1/conv-1/messages"));
   expect(msgs).toHaveLength(1);
+  // The history load right after mount does not leave the composer disabled.
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeEnabled();
 });
 
 test("host_conversation_id_unknown_to_pod_starts_fresh", async ({ page }) => {

@@ -10,6 +10,8 @@
 //   GET /__mock/arm?attachUpload=<status> -> the next attachUpload answers <status> (4xx/5xx) once
 //   GET /__mock/arm?anticsrf=<status>   -> the next /fscmRestApi/anticsrf answers <status> (4xx/5xx) once
 //   GET /__mock/arm?chat=<status>       -> the next /chat answers <status> (4xx/5xx) once, JSON {detail}
+//   GET /__mock/arm?sseGap=<ms>         -> the next SSE stream writes its frames <ms> (0..1000) apart instead of 20 ms;
+//                                          0 = every frame and the end of the stream at once
 //                                          (the parameters may be combined in one call)
 //   GET /fscmRestApi/anticsrf           -> { "xsrftoken": "test-xsrf" } (open; the relay requires it as x-xsrf-token)
 //   GET /fscmRestApi/tokenrelay?$mock=expired -> the next relay answers login HTML once (this call is logged)
@@ -33,6 +35,7 @@ const state = {
   attachUploadStatusNext: null,
   anticsrfStatusNext: null,
   chatStatusNext: null,
+  sseGapNext: null,
   requests: [],
 };
 
@@ -53,11 +56,13 @@ function html(res, body) {
 /** Streams every `data:` line of an .sse fixture as its own frame, SSE_GAP_MS apart. */
 async function streamSse(res, fixtureName) {
   const lines = fixture(fixtureName).split("\n").filter((l) => l.startsWith("data:"));
+  const gap = state.sseGapNext ?? SSE_GAP_MS;
+  state.sseGapNext = null;
   res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
   res.flushHeaders();
   for (const line of lines) {
     res.write(line + "\n\n");
-    await sleep(SSE_GAP_MS);
+    if (gap > 0) await sleep(gap);
   }
   res.end();
 }
@@ -110,6 +115,7 @@ const routes = [
       state.attachUploadStatusNext = null;
       state.anticsrfStatusNext = null;
       state.chatStatusNext = null;
+      state.sseGapNext = null;
       return json(res, 204);
     },
   },
@@ -117,8 +123,8 @@ const routes = [
     method: "GET", path: /^\/__mock\/arm$/, open: true,
     handle: ({ res, url }) => {
       const p = url.searchParams;
-      const usage = "arm: workflows=<4xx|5xx>, listDelay=<0..30000 ms>, attachUpload=<4xx|5xx>, anticsrf=<4xx|5xx> and/or chat=<4xx|5xx> required";
-      if (!p.has("workflows") && !p.has("listDelay") && !p.has("attachUpload") && !p.has("anticsrf") && !p.has("chat")) return json(res, 400, { detail: usage });
+      const usage = "arm: workflows=<4xx|5xx>, listDelay=<0..30000 ms>, attachUpload=<4xx|5xx>, anticsrf=<4xx|5xx>, chat=<4xx|5xx> and/or sseGap=<0..1000 ms> required";
+      if (!["workflows", "listDelay", "attachUpload", "anticsrf", "chat", "sseGap"].some((k) => p.has(k))) return json(res, 400, { detail: usage });
       const status = Number(p.get("workflows"));
       const delay = Number(p.get("listDelay"));
       if (p.has("workflows") && (!Number.isInteger(status) || status < 400 || status > 599)) return json(res, 400, { detail: usage });
@@ -129,12 +135,15 @@ const routes = [
       if (p.has("anticsrf") && (!Number.isInteger(anti) || anti < 400 || anti > 599)) return json(res, 400, { detail: usage });
       const chat = Number(p.get("chat"));
       if (p.has("chat") && (!Number.isInteger(chat) || chat < 400 || chat > 599)) return json(res, 400, { detail: usage });
+      const sseGap = Number(p.get("sseGap"));
+      if (p.has("sseGap") && (!Number.isInteger(sseGap) || sseGap < 0 || sseGap > 1000)) return json(res, 400, { detail: usage });
       const armed = {};
       if (p.has("workflows")) state.workflowsStatusNext = armed.workflows = status;
       if (p.has("listDelay")) state.listDelayNext = armed.listDelay = delay;
       if (p.has("attachUpload")) state.attachUploadStatusNext = armed.attachUpload = upload;
       if (p.has("anticsrf")) state.anticsrfStatusNext = armed.anticsrf = anti;
       if (p.has("chat")) state.chatStatusNext = armed.chat = chat;
+      if (p.has("sseGap")) state.sseGapNext = armed.sseGap = sseGap;
       return json(res, 200, { armed });
     },
   },

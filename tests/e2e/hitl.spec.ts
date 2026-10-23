@@ -39,6 +39,38 @@ test.beforeEach(async ({ page }) => {
   await page.request.delete(`${MOCK_POD}/__mock/requests`);
 });
 
+/**
+ * The wait frame is the stream's last frame, so the reply ends right after it: the bar's controls must be usable at once
+ * (no wait beyond the default expect timeout) and Approve must resume; the composer is usable after the resumed reply.
+ */
+async function approveRightAfterTheWait(page: Page): Promise<void> {
+  await page.goto("/");
+  await sendText(page, "approve me");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Approve the transfer?"]);
+  const approve = page.getByTestId("gai-hitl-approve").locator("button");
+  await expect(approve).toBeEnabled();
+  await expect(page.getByTestId("gai-hitl-request-change").locator("button")).toBeEnabled();
+  await approve.click();
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Approve the transfer?", "Approved and done"]);
+  await expect(page.getByTestId("gai-hitl")).toHaveCount(0);
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeEnabled();
+  const chat = await chatBodies(page);
+  expect(chat).toHaveLength(2);
+  expect(chat[1]).toMatchObject({ jobId: "job-1", resumeInput: { messageInstanceId: "cb-1", userResponse: "APPROVE_ACTION" } });
+}
+
+test("hitl_controls_usable_when_wait_and_end_arrive_in_one_chunk", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_REST_HELPER_MODE__: string }).__CHAT_REST_HELPER_MODE__ = "stream-one-chunk";
+  });
+  await approveRightAfterTheWait(page);
+});
+
+test("hitl_controls_usable_when_the_end_follows_the_wait_at_once", async ({ page }) => {
+  await page.request.get(`${MOCK_POD}/__mock/arm?sseGap=0`);
+  await approveRightAfterTheWait(page);
+});
+
 test("wait_reply_shows_approve_and_request_change", async ({ page }) => {
   await waitForApproval(page);
   await expect(page.getByTestId("gai-hitl-approve").locator("button")).toBeEnabled();

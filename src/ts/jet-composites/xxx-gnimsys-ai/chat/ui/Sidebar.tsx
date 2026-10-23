@@ -209,8 +209,11 @@ export function Sidebar(props: {
       {/* One compact row of small buttons: the drawer toggle, Refresh, and New at the end. */}
       <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-center oj-sm-padding-2x oj-border-bottom">
         {props.toggle}
+        {/* Always enabled: the list loads right after mount, and a control whose `disabled` flips while it is being
+            created keeps its creation value (see ChatShell `settled`). A refresh during a load restarts it; the earlier
+            answer is dropped. */}
         <oj-c-button data-testid="gai-conv-refresh" size="sm" chroming="borderless" display="icons" label="Refresh"
-          disabled={list.loading} onojAction={list.refresh}>
+          onojAction={list.refresh}>
           <span slot="startIcon" class="oj-ux-ico-refresh" />
         </oj-c-button>
         <oj-c-button class="oj-helper-margin-start-auto" data-testid="gai-conv-new" size="sm" chroming="outlined" label="New" onojAction={props.onNew}>

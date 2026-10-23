@@ -66,8 +66,9 @@ class RootViewModel {
     // Stand-in for VB's RestHelper and the page's endpoint map: every mock service connection points at this page's
     // origin, whose dev server proxies the pod paths to the mock pod (MOCK_POD=1, scripts/hooks/before_serve.js).
     // A test may replace the endpoint map, withhold the rest helper ("none"), offer only VB's interface without the
-    // streaming capability ("no-stream", as VB's own RestHelper), or have the first streamed call fail at once without an
-    // HTTP answer, as a network failure does ("stream-fails-once").
+    // streaming capability ("no-stream", as VB's own RestHelper), have the first streamed call fail at once without an
+    // HTTP answer, as a network failure does ("stream-fails-once"), or deliver each streamed answer as one chunk, so its
+    // last frame and the end of the stream arrive in the same tick ("stream-one-chunk").
     const origin = window.location.origin;
     const mock = new MockRestHelper({
       serviceConnections: Object.fromEntries(Object.values(MOCK_ENDPOINTS).map((id) => [id, origin])),
@@ -84,7 +85,15 @@ class RootViewModel {
             return Promise.reject(new TypeError("Failed to fetch"));
           },
         }
-          : mock;
+          : mode === "stream-one-chunk" ? {
+            get: (id: string) => mock.get(id),
+            streamFetch: async (id, request) => {
+              const res = await mock.streamFetch(id, request);
+              const whole = await res.text(); // dev mode only: one chunk on purpose
+              return new Response(whole, { status: res.status, statusText: res.statusText, headers: res.headers });
+            },
+          }
+            : mock;
     this.chatEndpoints = window.__CHAT_ENDPOINTS__ ?? { ...MOCK_ENDPOINTS };
 
     // release the application bootstrap busy state
