@@ -10,6 +10,7 @@ import * as ResponsiveUtils from "ojs/ojresponsiveutils";
 import * as ResponsiveKnockoutUtils from "ojs/ojresponsiveknockoututils";
 import Context = require("ojs/ojcontext");
 import "xxx-gnimsys-ai/chat/loader";
+import { MOCK_ENDPOINTS, MockRestHelper } from "./dev/mock-rest-helper";
 
 // Dev host page config: the mock pod (tests/mock-pod) answers for pod "mockpod".
 const defaultMockConfig = {
@@ -28,6 +29,8 @@ class RootViewModel {
   chatConfig: object | string;
   chatConversationId: string | undefined;
   chatUser: { userName?: string; roles?: string[] };
+  chatRestHelper: MockRestHelper;
+  chatEndpoints: Record<string, string>;
 
   constructor() {
     // media queries for responsive layouts
@@ -59,6 +62,15 @@ class RootViewModel {
 
     // Stands in for VB's $application.user; a test may replace it (e.g. with roles for the trace panel).
     this.chatUser = window.__CHAT_USER__ ?? { userName: "test.user@example.com", roles: [] };
+
+    // Stand-in for VB's RestHelper and the page's endpoint map: every mock service connection points at this page's
+    // origin, whose dev server proxies the pod paths to the mock pod (MOCK_POD=1, scripts/hooks/before_serve.js).
+    // A test may replace the endpoint map.
+    const origin = window.location.origin;
+    this.chatRestHelper = new MockRestHelper({
+      serviceConnections: Object.fromEntries(Object.values(MOCK_ENDPOINTS).map((id) => [id, origin])),
+    });
+    this.chatEndpoints = window.__CHAT_ENDPOINTS__ ?? { ...MOCK_ENDPOINTS };
 
     // release the application bootstrap busy state
     Context.getPageContext().getBusyContext().applicationBootstrapComplete();        

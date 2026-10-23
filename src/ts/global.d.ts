@@ -3,4 +3,5 @@ interface Window {
   __CHAT_CONFIG__?: object | string;
   __CHAT_CONVERSATION_ID__?: string;
   __CHAT_USER__?: { userName?: string; roles?: string[] };
+  __CHAT_ENDPOINTS__?: Record<string, string>;
 }

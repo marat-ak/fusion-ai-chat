@@ -78,7 +78,8 @@
         <!-- A flex column that does not stretch its items, as VB pages lay out flex columns: the chat must fill the
              column's width by itself (e2e component_fills_container_width_empty_and_after_reply). -->
         <div id="chat-container" style="display: flex; flex-direction: column; align-items: flex-start">
-          <xxx-gnimsys-ai-chat id="chat" person-id="-1" config="[[chatConfig]]" conversation-id="[[chatConversationId]]" user="[[chatUser]]"></xxx-gnimsys-ai-chat>
+          <xxx-gnimsys-ai-chat id="chat" person-id="-1" config="[[chatConfig]]" conversation-id="[[chatConversationId]]" user="[[chatUser]]"
+            rest-helper="[[chatRestHelper]]" endpoint="[[chatEndpoints]]"></xxx-gnimsys-ai-chat>
         </div>
       </div>
       <footer class="oj-web-applayout-footer" role="contentinfo">
