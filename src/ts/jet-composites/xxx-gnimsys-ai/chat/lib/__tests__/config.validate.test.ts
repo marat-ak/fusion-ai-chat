@@ -67,10 +67,31 @@ test("parseConfigProp parses JSON string and returns {} for undefined", () => {
 });
 
 test("wrong type and mixed problems are invalid and list everything", () => {
-  const r = validateConfig({ ...min, agent: { pod: 5 }, ui: { viewer: "yes", zzz: 1 } });
+  const r = validateConfig({ ...min, agent: { workflowCode: 5 }, ui: { viewer: "yes", zzz: 1 } });
   expect(r).toMatchObject({ ok: false, kind: "invalid" });
-  const paths = (r as any).problems.map((p: any) => p.path);
-  expect(paths).toEqual(expect.arrayContaining(["agent.workflowCode", "agent.pod", "ui.viewer", "ui.zzz"]));
+  expect((r as any).problems).toEqual(expect.arrayContaining([
+    { path: "agent.workflowCode", message: "must be a string" },
+    { path: "ui.viewer", message: "must be a boolean" },
+    { path: "ui.zzz", message: "unknown key" },
+  ]));
+});
+
+describe("protocol.hcmRestBase", () => {
+  const withBase = (hcmRestBase: string) =>
+    validateConfig({ ...min, protocol: { checkVersion: "2607100", hcmRestBase }, files: { enabled: true } });
+  test("an /hcmRestApi/ pod path is accepted", () => {
+    const r = withBase("/hcmRestApi/rest/latest/en/11.13.18.05:9");
+    expect(r.ok && r.config.protocol.hcmRestBase).toBe("/hcmRestApi/rest/latest/en/11.13.18.05:9");
+  });
+  test("any other base is invalid at config time", () => {
+    for (const base of ["/fscmRestApi/resources/11.13.18.05", "https://pod.example.com/hcmRestApi/resources", "hcmRestApi/x", "/hcmRestApi", "/api/boss/x"]) {
+      expect(withBase(base)).toEqual({ ok: false, kind: "invalid", problems: [{ path: "protocol.hcmRestBase", message: 'must start with "/hcmRestApi/"' }] });
+    }
+  });
+  test("checked even when files are off", () => {
+    const r = validateConfig({ ...min, protocol: { checkVersion: "2607100", hcmRestBase: "/fscmRestApi/x" } });
+    expect(r).toMatchObject({ ok: false, kind: "invalid", problems: [{ path: "protocol.hcmRestBase" }] });
+  });
 });
 
 describe("ui.trace", () => {

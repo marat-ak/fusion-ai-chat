@@ -4,5 +4,5 @@ interface Window {
   __CHAT_CONVERSATION_ID__?: string;
   __CHAT_USER__?: { userName?: string; roles?: string[] };
   __CHAT_ENDPOINTS__?: Record<string, string>;
-  __CHAT_REST_HELPER_MODE__?: "none" | "no-stream";
+  __CHAT_REST_HELPER_MODE__?: "none" | "no-stream" | "stream-fails-once";
 }

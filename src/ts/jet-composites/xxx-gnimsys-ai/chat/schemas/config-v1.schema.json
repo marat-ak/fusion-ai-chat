@@ -29,7 +29,7 @@
       "required": ["checkVersion"],
       "properties": {
         "checkVersion": { "type": "string", "minLength": 1 },
-        "hcmRestBase": { "type": "string", "minLength": 1 }
+        "hcmRestBase": { "type": "string", "pattern": "^/hcmRestApi/" }
       }
     },
     "ui": {

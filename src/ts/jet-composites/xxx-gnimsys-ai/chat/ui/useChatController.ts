@@ -1,25 +1,24 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
 import type { ChatConfig } from "../lib/config/types";
 import { substitute } from "../lib/config/substitute";
-import { EndpointError, EndpointFetch, streamFetchOf } from "../lib/endpoints/EndpointFetch";
+import { EndpointFetch, streamFetchOf } from "../lib/endpoints/EndpointFetch";
+import { errorDetail, historyFailureText, isRelogin, messageOf, statusOf } from "../lib/errors";
+import type { ChatErrorDetail } from "../lib/errors";
 import type { VbRestHelper } from "xxx-gnimsys-data/rest/index";
 import DashboardRestHelper = require("xxx-gnimsys-data/rest/dashboard-rest-helper");
-import { AiStudioTransport } from "../lib/transport/AiStudioTransport";
-import { errorText } from "../lib/transport/errorText";
+import { AiStudioTransport, STREAM_UNAVAILABLE } from "../lib/transport/AiStudioTransport";
 import type { ResumeInput, SendInput } from "../lib/transport/ChatTransport";
-import { HistoryError } from "../lib/history/HistoryStore";
 import type { ConversationSummary } from "../lib/history/HistoryStore";
 import { OracleHistoryStore } from "../lib/history/OracleHistoryStore";
 import { OracleWorkflowInfo } from "../lib/history/OracleWorkflowInfo";
 import type { WorkflowInfo } from "../lib/history/OracleWorkflowInfo";
 import { localTitle } from "../lib/history/localTitle";
-import { AttachmentError, OracleAttachmentService } from "../lib/files/OracleAttachmentService";
+import { OracleAttachmentService } from "../lib/files/OracleAttachmentService";
 import type { Rejection, UploadedAttachment } from "../lib/files/AttachmentService";
 import { initialState, newConversationId, reduce } from "../lib/state/conversation";
 import type { ChatState } from "../lib/state/conversation";
 
-/** `status`: the HTTP status of the failed call, when it got an HTTP answer. */
-export interface ChatErrorDetail { message: string; status?: number }
+export type { ChatErrorDetail } from "../lib/errors";
 
 export interface ChatControllerProps {
   userName: string;
@@ -94,17 +93,6 @@ export interface ChatController {
 }
 
 interface ListState { items: ConversationSummary[]; hasMore: boolean; loading: boolean; error: ChatErrorDetail | null; next: number }
-
-const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-/** The HTTP status of a failed call, when it got an HTTP answer. */
-const statusOf = (e: unknown): number | undefined =>
-  e instanceof HistoryError || e instanceof AttachmentError || (e instanceof EndpointError && e.kind === "http") ? e.status : undefined;
-const detailOf = (e: unknown): ChatErrorDetail => {
-  const status = statusOf(e);
-  return { message: messageOf(e), ...(status !== undefined && { status }) };
-};
-/** An endpoint answered 401: the session behind the page's service connections is gone; a page reload signs in again. */
-const isRelogin = (e: unknown): boolean => statusOf(e) === 401;
 
 /** Single owner of the chat services and the conversation reducer. Call only with a validated config. */
 export function useChatController(config: ChatConfig, props: ChatControllerProps, deps: ChatControllerDeps): ChatController {
@@ -184,7 +172,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       dispatch({ type: "event", event: { type: "error", message: messageOf(e) } });
       dispatch({ type: "event", event: { type: "done" } });
     }
-    report(detailOf(e));
+    report(errorDetail(e));
   }, [report]);
 
   // ---- conversation list ----------------------------------------------------------------------
@@ -215,7 +203,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       },
       (e: unknown) => {
         if (seq !== listSeq.current) return;
-        setList((l) => ({ ...l, loading: false, error: isRelogin(e) ? null : detailOf(e) }));
+        setList((l) => ({ ...l, loading: false, error: isRelogin(e) ? null : errorDetail(e) }));
         fail(e, false);
       },
     );
@@ -380,6 +368,13 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   const send = useCallback(async (text: string): Promise<boolean> => {
     const t = text.trim();
     if (t === "" || !canStart()) return false;
+    // Without the streaming capability no reply can arrive: refuse before anything is written to the pod (no conversation
+    // row, no upload). The message is not sent: the composer keeps its text and the picked files stay pending.
+    if (!endpoints.canStream) {
+      dispatch({ type: "event", event: { type: "error", message: STREAM_UNAVAILABLE } });
+      report({ message: STREAM_UNAVAILABLE });
+      return false;
+    }
     const id = conversationId.current;
     if (!fileService || trayRef.current.pending.length === 0) {
       startTurn(id, t);
@@ -391,7 +386,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     setTray((s) => ({ ...s, pending: [], rejected: [] }));
     startTurn(id, t, uploaded);
     return true;
-  }, [fileService, uploadAll, setTray, startTurn]);
+  }, [endpoints, fileService, uploadAll, setTray, startTurn, report]);
 
   const sendStarter = useCallback((question: string) => { void send(question); }, [send]);
 
@@ -449,7 +444,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
         if (seq !== historySeq.current) return;
         historyLoading.current = false;
         // The conversation stays usable: the notice shows the status (and the error body) and new turns go to the same id.
-        const text = e instanceof HistoryError && e.body ? errorText(e.body) : "";
+        const text = historyFailureText(e);
         dispatch({ type: "history_failed", status: statusOf(e) ?? 0, ...(text !== "" && { text }) });
         fail(e, false);
       },
@@ -461,7 +456,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       await history.rename(id, name);
     } catch (e) {
       fail(e, false);
-      return detailOf(e);
+      return errorDetail(e);
     }
     setName(id, name);
     return null;
@@ -472,7 +467,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       await history.remove(id);
     } catch (e) {
       fail(e, false);
-      return detailOf(e);
+      return errorDetail(e);
     }
     // `next` counts pod-listed rows only, so removing a local row leaves it as is.
     const wasLocal = localIds.current.delete(id);
@@ -501,7 +496,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
       (info) => { if (live) setWorkflowInfo(info); },
       (e: unknown) => {
         if (!live) return;
-        if (!isRelogin(e)) setWorkflowError(detailOf(e));
+        if (!isRelogin(e)) setWorkflowError(errorDetail(e));
         fail(e, false);
       },
     );

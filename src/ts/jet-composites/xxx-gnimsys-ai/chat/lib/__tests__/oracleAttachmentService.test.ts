@@ -121,6 +121,15 @@ test("link_sends_adf_batch_create_parts", async () => {
   expect(JSON.parse(calls[0].body as string)).toEqual({ parts: [mkPart(1, "t1", "a.pdf"), mkPart(2, "t2", "b.txt")] });
 });
 
+test("oerrorcode_on_200_is_a_prefixed_AttachmentError", async () => {
+  const { endpoints, calls } = fakeEndpoints([vb({ "o:errorCode": "FND-2", detail: "no tracker" }, 200)]);
+  const e = await svc(endpoints).upload(mk("a.pdf")).catch((x) => x);
+  expect(e).toBeInstanceOf(AttachmentError);
+  expect([e.step, e.status, e.fusionErrorCode]).toEqual(["tracker", 200, "FND-2"]);
+  expect(e.message).toBe('Fusion error FND-2: attachment tracker HTTP 200: {"o:errorCode":"FND-2","detail":"no tracker"}');
+  expect(calls).toHaveLength(1); // nothing uploaded after the failed tracker
+});
+
 test("link_failure_names_step", async () => {
   const { endpoints } = fakeEndpoints([vb({ detail: "bad batch" }, 400)]);
   const e = await svc(endpoints).link("c1", [{ trackerId: "t1", fileName: "a.pdf", size: 1, mimeType: "application/pdf" }]).catch((x) => x);

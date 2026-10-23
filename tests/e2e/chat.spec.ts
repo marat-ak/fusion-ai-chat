@@ -223,12 +223,58 @@ test("chat_streaming_unavailable_is_an_explicit_error", async ({ page }) => {
     });
   });
 
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
   await sendText(page, "hello");
   await expect(page.getByTestId("gai-error")).toHaveText("chat streaming not available through this endpoint");
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(0);
   await expect(page.getByTestId("gai-auth-banner")).toHaveCount(0);
+  // The message did not go out: no user turn; the composer is usable and keeps the text (also a moment later).
+  await expect(page.getByTestId("gai-bubble-user")).toHaveCount(0);
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveValue("hello");
+  await page.waitForTimeout(300);
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveValue("hello");
+  // It can be sent again (Enter this time): the same explicit error, still nothing sent.
+  await input.press("Enter");
+  await expect(page.getByTestId("gai-error")).toHaveCount(2);
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveValue("hello");
   expect(await chatRequests(page)).toEqual([]);
-  await expect.poll(() => errors).toEqual([{ message: "chat streaming not available through this endpoint" }]);
+  await expect.poll(() => errors).toEqual([
+    { message: "chat streaming not available through this endpoint" },
+    { message: "chat streaming not available through this endpoint" },
+  ]);
+});
+
+test("network_failure_reenables_composer_and_it_can_send_again", async ({ page }) => {
+  // The first chat call fails at once without an HTTP answer (the helper's fetch rejects, as when the network is down).
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_REST_HELPER_MODE__: string }).__CHAT_REST_HELPER_MODE__ = "stream-fails-once";
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("gai-starter")).toHaveCount(2);
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
+  // Enter: the field has the focus when the send disables it.
+  await input.fill("hello");
+  await input.press("Enter");
+  await expect(page.getByTestId("gai-error")).toContainText("Failed to fetch");
+  await expect(page.getByTestId("gai-bubble-user")).toHaveText(["hello"]);
+  // The composer is usable again: emptied by the send, it takes and keeps new text (also a moment later).
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveValue("");
+  await input.fill("again");
+  await page.waitForTimeout(300);
+  await expect(input).toHaveValue("again");
+
+  await page.getByTestId("gai-composer-send").locator("button").click();
+  await expect(page.getByTestId("gai-bubble-user")).toHaveText(["hello", "again"]);
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveValue("");
+  // The failed call never reached the pod; the second one did.
+  const chat = await chatRequests(page);
+  expect(chat.map((r) => (r.body as { message: string }).message)).toEqual(["again"]);
 });
 
 test("unsafe_reply_html_is_neutralized", async ({ page }) => {

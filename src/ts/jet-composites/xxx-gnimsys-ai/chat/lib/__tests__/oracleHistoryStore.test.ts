@@ -57,6 +57,14 @@ test("json_error_body_is_kept_as_text", async () => {
   expect([e.status, e.body]).toEqual([500, '{"detail":"boom"}']);
 });
 
+test("oerrorcode_on_200_is_a_prefixed_HistoryError", async () => {
+  const { endpoints } = fakeEndpoints([vb({ "o:errorCode": "FND-1", title: "nope" }, 200)]);
+  const e = await store(endpoints).list().catch((x) => x);
+  expect(e).toBeInstanceOf(HistoryError);
+  expect([e.status, e.fusionErrorCode, e.body]).toEqual([200, "FND-1", '{"o:errorCode":"FND-1","title":"nope"}']);
+  expect(e.message).toBe('Fusion error FND-1: history HTTP 200: {"o:errorCode":"FND-1","title":"nope"}');
+});
+
 test("http_401_keeps_its_status", async () => {
   const { endpoints } = fakeEndpoints([vb("denied", 401)]);
   const e = await store(endpoints).list().catch((x) => x);

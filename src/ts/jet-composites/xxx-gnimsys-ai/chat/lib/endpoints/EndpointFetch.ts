@@ -48,7 +48,12 @@ export class EndpointError extends Error {
   /** The error body as the endpoint read it (parsed JSON or text). */
   readonly body: unknown;
   readonly statusText?: string;
-  constructor(kind: EndpointErrorKind, target: EndpointName, url: string, message: string, status = 0, body?: unknown, statusText?: string) {
+  /** The `o:errorCode` of a Fusion error body that came with a non-error HTTP status (e.g. 200). */
+  readonly fusionErrorCode?: string;
+  constructor(
+    kind: EndpointErrorKind, target: EndpointName, url: string, message: string, status = 0, body?: unknown, statusText?: string,
+    fusionErrorCode?: string,
+  ) {
     super(message);
     this.name = "EndpointError";
     this.kind = kind;
@@ -57,7 +62,17 @@ export class EndpointError extends Error {
     this.status = status;
     this.body = body;
     if (statusText !== undefined) this.statusText = statusText;
+    if (fusionErrorCode !== undefined) this.fusionErrorCode = fusionErrorCode;
   }
+}
+
+/** The message prefix of a Fusion error answered with a non-error status, so that it never reads like a success. */
+export const fusionErrorPrefix = (code: string): string => `Fusion error ${code}: `;
+
+/** The `o:errorCode` of a Fusion error body, when it has one. */
+function fusionErrorCodeOf(body: unknown): string | undefined {
+  const code = typeof body === "object" && body !== null ? (body as Record<string, unknown>)["o:errorCode"] : undefined;
+  return typeof code === "string" || typeof code === "number" ? String(code) : undefined;
 }
 
 /** An error body as text (JSON bodies serialized, so errorText() can read their detail/title/message). */
@@ -153,7 +168,12 @@ export class EndpointFetch {
       result = await send(ep, method, init.body);
     } catch (e) {
       const http = httpOf(e);
-      if (http) throw new EndpointError("http", target, url, `${where}: HTTP ${http.status}`, http.status, http.body, http.statusText);
+      if (http) {
+        // DashboardRestHelper also rejects an OK status whose body carries `o:errorCode`: a Fusion error, not a success.
+        const code = http.status < 400 ? fusionErrorCodeOf(http.body) : undefined;
+        const message = code !== undefined ? `${fusionErrorPrefix(code)}${where} (HTTP ${http.status})` : `${where}: HTTP ${http.status}`;
+        throw new EndpointError("http", target, url, message, http.status, http.body, http.statusText, code);
+      }
       throw new EndpointError("network", target, url, `${where}: ${messageOf(e)}`);
     }
     if (!result?.response) throw new EndpointError("network", target, url, `${where}: the rest helper returned no response`);

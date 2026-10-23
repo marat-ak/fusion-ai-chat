@@ -107,7 +107,9 @@ export function validateConfig(input: unknown): ValidateResult {
   // protocol
   const protocol = section("protocol", ["checkVersion", "hcmRestBase"]);
   const checkVersion = str(protocol, "checkVersion", "protocol.checkVersion", true);
+  // Attachments go through the FA endpoint: the base must be an /hcmRestApi/ pod path (refused at config time, not at upload).
   const hcmRestBase = str(protocol, "hcmRestBase", "protocol.hcmRestBase", filesEnabled);
+  if (hcmRestBase !== undefined && !hcmRestBase.startsWith("/hcmRestApi/")) bad("protocol.hcmRestBase", 'must start with "/hcmRestApi/"');
 
   // ui
   const ui = section("ui", ["title", "greeting", "placeholder", "starterQuestions", "conversations", "viewer", "trace"]);

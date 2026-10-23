@@ -15,7 +15,7 @@ export async function historyCall(endpoints: EndpointFetch, target: EndpointName
   try {
     return await endpoints.request(target, url, init);
   } catch (e) {
-    if (e instanceof EndpointError && e.kind === "http") throw new HistoryError(e.status, endpointBodyText(e.body));
+    if (e instanceof EndpointError && e.kind === "http") throw new HistoryError(e.status, endpointBodyText(e.body), e.fusionErrorCode);
     throw e;
   }
 }

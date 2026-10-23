@@ -97,8 +97,16 @@ test("maps_http_errors_to_EndpointError", async () => {
   expect(e.message).toBe("BOSS GET /api/boss/x: HTTP 500");
   const o = (await endpoints.request("FA", "/fscmRestApi/x").catch((x: unknown) => x)) as EndpointError;
   expect([o.kind, o.status, o.body]).toEqual(["http", 200, { "o:errorCode": "X1" }]);
+  expect(o.fusionErrorCode).toBe("X1");
+  expect(o.message).toBe("Fusion error X1: FA GET /fscmRestApi/x (HTTP 200)");
   const u = (await endpoints.request("FUAI", "/api/fusion-ai/x", { method: "POST" }).catch((x: unknown) => x)) as EndpointError;
   expect([u.kind, u.status, u.body, u.message]).toEqual(["http", 401, "denied", "FUAI POST /api/fusion-ai/x: HTTP 401"]);
+});
+
+test("oerrorcode_with_an_error_status_is_a_plain_http_error", async () => {
+  const { endpoints } = fakeEndpoints([vb({ "o:errorCode": "X2", title: "bad" }, 400)]);
+  const e = (await endpoints.request("FA", "/fscmRestApi/x").catch((x: unknown) => x)) as EndpointError;
+  expect([e.kind, e.status, e.fusionErrorCode, e.message]).toEqual(["http", 400, undefined, "FA GET /fscmRestApi/x: HTTP 400"]);
 });
 
 test("network_failure_is_EndpointError_without_status", async () => {

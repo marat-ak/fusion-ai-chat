@@ -29,7 +29,7 @@ class RootViewModel {
   chatConfig: object | string;
   chatConversationId: string | undefined;
   chatUser: { userName?: string; roles?: string[] };
-  chatRestHelper: MockRestHelper | { get: MockRestHelper["get"] } | undefined;
+  chatRestHelper: MockRestHelper | { get: MockRestHelper["get"]; streamFetch?: MockRestHelper["streamFetch"] } | undefined;
   chatEndpoints: Record<string, string>;
 
   constructor() {
@@ -65,14 +65,26 @@ class RootViewModel {
 
     // Stand-in for VB's RestHelper and the page's endpoint map: every mock service connection points at this page's
     // origin, whose dev server proxies the pod paths to the mock pod (MOCK_POD=1, scripts/hooks/before_serve.js).
-    // A test may replace the endpoint map, withhold the rest helper ("none") or offer only VB's interface without the
-    // streaming capability ("no-stream", as VB's own RestHelper).
+    // A test may replace the endpoint map, withhold the rest helper ("none"), offer only VB's interface without the
+    // streaming capability ("no-stream", as VB's own RestHelper), or have the first streamed call fail at once without an
+    // HTTP answer, as a network failure does ("stream-fails-once").
     const origin = window.location.origin;
     const mock = new MockRestHelper({
       serviceConnections: Object.fromEntries(Object.values(MOCK_ENDPOINTS).map((id) => [id, origin])),
     });
     const mode = window.__CHAT_REST_HELPER_MODE__;
-    this.chatRestHelper = mode === "none" ? undefined : mode === "no-stream" ? { get: (id: string) => mock.get(id) } : mock;
+    let failNext = mode === "stream-fails-once";
+    this.chatRestHelper = mode === "none" ? undefined
+      : mode === "no-stream" ? { get: (id: string) => mock.get(id) }
+        : mode === "stream-fails-once" ? {
+          get: (id: string) => mock.get(id),
+          streamFetch: (id, request) => {
+            if (!failNext) return mock.streamFetch(id, request);
+            failNext = false;
+            return Promise.reject(new TypeError("Failed to fetch"));
+          },
+        }
+          : mock;
     this.chatEndpoints = window.__CHAT_ENDPOINTS__ ?? { ...MOCK_ENDPOINTS };
 
     // release the application bootstrap busy state

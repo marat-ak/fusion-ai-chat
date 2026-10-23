@@ -1,4 +1,4 @@
-import { EndpointError, endpointBodyText, objectBody } from "../endpoints/EndpointFetch";
+import { EndpointError, endpointBodyText, fusionErrorPrefix, objectBody } from "../endpoints/EndpointFetch";
 import type { EndpointFetch, EndpointInit, EndpointResponse } from "../endpoints/EndpointFetch";
 import type { AttachmentLimits, AttachmentService, Rejection, UploadedAttachment } from "./AttachmentService";
 
@@ -6,12 +6,15 @@ export class AttachmentError extends Error {
   step: "conversation" | "tracker" | "upload" | "link";
   status: number;
   body?: string;
-  constructor(step: "conversation" | "tracker" | "upload" | "link", status: number, body?: string) {
-    super(`attachment ${step} HTTP ${status}${body ? ": " + body : ""}`);
+  /** Set when the pod answered a non-error status with a Fusion error body (`o:errorCode`); the message then starts with it. */
+  fusionErrorCode?: string;
+  constructor(step: "conversation" | "tracker" | "upload" | "link", status: number, body?: string, fusionErrorCode?: string) {
+    super(`${fusionErrorCode !== undefined ? fusionErrorPrefix(fusionErrorCode) : ""}attachment ${step} HTTP ${status}${body ? ": " + body : ""}`);
     this.name = "AttachmentError";
     this.step = step;
     this.status = status;
     this.body = body;
+    if (fusionErrorCode !== undefined) this.fusionErrorCode = fusionErrorCode;
   }
 }
 
@@ -40,7 +43,7 @@ export class OracleAttachmentService implements AttachmentService {
     try {
       return await this.endpoints.request("FA", url, init);
     } catch (e) {
-      if (e instanceof EndpointError && e.kind === "http") throw new AttachmentError(step, e.status, endpointBodyText(e.body));
+      if (e instanceof EndpointError && e.kind === "http") throw new AttachmentError(step, e.status, endpointBodyText(e.body), e.fusionErrorCode);
       throw e;
     }
   }

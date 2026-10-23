@@ -130,6 +130,31 @@ test("failed_upload_blocks_send_and_marks_chip", async ({ page }) => {
   ]);
 });
 
+test("no_streaming_send_with_file_uploads_nothing_and_keeps_the_tray", async ({ page }) => {
+  // A rest helper without the streaming capability (as VB's RestHelper today): the send stops before any pod write.
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_REST_HELPER_MODE__: string }).__CHAT_REST_HELPER_MODE__ = "no-stream";
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("gai-attach").locator("button")).toBeEnabled();
+  await page.getByTestId("gai-attach-input").setInputFiles(file("test.pdf", "application/pdf", 10240));
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
+  await input.fill("summarize the file");
+  await page.getByTestId("gai-composer-send").locator("button").click();
+
+  await expect(page.getByTestId("gai-error")).toHaveText("chat streaming not available through this endpoint");
+  const chip = page.getByTestId("gai-attach-chip");
+  await expect(chip).toHaveCount(1);
+  await expect(chip).toContainText("test.pdf");
+  await expect(chip).toHaveAttribute("data-state", "pending");
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveValue("summarize the file");
+  await expect(page.getByTestId("gai-bubble-user")).toHaveCount(0);
+  const log = await mockRequests(page);
+  expect(log.map(flowStep).filter((s) => s !== null)).toEqual([]);
+  expect(log.filter((r) => r.method !== "GET")).toEqual([]);
+});
+
 test("files_disabled_hides_attach_ui", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
