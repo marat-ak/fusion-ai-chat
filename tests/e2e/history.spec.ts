@@ -23,6 +23,11 @@ async function sendText(page: Page, text: string): Promise<void> {
 
 const row = (page: Page, id: string) => page.locator(`[data-testid="gai-conv-row"][data-conv-id="${id}"]`);
 const currentRow = (page: Page) => page.locator('[data-testid="gai-conv-row"][aria-current="true"]');
+/** Picks an item of a row's actions menu: oj-c-menu-button renders its items in a popup layer, keyed by data-oj-key. */
+async function rowAction(page: Page, id: string, key: "rename" | "delete"): Promise<void> {
+  await row(page, id).getByTestId("gai-conv-actions").locator("button").click();
+  await page.locator(`[role="menuitem"][data-oj-key="${key}"]`).click();
+}
 const componentConversationId = (page: Page) =>
   page.evaluate(() => (document.getElementById("chat") as unknown as { conversationId?: string }).conversationId);
 /** GETs of one conversation's BOSS row (the controller's name lookup). */
@@ -108,7 +113,7 @@ test("rename_sends_patch_with_if_match", async ({ page }) => {
   const input = r.getByTestId("gai-conv-rename-input").locator("input");
 
   // Escape cancels without a request.
-  await r.getByTestId("gai-conv-rename").locator("button").click();
+  await rowAction(page, "conv-2", "rename");
   await expect(input).toHaveValue("Purchase order draft");
   await input.fill("Not this");
   await input.press("Escape");
@@ -116,7 +121,7 @@ test("rename_sends_patch_with_if_match", async ({ page }) => {
   await expect(r.locator(".gai-conv-name")).toHaveText("Purchase order draft");
 
   // Enter saves.
-  await r.getByTestId("gai-conv-rename").locator("button").click();
+  await rowAction(page, "conv-2", "rename");
   await input.fill("Renamed");
   await input.press("Enter");
   await expect(input).toHaveCount(0);
@@ -137,9 +142,9 @@ test("delete_removes_row", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("gai-conv-row")).toHaveCount(3);
 
-  // First click only arms the confirm; the second one deletes.
+  // Delete in the menu only arms the confirm; a click on Confirm deletes.
   const del = row(page, "conv-2").getByTestId("gai-conv-delete").locator("button");
-  await del.click();
+  await rowAction(page, "conv-2", "delete");
   await expect(row(page, "conv-2")).toHaveCount(1);
   // The armed row shows the confirm control (the row re-renders with its armed state).
   await expect(del).toHaveAccessibleName("Confirm delete");
@@ -156,7 +161,7 @@ test("delete_removes_row", async ({ page }) => {
   // Deleting the open conversation starts a new one.
   await row(page, "conv-1").click();
   await expect(page.getByTestId("gai-bubble-user")).toHaveCount(2);
-  await row(page, "conv-1").getByTestId("gai-conv-delete").locator("button").click();
+  await rowAction(page, "conv-1", "delete");
   await row(page, "conv-1").getByTestId("gai-conv-delete").locator("button").click();
   await expect(row(page, "conv-1")).toHaveCount(0);
   await expect(page.locator(".gai-feed .gai-bubble")).toHaveCount(0);
@@ -166,6 +171,34 @@ test("delete_removes_row", async ({ page }) => {
   await page.reload();
   await expect(page.getByTestId("gai-conv-row")).toHaveCount(1);
   await expect(row(page, "broken")).toHaveCount(1);
+});
+
+test("rename_failure_shows_toast", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("gai-conv-row")).toHaveCount(3);
+  const id = (await componentConversationId(page)) as string;
+  // The new conversation's row is local (the mock pod has no BOSS row for it): its rename fails with HTTP 404.
+  await sendText(page, "hello");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  await rowAction(page, id, "rename");
+  const input = row(page, id).getByTestId("gai-conv-rename-input").locator("input");
+  await input.fill("Renamed");
+  await input.press("Enter");
+  // A Redwood toast: oj-c-message-toast renders its messages in a popup layer, outside the element.
+  await expect(page.getByRole("alert").filter({ hasText: "Rename failed (HTTP 404)" })).toBeVisible();
+  await expect(row(page, id).locator(".gai-conv-name")).toHaveText("hello");
+});
+
+test("empty_conversation_list_shows_no_data", async ({ page }) => {
+  // Remove the fixture rows on the mock pod (it accepts any bearer), so the list loads empty.
+  for (const id of ["conv-1", "conv-2", "broken"]) {
+    const r = await page.request.delete(`${MOCK_POD}/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/userConversations/${id}`,
+      { headers: { authorization: "Bearer test", "if-match": '"1"' } });
+    expect(r.status()).toBe(204);
+  }
+  await page.goto("/");
+  await expect(page.getByTestId("gai-sidebar")).toContainText("No conversations yet");
+  await expect(page.getByTestId("gai-conv-row")).toHaveCount(0);
 });
 
 test("new_conversation_mints_uuid_and_emits_event", async ({ page }) => {

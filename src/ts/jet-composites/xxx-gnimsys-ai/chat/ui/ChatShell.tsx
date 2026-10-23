@@ -1,5 +1,9 @@
+import "oj-c/drawer-layout";
+import "oj-c/toggle-button";
+import ResponsiveUtils = require("ojs/ojresponsiveutils");
+import { IntlConverterUtils } from "ojs/ojconverterutils-i18n";
 import type { Ref } from "preact";
-import { useEffect, useImperativeHandle, useRef, useState } from "preact/hooks";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "preact/hooks";
 import type { ChatConfig } from "../lib/config/types";
 import { traceGateOpen } from "../lib/trace/gate";
 import { resolveOrigin } from "../lib/origin";
@@ -51,6 +55,31 @@ function useMarkdownRenderer(onError: (detail: ChatErrorDetail) => void): Markdo
     return () => { live = false; };
   }, []);
   return renderer;
+}
+
+/**
+ * The conversations drawer sits beside the chat (reflow) from JET's lg breakpoint up and overlays it below; it starts open
+ * where it reflows and closed where it would cover the chat.
+ */
+function drawerReflows(): boolean {
+  const query = ResponsiveUtils.getFrameworkQuery(ResponsiveUtils.FRAMEWORK_QUERY_KEY.LG_UP);
+  return query !== null && window.matchMedia(query).matches;
+}
+
+/** Avatar initials from the user name: its local part (before "@") split on . _ - and spaces, via JET's getInitials. */
+function initialsOf(userName: string): string | undefined {
+  const [first, last] = userName.split("@")[0].split(/[._\s-]+/).filter((p) => p !== "");
+  return IntlConverterUtils.getInitials(first, last);
+}
+
+/** Opens / closes the conversations drawer. */
+function DrawerToggle(props: { open: boolean; onChange: (open: boolean) => void }) {
+  return (
+    <oj-c-toggle-button data-testid="gai-sidebar-toggle" chroming="borderless" display="icons" label="Conversations"
+      value={props.open} onvalueChanged={(e) => props.onChange(e.detail.value === true)}>
+      <span slot="startIcon" class={props.open ? "oj-ux-ico-chevron-double-left" : "oj-ux-ico-chevron-double-right"} />
+    </oj-c-toggle-button>
+  );
 }
 
 export interface ChatShellProps {
@@ -109,6 +138,8 @@ export function ChatShell(props: ChatShellProps) {
   }, [props.conversationId]);
 
   const renderer = useMarkdownRenderer(props.onError);
+  const initials = useMemo(() => initialsOf(props.userName), [props.userName]);
+  const [drawerOpen, setDrawerOpen] = useState(drawerReflows);
 
   const config = props.config;
   const workflowInfo = ctl.workflowInfo;
@@ -123,34 +154,55 @@ export function ChatShell(props: ChatShellProps) {
   // The agent waits on the user: the HITL bar replaces the composer.
   const wait = state.status === "waiting" ? state.wait : undefined;
 
-  return (
-    <div class="gai-shell oj-panel oj-sm-padding-0 oj-flex oj-sm-flex-wrap-nowrap">
-      {config.ui.conversations && (
-        <Sidebar list={ctl.conversations} activeId={state.conversationId} onOpen={ctl.openConversation} onNew={ctl.newConversation} />
+  const listOn = config.ui.conversations;
+  // The drawer's toggle: in the drawer's own header while it is open (an overlay drawer covers this header, and neither an
+  // outside click nor Escape outside it closes it), in the chat header while it is closed.
+  const toggle = <DrawerToggle open={drawerOpen} onChange={setDrawerOpen} />;
+  const main = (
+    <div class="gai-shrink oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-flex-1 oj-sm-height-full">
+      {((listOn && !drawerOpen) || title !== undefined) && (
+        <div class="oj-flex-bar oj-sm-align-items-center oj-sm-padding-2x oj-border-bottom">
+          {listOn && !drawerOpen && <div class="oj-flex-bar-start">{toggle}</div>}
+          {title !== undefined && (
+            <div class="oj-flex-bar-middle oj-sm-align-items-center oj-sm-padding-2x-horizontal oj-typography-subheading-xs">{title}</div>
+          )}
+        </div>
       )}
-      <div class="gai-shrink oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-flex-1">
-        {title !== undefined && <div class="oj-typography-subheading-xs oj-sm-padding-3x-vertical oj-sm-padding-4x-horizontal oj-border-bottom">{title}</div>}
-        {state.authState !== "ok" && (
-          <AuthBanner class="oj-sm-margin-2x" state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })} />
-        )}
-        <Feed turns={state.turns} showTrace={traceGateOpen(config.ui.trace, props.userRoles)} busy={busy && authOk} renderer={renderer} historyStatus={state.historyStatus}
-          {...(state.historyError !== undefined && { historyError: state.historyError })}
-          {...(state.progressText !== undefined && { progressText: state.progressText })}>
-          {state.turns.length === 0 && !historyLoading && (ctl.workflowError
-            ? <StartersUnavailable error={ctl.workflowError} />
-            : <Starters questions={starters} disabled={!canSend} onPick={ctl.sendStarter} />)}
-          {!busy && !wait && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
-        </Feed>
-        {wait ? (
-          <HitlBar key={wait.token} wait={wait} disabled={!authOk || ctl.inFlight} onResume={ctl.resume} />
-        ) : (
-          <Composer disabled={!canSend} onSend={ctl.send}
-            {...(config.ui.placeholder !== undefined && { placeholder: config.ui.placeholder })}
-            {...(attachments !== null && {
-              attachments: { tray: attachments, accept: config.files.accept, maxSizeMB: config.files.maxSizeMB },
-            })} />
-        )}
-      </div>
+      {state.authState !== "ok" && (
+        <AuthBanner class="oj-sm-margin-2x" state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })} />
+      )}
+      <Feed turns={state.turns} showTrace={traceGateOpen(config.ui.trace, props.userRoles)} busy={busy && authOk} renderer={renderer} historyStatus={state.historyStatus}
+        {...(initials !== undefined && { userInitials: initials })}
+        {...(state.historyError !== undefined && { historyError: state.historyError })}
+        {...(state.progressText !== undefined && { progressText: state.progressText })}>
+        {state.turns.length === 0 && !historyLoading && (ctl.workflowError
+          ? <StartersUnavailable error={ctl.workflowError} />
+          : <Starters questions={starters} disabled={!canSend} onPick={ctl.sendStarter} />)}
+        {!busy && !wait && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
+      </Feed>
+      {wait ? (
+        <HitlBar key={wait.token} wait={wait} disabled={!authOk || ctl.inFlight} onResume={ctl.resume} />
+      ) : (
+        <Composer disabled={!canSend} onSend={ctl.send}
+          {...(config.ui.placeholder !== undefined && { placeholder: config.ui.placeholder })}
+          {...(attachments !== null && {
+            attachments: { tray: attachments, accept: config.files.accept, maxSizeMB: config.files.maxSizeMB },
+          })} />
+      )}
     </div>
+  );
+
+  const shell = "gai-shell oj-panel oj-sm-padding-0 oj-sm-height-full";
+  // Without the conversation list there is no drawer at all. JET moves slot nodes into its own layout, so the drawer keeps
+  // the same two children (the sidebar in the start slot, the chat column in the default slot) for its whole life.
+  return listOn ? (
+    <oj-c-drawer-layout class={shell} startDisplay="auto" startOpened={drawerOpen}
+      onstartOpenedChanged={(e) => setDrawerOpen(e.detail.value === true)}>
+      <Sidebar list={ctl.conversations} activeId={state.conversationId} onOpen={ctl.openConversation} onNew={ctl.newConversation}
+        {...(drawerOpen && { toggle })} />
+      {main}
+    </oj-c-drawer-layout>
+  ) : (
+    <div class={shell}>{main}</div>
   );
 }

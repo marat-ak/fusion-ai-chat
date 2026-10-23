@@ -1,12 +1,12 @@
-/* xxx-gnimsys-ai-chat: layout, typography, colour and controls come from Redwood utility classes and Core Pack (oj-c)
-   components. Only what neither expresses stays here; each rule says why. No colours. Classes are prefixed `gai-`. */
+/* xxx-gnimsys-ai-chat: layout, typography, colour and controls come from Core Pack (oj-c) components and Redwood
+   utility classes. Only what neither expresses stays here, each rule with its reason. No colours. Prefix `gai-`. */
 
-/* JET custom-element convention: hide the element until it has rendered (no utility class can target the tag). */
+/* JET custom-element convention: hidden until rendered (no utility class can target the tag). */
 xxx-gnimsys-ai-chat:not(.oj-complete) {
   visibility: hidden;
 }
 
-/* Host sizing: a definite default height the page can override, so the feed scrolls inside (no height utility). */
+/* A definite default height the page can override, so the feed scrolls inside (utilities only set percentages). */
 xxx-gnimsys-ai-chat {
   display: block;
   height: 560px;
@@ -17,19 +17,12 @@ xxx-gnimsys-ai-chat[hidden] {
   display: none;
 }
 
-/* The chat fills the host's height (Redwood has no height utility). */
-.gai-chat,
-.gai-shell {
-  height: 100%;
-}
-
-/* Flex items do not shrink below their content by default; these must, so long content wraps or scrolls (no utility). */
-.gai-shrink,
-.gai-truncate {
+/* Flex items that must shrink below their content, so long names truncate and text wraps (no min-width utility). */
+.gai-shrink {
   min-width: 0;
 }
 
-/* The feed and the conversation list scroll inside their column (Redwood has no min-height or overflow utility). */
+/* The feed and the conversation list scroll inside their column (no min-height or overflow utility). */
 .gai-feed,
 .gai-conv-list {
   min-height: 0;
@@ -39,42 +32,36 @@ xxx-gnimsys-ai-chat[hidden] {
   overflow-y: auto;
 }
 
-/* Feed items keep their content height (a panel's overflow:hidden would let it shrink) so the feed scrolls instead
-   (Redwood has no flex-shrink utility). */
+/* Feed items keep their height so the feed scrolls instead of squeezing them (no flex-shrink utility). */
 .gai-feed > * {
   flex-shrink: 0;
 }
 
-/* Fixed sidebar width (no px-width utility); collapsed it shrinks to its toggle via oj-sm-flex-initial. */
+/* A reflowing drawer sizes to its content, so the sidebar sets the width (width utilities are fractions of the
+   parent); an overlay drawer is at least 320px wide and the sidebar fills it. */
 .gai-sidebar {
-  flex: 0 0 260px;
+  width: 260px;
+  min-width: 100%;
 }
 
-/* Starters (or their unavailable notice) sit at the bottom of an empty feed (Redwood has no top-auto margin helper). */
+/* Starters sit at the bottom of an empty feed (the auto-margin helpers are horizontal only). */
 .gai-push-down {
   margin-top: auto;
 }
 
-/* Bubbles keep a gap to the opposite side (no max-width utility). */
+/* Bubbles keep a gap to the opposite side (no max-width utility; oj-sm-width-* sets the width itself). */
 .gai-bubble {
   max-width: 80%;
 }
 
-/* One-line names end in an ellipsis (Redwood 18 has no text-truncation utility). */
-.gai-truncate {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
+/* ---- Reply markdown: the sanitized HTML has no classes, so its elements are styled by selector. ---- */
 
-/* ---- reply markdown: sanitized HTML has no classes of ours, so its elements are styled by selector -------------- */
-
-/* Nothing in a reply paints outside its bubble (defence in depth for the sanitized HTML). */
+/* Nothing in a reply paints outside its bubble (defence in depth). */
 .gai-md {
   contain: paint;
 }
 
-/* The bubble's padding is the only outer spacing of the reply. */
+/* The bubble's padding is the reply's only outer spacing. */
 .gai-md > :first-child {
   margin-top: 0;
 }

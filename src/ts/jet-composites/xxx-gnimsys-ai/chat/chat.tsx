@@ -43,15 +43,21 @@ type Props = Readonly<{
  * @ojmetadata displayName "Gnimsys AI Chat"
  * @ojmetadata description "Chat with an Oracle AI Agent Studio agent"
  * @ojmetadata dependencies {
+ *   "oj-c-avatar": "^19.0.0",
+ *   "oj-c-badge": "^19.0.0",
  *   "oj-c-button": "^19.0.0",
  *   "oj-c-collapsible": "^19.0.0",
+ *   "oj-c-drawer-layout": "^19.0.0",
  *   "oj-c-input-text": "^19.0.0",
  *   "oj-c-list-item-layout": "^19.0.0",
  *   "oj-c-list-view": "^19.0.0",
+ *   "oj-c-menu-button": "^19.0.0",
  *   "oj-c-message-banner": "^19.0.0",
+ *   "oj-c-message-toast": "^19.0.0",
  *   "oj-c-progress-circle": "^19.0.0",
  *   "oj-c-text-area": "^19.0.0",
- *   "oj-c-toggle-button": "^19.0.0"
+ *   "oj-c-toggle-button": "^19.0.0",
+ *   "oj-c-truncating-text": "^19.0.0"
  * }
  */
 function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
@@ -79,7 +85,7 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
   const onError = useCallback((detail: ChatErrorDetail) => propsRef.current.onAiChatError?.(detail), []);
 
   return (
-    <div class="gai-chat oj-typography-body-md oj-text-color-primary">
+    <div class="gai-chat oj-sm-height-full oj-typography-body-md oj-text-color-primary">
       {check.ok ? (
         <ChatShell
           // Another agent is another chat: remount so no turns or conversation id carry over to it.

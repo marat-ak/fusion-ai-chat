@@ -18,6 +18,8 @@ export function Feed(props: {
   renderer: MarkdownRenderer | null;
   /** The trace gate is open: assistant turns show their node trace. */
   showTrace: boolean;
+  /** Initials on the user's avatar. */
+  userInitials?: string;
   /**
    * History of an opened conversation: "unavailable" shows a notice at the top of the feed (it stays above the turns
    * sent afterwards); "loading" shows one at the end, above the composer.
@@ -42,7 +44,7 @@ export function Feed(props: {
       {props.turns.map((t) => (
         <Fragment key={t.id}>
           {/* An assistant turn that has not produced text (nor failed) yet is represented by the progress line alone. */}
-          {t.role === "assistant" && t.streaming && t.text === "" && !t.error ? null : <Bubble turn={t} renderer={props.renderer} />}
+          {t.role === "assistant" && t.streaming && t.text === "" && !t.error ? null : <Bubble turn={t} renderer={props.renderer} {...(props.userInitials !== undefined && { userInitials: props.userInitials })} />}
           {props.showTrace && t.role === "assistant" && t.trace !== undefined && t.trace.length > 0 && <TracePanel entries={t.trace} />}
         </Fragment>
       ))}
@@ -54,7 +56,9 @@ export function Feed(props: {
       )}
       {props.children}
       {props.historyStatus === "loading" && (
-        <div class={`oj-sm-align-self-center ${SECONDARY}`} data-testid="gai-history-loading" role="status">{"Loading history…"}</div>
+        <div class={`oj-flex oj-sm-align-items-center oj-sm-align-self-center ${SECONDARY}`} data-testid="gai-history-loading" role="status">
+          <oj-c-progress-circle class="oj-sm-margin-2x-end" size="sm" value={-1} aria-label="Loading" />{"Loading history…"}
+        </div>
       )}
     </div>
   );

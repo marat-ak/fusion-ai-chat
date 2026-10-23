@@ -2,27 +2,40 @@ import "oj-c/button";
 import "oj-c/input-text";
 import "oj-c/list-item-layout";
 import "oj-c/list-view";
-import "oj-c/toggle-button";
+import "oj-c/menu-button";
+import "oj-c/message-toast";
+import "oj-c/progress-circle";
+import "oj-c/truncating-text";
 import Context = require("ojs/ojcontext");
 import { KeySetImpl } from "ojs/ojkeyset";
 import MutableArrayDataProvider = require("ojs/ojmutablearraydataprovider");
-import type { ComponentChildren } from "preact";
+import type { ComponentChildren, VNode } from "preact";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { formatDate } from "../lib/history/formatDate";
 import type { ConversationSummary } from "../lib/history/HistoryStore";
 import { Banner } from "./Banner";
 import type { ChatErrorDetail, ConversationList } from "./useChatController";
 
-/** A delete needs a second click within this window. */
+/** Choosing Delete arms the row's Confirm button for this long; a click on it within the window deletes. */
 const CONFIRM_MS = 3000;
+
+/** A row's actions menu (oj-c-menu-button items; the chosen key arrives in ojMenuAction). */
+const ROW_MENU = [
+  { key: "rename", label: "Rename", startIcon: { class: "oj-ux-ico-edit" } },
+  { key: "delete", label: "Delete", variant: "destructive" as const, startIcon: { class: "oj-ux-ico-trash" } },
+];
+
+/** A failed rename/delete, shown as a Redwood toast (transient: it is not the state of anything on screen). */
+type ActionError = { id: number; severity: "error"; summary: string };
 
 const why = (e: ChatErrorDetail): string => (e.status ? "HTTP " + e.status : e.message);
 
 const stop = (e: Event): void => e.stopPropagation();
 
 /**
- * A row's own controls (its action buttons, the name editor): their pointer, click and key events stay here, so the list
- * view neither selects nor opens the row for them and its keyboard navigation does not take keys typed into the editor.
+ * A row's own controls (its actions menu, the confirm button, the name editor): their pointer, click and key events stay
+ * here, so the list view neither selects nor opens the row for them and its keyboard navigation does not take keys typed
+ * into the editor.
  */
 function RowControls(props: { slot?: string; children: ComponentChildren }) {
   return (
@@ -99,21 +112,21 @@ function ConversationRow(props: { row: Row; actions: { current: RowActions } }) 
             <RenameInput initial={item.name} onSave={(n) => act.current.rename(item.id, n)} onCancel={() => act.current.cancelRename()} />
           </RowControls>
         ) : (
-          <div class={"gai-conv-name gai-truncate" + (active ? " oj-typography-semi-bold" : "")} title={name}>{name}</div>
+          <oj-c-truncating-text class="gai-conv-name" title={name} value={name} truncation="ellipsis" weight={active ? "semiBold" : "normal"} />
         )}
       </div>
       <span slot="secondary" class="gai-conv-date oj-typography-body-xs oj-text-color-secondary oj-helper-white-space-nowrap">{formatDate(item.updatedAt)}</span>
       <RowControls slot="action">
-        <oj-c-button data-testid="gai-conv-rename" chroming="borderless" display="icons" size="sm" label="Rename"
-          onojAction={() => act.current.startRename(item.id)}>
-          <span slot="startIcon" class="oj-ux-ico-edit" />
-        </oj-c-button>
-        {/* Armed (first click): the red Confirm; a second click within CONFIRM_MS deletes. */}
-        <oj-c-button data-testid="gai-conv-delete" size="sm" chroming={armed ? "danger" : "borderless"}
-          display={armed ? "all" : "icons"} label={armed ? "Confirm" : "Delete"} aria-label={armed ? "Confirm delete" : "Delete"}
-          onojAction={() => act.current.remove(item.id)}>
-          <span slot="startIcon" class="oj-ux-ico-trash" />
-        </oj-c-button>
+        {/* Delete in the menu arms the row: the red Confirm replaces the menu, and a click on it within CONFIRM_MS deletes. */}
+        {armed ? (
+          <oj-c-button data-testid="gai-conv-delete" size="sm" chroming="danger" label="Confirm" aria-label="Confirm delete"
+            onojAction={() => act.current.remove(item.id)}>
+            <span slot="startIcon" class="oj-ux-ico-trash" />
+          </oj-c-button>
+        ) : (
+          <oj-c-menu-button data-testid="gai-conv-actions" size="sm" chroming="borderless" display="icons" label="Conversation actions"
+            items={ROW_MENU} onojMenuAction={(e) => (e.detail.key === "rename" ? act.current.startRename(item.id) : act.current.remove(item.id))} />
+        )}
       </RowControls>
     </oj-c-list-item-layout>
   );
@@ -125,12 +138,19 @@ export function Sidebar(props: {
   activeId: string;
   onOpen: (id: string) => void;
   onNew: () => void;
+  /** The drawer's toggle, shown first in the header while the drawer is open. */
+  toggle?: VNode;
 }) {
   const { list, activeId } = props;
-  const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [armed, setArmed] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  // At most one action error at a time: a new action clears it, its failure shows a new one.
+  const errors = useMemo(() => new MutableArrayDataProvider<number, ActionError>([], { keyAttributes: "id" }), []);
+  const errorSeq = useRef(0);
+  const setActionError = (summary: string | null): void => {
+    if (summary !== null) errors.data = [{ id: ++errorSeq.current, severity: "error", summary }];
+    else if (errors.data.length > 0) errors.data = [];
+  };
   const armTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(armTimer.current), []);
 
@@ -169,60 +189,55 @@ export function Sidebar(props: {
     return <ConversationRow row={{ item: ctx.data, active: id === activeId, editing: id === editing, armed: id === armed }} actions={actions} />;
   }, [activeId, editing, armed]);
 
+  const renderNoData = useCallback(() => (
+    <div class="oj-flex oj-sm-align-items-center oj-typography-body-sm oj-text-color-secondary oj-sm-padding-2x-vertical oj-sm-padding-3x-horizontal">
+      {list.loading
+        ? <><oj-c-progress-circle class="oj-sm-margin-2x-end" size="sm" value={-1} aria-label="Loading" />{"Loading…"}</>
+        : "No conversations yet"}
+    </div>
+  ), [list.loading]);
+
   // The selection always shows the open conversation; a click elsewhere reverts until the row's action has opened it.
   const [resync, setResync] = useState(0);
   const selected = useMemo(() => new KeySetImpl<string>([activeId]), [activeId, resync]);
 
   return (
-    <aside class={"gai-sidebar oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-border-end" + (collapsed ? " oj-sm-flex-initial" : "")}
-      data-testid="gai-sidebar" aria-label="Conversations">
-      <div class={"oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-center oj-sm-padding-2x" + (collapsed ? "" : " oj-border-bottom")}>
-        <oj-c-toggle-button data-testid="gai-sidebar-toggle" chroming="borderless" display="icons" label="Conversations"
-          value={!collapsed} onvalueChanged={(e) => setCollapsed(e.detail.value !== true)}>
-          <span slot="startIcon" class={collapsed ? "oj-ux-ico-chevron-double-right" : "oj-ux-ico-chevron-double-left"} />
-        </oj-c-toggle-button>
-        {!collapsed && (
-          <>
-            <oj-c-button data-testid="gai-conv-refresh" chroming="borderless" display="icons" label="Refresh"
-              disabled={list.loading} onojAction={list.refresh}>
-              <span slot="startIcon" class="oj-ux-ico-refresh" />
-            </oj-c-button>
-            <oj-c-button class="oj-helper-margin-start-auto" data-testid="gai-conv-new" chroming="outlined" label="New" onojAction={props.onNew}>
-              <span slot="startIcon" class="oj-ux-ico-plus" />
-            </oj-c-button>
-          </>
-        )}
+    // The conversations drawer's content (oj-c-drawer-layout start slot, see ChatShell).
+    <div slot="start" class="gai-sidebar oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-height-full"
+      data-testid="gai-sidebar" role="complementary" aria-label="Conversations">
+      <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-center oj-sm-padding-2x oj-border-bottom">
+        {props.toggle}
+        <oj-c-button data-testid="gai-conv-refresh" chroming="borderless" display="icons" label="Refresh"
+          disabled={list.loading} onojAction={list.refresh}>
+          <span slot="startIcon" class="oj-ux-ico-refresh" />
+        </oj-c-button>
+        <oj-c-button class="oj-helper-margin-start-auto" data-testid="gai-conv-new" chroming="outlined" label="New" onojAction={props.onNew}>
+          <span slot="startIcon" class="oj-ux-ico-plus" />
+        </oj-c-button>
       </div>
-      {!collapsed && (
-        <>
-          {list.error && (
-            <Banner testId="gai-conversations-error" severity="error" class="oj-sm-margin-2x"
-              summary={`Conversations unavailable (${why(list.error)})`} />
-          )}
-          {actionError !== null && <Banner testId="gai-conv-action-error" severity="error" class="oj-sm-margin-2x" summary={actionError} />}
-          {list.items.length === 0 && !list.error && (
-            <div class="oj-typography-body-sm oj-text-color-secondary oj-sm-padding-2x-vertical oj-sm-padding-3x-horizontal">
-              {list.loading ? "Loading…" : "No conversations yet"}
-            </div>
-          )}
-          {list.items.length > 0 && (
-            <oj-c-list-view class="gai-conv-list oj-sm-flex-1" aria-label="Conversations" data={data} selectionMode="single" selected={selected}
-              onselectedChanged={(e) => { if (!(e.detail.value?.has(activeId) ?? false)) setResync((n) => n + 1); }}
-              onojItemAction={(e) => {
-                const id = (e.detail.context.data as ConversationSummary).id;
-                // The open conversation is not reopened: that would replace this session's turns with the pod's history.
-                if (editing !== id && id !== activeId) props.onOpen(id);
-              }}>
-              <template slot="itemTemplate" render={renderRow} />
-            </oj-c-list-view>
-          )}
-          {list.hasMore && (
-            <div class="oj-sm-padding-2x">
-              <oj-c-button data-testid="gai-conv-more" chroming="outlined" label="Load more" disabled={list.loading} onojAction={list.loadMore} />
-            </div>
-          )}
-        </>
+      {list.error && (
+        <Banner testId="gai-conversations-error" severity="error" class="oj-sm-margin-2x"
+          summary={`Conversations unavailable (${why(list.error)})`} />
       )}
-    </aside>
+      {!(list.error && list.items.length === 0) && (
+        <oj-c-list-view class="gai-conv-list oj-sm-flex-1" aria-label="Conversations" data={data} selectionMode="single" selected={selected}
+          onselectedChanged={(e) => { if (!(e.detail.value?.has(activeId) ?? false)) setResync((n) => n + 1); }}
+          onojItemAction={(e) => {
+            const id = (e.detail.context.data as ConversationSummary).id;
+            // The open conversation is not reopened: that would replace this session's turns with the pod's history.
+            if (editing !== id && id !== activeId) props.onOpen(id);
+          }}>
+          <template slot="itemTemplate" render={renderRow} />
+          <template slot="noData" render={renderNoData} />
+        </oj-c-list-view>
+      )}
+      {list.hasMore && (
+        <div class="oj-sm-padding-2x">
+          <oj-c-button data-testid="gai-conv-more" chroming="outlined" label="Load more" disabled={list.loading} onojAction={list.loadMore} />
+        </div>
+      )}
+      <oj-c-message-toast data-testid="gai-conv-action-error" data={errors}
+        onojClose={(e) => { errors.data = errors.data.filter((m) => m.id !== e.detail.key); }} />
+    </div>
   );
 }

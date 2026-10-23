@@ -1,4 +1,6 @@
 import "oj-c/button";
+import "oj-c/progress-circle";
+import "oj-c/truncating-text";
 import { useRef } from "preact/hooks";
 import type { Rejection } from "../lib/files/AttachmentService";
 import type { AttachmentTray, PendingFile } from "./useChatController";
@@ -19,7 +21,8 @@ function rejectionText(r: Rejection, maxSizeMB: number): string {
   return `${r.file.name}: ${why}`;
 }
 
-const STATE_LABEL: Record<PendingFile["state"], string> = { pending: "", uploading: "Uploading…", uploaded: "Uploaded", failed: "" };
+/** Text after the name by upload state (an uploading chip shows a progress circle instead). */
+const STATE_LABEL: Record<PendingFile["state"], string> = { pending: "", uploading: "", uploaded: "Uploaded", failed: "" };
 /** Redwood background of a chip by upload state (a pending chip keeps the panel's own background). */
 const STATE_BG: Record<PendingFile["state"], string> = { pending: "", uploading: "oj-bg-info-10", uploaded: "oj-bg-info-10", failed: "oj-bg-danger-10" };
 
@@ -55,7 +58,11 @@ export function AttachButton(props: { tray: AttachmentTray; accept: string[]; di
   );
 }
 
-/** Pending files (with their upload state) and the files refused at the last pick. */
+/**
+ * Pending files (with their upload state) and the files refused at the last pick. A chip is a Redwood panel with utility
+ * classes: the Core Pack has no chip / file-list component (oj-c-badge holds a label only, no remove action or state).
+ * The refusals stay inline next to the composer, like field validation, until the next pick or send.
+ */
 export function AttachmentList(props: { tray: AttachmentTray; maxSizeMB: number }) {
   const { pending, rejected, uploading } = props.tray;
   if (pending.length === 0 && rejected.length === 0) return null;
@@ -66,8 +73,11 @@ export function AttachmentList(props: { tray: AttachmentTray; maxSizeMB: number 
           {pending.map((p) => (
             <div key={p.id} role="listitem" data-testid="gai-attach-chip" data-state={p.state}
               class={`oj-panel oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-center oj-sm-padding-0-vertical oj-sm-padding-3x-start oj-sm-padding-0-end oj-sm-margin-2x-end oj-sm-margin-1x-bottom oj-typography-body-sm ${STATE_BG[p.state]}`}>
-              <span class="gai-attach-name gai-truncate">{p.file.name}</span>
+              <oj-c-truncating-text class="gai-attach-name gai-shrink" value={p.file.name} truncation="ellipsis" />
               <span class="oj-text-color-secondary oj-helper-white-space-nowrap oj-sm-margin-2x-start">{formatSize(p.file.size)}</span>
+              {p.state === "uploading" && (
+                <oj-c-progress-circle class="oj-sm-margin-2x-start" size="sm" value={-1} aria-label={`Uploading ${p.file.name}`} />
+              )}
               {STATE_LABEL[p.state] !== "" && (
                 <span class="oj-text-color-secondary oj-helper-white-space-nowrap oj-sm-margin-2x-start">{STATE_LABEL[p.state]}</span>
               )}
