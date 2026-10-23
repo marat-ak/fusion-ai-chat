@@ -6,28 +6,43 @@ import type { Turn } from "../lib/state/conversation";
 
 export interface MarkdownRenderer { render(md: string): string }
 
-// Redwood panel as the bubble: border, radius and content background; the colour comes per role below.
-const BUBBLE = "gai-bubble oj-panel oj-sm-padding-3x-horizontal oj-helper-overflow-wrap-anywhere";
-const USER = `${BUBBLE} gai-bubble--user oj-bg-brand-10 oj-helper-white-space-pre-wrap`;
+// A bubble is a rounded block without border (chat-styles.css .gai-bubble): white for the agent on the feed's neutral,
+// a darker neutral for the user. Padding and wrapping come from utilities.
+const BUBBLE = "gai-bubble oj-sm-padding-3x-vertical oj-sm-padding-4x-horizontal oj-helper-overflow-wrap-anywhere";
+const USER = `${BUBBLE} gai-bubble--user oj-helper-white-space-pre-wrap`;
 const ASSISTANT = `${BUBBLE} gai-bubble--assistant`;
 
-/** One transcript line: the agent's avatar before its bubble, the user's (initials) after theirs, on the user's side. */
-function TurnRow(props: { user: boolean; initials?: string; children: ComponentChildren }) {
-  const { user } = props;
+/**
+ * Start indent of content that belongs to the agent but has no avatar of its own (follow-ups, progress): the avatar's
+ * width (xs = 11x) plus its gap (3x), as margin + padding utilities (12x + 2x).
+ */
+export const AGENT_INDENT = "oj-sm-margin-12x-start oj-sm-padding-2x-start";
+
+/** The agent's avatar: a flat Redwood avatar with the AI icon (decorative; the texture is removed in chat-styles.css). */
+export function AgentAvatar(props: { size: "2xs" | "xs"; class?: string }) {
   return (
-    <div class={`oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-flex-start oj-sm-margin-2x-bottom${user ? " oj-sm-justify-content-flex-end" : ""}`}>
-      {!user && <oj-c-avatar class="oj-sm-margin-2x-end" size="xs" iconClass="oj-ux-ico-oracle-ai" />}
+    <oj-c-avatar class={`gai-avatar${props.class !== undefined ? " " + props.class : ""}`} size={props.size} shape="square"
+      background="teal" iconClass="oj-ux-ico-oracle-ai" />
+  );
+}
+
+/** A transcript line of the agent: its avatar, then the content. */
+export function AgentRow(props: { children: ComponentChildren }) {
+  return (
+    <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-flex-start oj-sm-margin-4x-bottom">
+      <AgentAvatar size="xs" class="oj-sm-margin-3x-end" />
       {props.children}
-      {user && <oj-c-avatar class="oj-sm-margin-2x-start" size="xs" initials={props.initials ?? null} />}
     </div>
   );
 }
 
-/**
- * User turns are plain text; assistant turns are markdown sanitized by the renderer (plain text until it has loaded).
- * `userInitials` (from the user name) label the user's avatar; without them it shows the Redwood placeholder.
- */
-export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null; userInitials?: string }) {
+/** A transcript line of the user: the bubble on the user's side, no avatar. */
+function UserRow(props: { children: ComponentChildren }) {
+  return <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-justify-content-flex-end oj-sm-margin-4x-bottom">{props.children}</div>;
+}
+
+/** User turns are plain text; assistant turns are markdown sanitized by the renderer (plain text until it has loaded). */
+export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null }) {
   const { turn, renderer } = props;
   const html = useMemo(
     () => (turn.role === "assistant" && !turn.error && renderer ? renderer.render(turn.text) : null),
@@ -37,7 +52,7 @@ export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null; u
   if (turn.role === "user") {
     const files = turn.attachments ?? [];
     return (
-      <TurnRow user {...(props.userInitials !== undefined && { initials: props.userInitials })}>
+      <UserRow>
         <div class={USER} data-testid="gai-bubble-user">
           {turn.text}
           {files.length > 0 && (
@@ -49,7 +64,7 @@ export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null; u
             </div>
           )}
         </div>
-      </TurnRow>
+      </UserRow>
     );
   }
   if (turn.error) {
@@ -57,7 +72,7 @@ export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null; u
     const afterText = turn.text !== "";
     // The text received before the failure (if any), then the error itself unless it is that same text.
     return (
-      <TurnRow user={false}>
+      <AgentRow>
         <div class={`${ASSISTANT} gai-bubble--error oj-bg-danger-10 oj-text-color-danger oj-helper-white-space-pre-wrap`} data-testid="gai-error" role="alert">
           {afterText && <div>{turn.text}</div>}
           {turn.error.message !== turn.text && (
@@ -65,14 +80,14 @@ export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null; u
           )}
           {meta !== "" && <div class="oj-typography-body-xs oj-text-color-secondary oj-sm-margin-1x-top">{meta}</div>}
         </div>
-      </TurnRow>
+      </AgentRow>
     );
   }
   return (
-    <TurnRow user={false}>
+    <AgentRow>
       {html !== null
-        ? <div class={`${ASSISTANT} oj-bg-neutral-20 gai-md`} data-testid="gai-bubble-assistant" dangerouslySetInnerHTML={{ __html: html }} />
-        : <div class={`${ASSISTANT} oj-bg-neutral-20 oj-helper-white-space-pre-wrap`} data-testid="gai-bubble-assistant">{turn.text}</div>}
-    </TurnRow>
+        ? <div class={`${ASSISTANT} oj-bg-neutral-0 gai-md`} data-testid="gai-bubble-assistant" dangerouslySetInnerHTML={{ __html: html }} />
+        : <div class={`${ASSISTANT} oj-bg-neutral-0 oj-helper-white-space-pre-wrap`} data-testid="gai-bubble-assistant">{turn.text}</div>}
+    </AgentRow>
   );
 }

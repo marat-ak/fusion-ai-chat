@@ -1,0 +1,10 @@
+data: {"nodeProgressMessage":{"type":"NODE_START","nodeCode":"START","nodeName":"Start","nodeType":"START","progressMessage":"Starting…","traceId":"trace-3"}}
+
+data: {"message":{"content":[{"text":"**Select the source organization**\n\nReply with the number, t"}]}}
+
+data: {"message":{"content":[{"text":"he code or the name. Type \"back\" or \"cancel\" at any time.\n\n1. 13100 — Head Office\n2. 13115 — Central Warehouse\n3. 13130 — North Distribution\n4. 13145 — South Distribution\n5. 13160 — East Service Depot\n6. 13175 — West Service Depot\n7. 13190 — Main Plant\n8. 13205 — Spare Parts Store\n9. 13220 — Returns Center\n10. 13235 — Consignment Stock\n11. 13250 — Regional Hub A\n12. 13265 — Regional Hub B\n13. 13280 — Regional Hub C\n14. 13295 — Field Service 1\n15. 13310 — Field Service 2\n16. 13325 — Field Service 3\n17. 13340 — Export Warehouse\n18. 13355 — Import Warehouse\n19. 13370 — Quality Hold\n20. 13385 — Repair Shop\n21. 13400 — Demo Equipment\n22. 13415 — Transit Store\n23. 13430 — Bonded Warehouse\n24. 13445 — Overflow Storage\n25. 13460 — Outlet Store\n26. Show more - next 25 entries"}]}}
+
+data: {"jobId":"job-3"}
+
+data: {"message":{"output":"**Select the source organization**\n\nReply with the number, the code or the name. Type \"back\" or \"cancel\" at any time.\n\n1. 13100 — Head Office\n2. 13115 — Central Warehouse\n3. 13130 — North Distribution\n4. 13145 — South Distribution\n5. 13160 — East Service Depot\n6. 13175 — West Service Depot\n7. 13190 — Main Plant\n8. 13205 — Spare Parts Store\n9. 13220 — Returns Center\n10. 13235 — Consignment Stock\n11. 13250 — Regional Hub A\n12. 13265 — Regional Hub B\n13. 13280 — Regional Hub C\n14. 13295 — Field Service 1\n15. 13310 — Field Service 2\n16. 13325 — Field Service 3\n17. 13340 — Export Warehouse\n18. 13355 — Import Warehouse\n19. 13370 — Quality Hold\n20. 13385 — Repair Shop\n21. 13400 — Demo Equipment\n22. 13415 — Transit Store\n23. 13430 — Bonded Warehouse\n24. 13445 — Overflow Storage\n25. 13460 — Outlet Store\n26. Show more - next 25 entries","finishReason":"stop","followUpQuestions":["Show more","Cancel"]}}
+

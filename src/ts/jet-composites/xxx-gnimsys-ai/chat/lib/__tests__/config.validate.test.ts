@@ -82,3 +82,18 @@ describe("ui.trace", () => {
     }
   });
 });
+
+describe("ui.greeting", () => {
+  test("absent means the component's own greeting", () => {
+    const r = validateConfig(min);
+    expect(r.ok && r.config.ui.greeting).toBeUndefined();
+  });
+  test("a string is kept", () => {
+    const r = validateConfig({ ...min, ui: { greeting: "Hi! Ask me about invoices." } });
+    expect(r.ok && r.config.ui.greeting).toBe("Hi! Ask me about invoices.");
+  });
+  test("a non-string is invalid", () => {
+    const r = validateConfig({ ...min, ui: { greeting: 1 } });
+    expect(r).toMatchObject({ ok: false, kind: "invalid", problems: [{ path: "ui.greeting", message: "must be a string" }] });
+  });
+});

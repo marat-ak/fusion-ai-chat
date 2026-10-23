@@ -110,8 +110,9 @@ export function validateConfig(input: unknown): ValidateResult {
   const hcmRestBase = str(protocol, "hcmRestBase", "protocol.hcmRestBase", filesEnabled);
 
   // ui
-  const ui = section("ui", ["title", "placeholder", "starterQuestions", "conversations", "viewer", "trace"]);
+  const ui = section("ui", ["title", "greeting", "placeholder", "starterQuestions", "conversations", "viewer", "trace"]);
   const title = str(ui, "title", "ui.title", false);
+  const greeting = str(ui, "greeting", "ui.greeting", false);
   const placeholder = str(ui, "placeholder", "ui.placeholder", false);
   let starterQuestions: "fromWorkflow" | string[] = "fromWorkflow";
   const sq = ui?.starterQuestions;
@@ -169,6 +170,7 @@ export function validateConfig(input: unknown): ValidateResult {
     protocol: { checkVersion: checkVersion!, ...(hcmRestBase !== undefined && { hcmRestBase }) },
     ui: {
       ...(title !== undefined && { title }),
+      ...(greeting !== undefined && { greeting }),
       ...(placeholder !== undefined && { placeholder }),
       starterQuestions,
       conversations,

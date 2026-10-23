@@ -1,5 +1,6 @@
 export = {
   "chat": {
-    "sampleString": "The strings file can be used to manage translatable resources"
+    "greeting": "How can I help you?",
+    "placeholder": "Ask a question…"
   }
 };

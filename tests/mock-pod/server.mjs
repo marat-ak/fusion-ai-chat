@@ -172,6 +172,7 @@ const routes = [
         : b.message === "wait for me" ? "chat-wait-timer.sse"
         : b.message === "fail" ? "chat-error.sse"
         : b.message === "unsafe html" ? "chat-unsafe.sse"
+        : b.message === "long list" ? "chat-long-list.sse"
         : "chat-hello.sse";
       return streamSse(res, pick);
     },

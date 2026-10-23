@@ -38,6 +38,7 @@
       "additionalProperties": false,
       "properties": {
         "title": { "type": "string" },
+        "greeting": { "type": "string" },
         "placeholder": { "type": "string" },
         "starterQuestions": {
           "default": "fromWorkflow",

@@ -91,6 +91,7 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
           // Another agent is another chat: remount so no turns or conversation id carry over to it.
           key={`${check.config.agent.pod}/${check.config.agent.workflowCode}`}
           config={check.config}
+          strings={componentStrings.chat}
           userName={(user as { userName: string } /* checkInputs: userName non-empty */).userName}
           {...(personId !== undefined && { personId })}
           userRoles={user?.roles ?? []}

@@ -8,7 +8,7 @@ export interface ComposerAttachments { tray: AttachmentTray; accept: string[]; m
 
 export function Composer(props: {
   disabled: boolean;
-  placeholder?: string;
+  placeholder: string;
   /** Resolves whether the message was sent; the text is kept when it was not (e.g. a failed upload). */
   onSend: (text: string) => Promise<boolean>;
   /** Present when files are enabled. */
@@ -32,15 +32,15 @@ export function Composer(props: {
       }
     });
   };
+  // One slim bar on the content surface under a divider: attach (when files are on), the field, the send icon button.
   return (
-    <div class="oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-padding-3x-vertical oj-sm-padding-4x-horizontal oj-border-top">
+    <div class="oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-padding-2x-vertical oj-sm-padding-3x-horizontal oj-bg-neutral-0 oj-border-top">
       {att && <AttachmentList tray={att.tray} maxSizeMB={att.maxSizeMB} />}
       <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-flex-end">
         {att && <AttachButton tray={att.tray} accept={att.accept} disabled={props.disabled} />}
         <MessageArea key={field} testId="gai-composer-input" label="Message" value={text} disabled={props.disabled}
-          {...(props.placeholder !== undefined && { placeholder: props.placeholder })}
-          onInput={setText} onEnter={submit} />
-        <oj-c-button class="oj-sm-margin-2x-start" data-testid="gai-composer-send" chroming="callToAction" label="Send"
+          placeholder={props.placeholder} onInput={setText} onEnter={submit} />
+        <oj-c-button class="oj-sm-margin-2x-start" data-testid="gai-composer-send" chroming="callToAction" display="icons" label="Send"
           disabled={props.disabled || empty} onojAction={submit}>
           <span slot="startIcon" class="oj-ux-ico-send" />
         </oj-c-button>

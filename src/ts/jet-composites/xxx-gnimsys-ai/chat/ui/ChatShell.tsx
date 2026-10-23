@@ -1,21 +1,21 @@
+import "oj-c/button";
 import "oj-c/drawer-layout";
-import "oj-c/toggle-button";
 import ResponsiveUtils = require("ojs/ojresponsiveutils");
-import { IntlConverterUtils } from "ojs/ojconverterutils-i18n";
 import type { Ref } from "preact";
-import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useImperativeHandle, useRef, useState } from "preact/hooks";
 import type { ChatConfig } from "../lib/config/types";
 import { traceGateOpen } from "../lib/trace/gate";
 import { resolveOrigin } from "../lib/origin";
 import { createMarkdownRenderer } from "../lib/render/markdown";
 import { loadVendor } from "../render/vendor";
+import { AgentAvatar } from "./Bubble";
 import type { MarkdownRenderer } from "./Bubble";
 import { Composer } from "./Composer";
 import { Feed } from "./Feed";
 import { FollowUps } from "./FollowUps";
 import { HitlBar } from "./HitlBar";
 import { Sidebar } from "./Sidebar";
-import { Starters, StartersUnavailable } from "./Starters";
+import { Greeting, StartersUnavailable } from "./Starters";
 import { AuthBanner } from "./StatePanel";
 import { useChatController } from "./useChatController";
 import type { ChatErrorDetail } from "./useChatController";
@@ -66,24 +66,22 @@ function drawerReflows(): boolean {
   return query !== null && window.matchMedia(query).matches;
 }
 
-/** Avatar initials from the user name: its local part (before "@") split on . _ - and spaces, via JET's getInitials. */
-function initialsOf(userName: string): string | undefined {
-  const [first, last] = userName.split("@")[0].split(/[._\s-]+/).filter((p) => p !== "");
-  return IntlConverterUtils.getInitials(first, last);
-}
-
-/** Opens / closes the conversations drawer. */
+/** Opens / closes the conversations drawer (a small borderless icon button; its label says what it does). */
 function DrawerToggle(props: { open: boolean; onChange: (open: boolean) => void }) {
   return (
-    <oj-c-toggle-button data-testid="gai-sidebar-toggle" chroming="borderless" display="icons" label="Conversations"
-      value={props.open} onvalueChanged={(e) => props.onChange(e.detail.value === true)}>
+    <oj-c-button data-testid="gai-sidebar-toggle" size="sm" chroming="borderless" display="icons"
+      label={props.open ? "Hide conversations" : "Show conversations"} onojAction={() => props.onChange(!props.open)}>
       <span slot="startIcon" class={props.open ? "oj-ux-ico-chevron-double-left" : "oj-ux-ico-chevron-double-right"} />
-    </oj-c-toggle-button>
+    </oj-c-button>
   );
 }
 
+/** The component's translatable texts (resources/nls). */
+export interface ChatStrings { greeting: string; placeholder: string }
+
 export interface ChatShellProps {
   config: ChatConfig;
+  strings: ChatStrings;
   userName: string;
   personId?: string;
   /** Roles of the signed-in user; with `config.ui.trace` they decide whether the trace panel shows. */
@@ -138,7 +136,6 @@ export function ChatShell(props: ChatShellProps) {
   }, [props.conversationId]);
 
   const renderer = useMarkdownRenderer(props.onError);
-  const initials = useMemo(() => initialsOf(props.userName), [props.userName]);
   const [drawerOpen, setDrawerOpen] = useState(drawerReflows);
 
   const config = props.config;
@@ -164,7 +161,11 @@ export function ChatShell(props: ChatShellProps) {
         <div class="oj-flex-bar oj-sm-align-items-center oj-sm-padding-2x oj-border-bottom">
           {listOn && !drawerOpen && <div class="oj-flex-bar-start">{toggle}</div>}
           {title !== undefined && (
-            <div class="oj-flex-bar-middle oj-sm-align-items-center oj-sm-padding-2x-horizontal oj-typography-subheading-xs">{title}</div>
+            // The agent: its avatar, then its name.
+            <div class="oj-flex-bar-middle oj-sm-align-items-center oj-sm-padding-2x-horizontal">
+              <AgentAvatar size="2xs" class="oj-sm-margin-3x-end" />
+              <h2 class="gai-shrink oj-typography-heading-xs oj-sm-margin-0">{title}</h2>
+            </div>
           )}
         </div>
       )}
@@ -172,19 +173,22 @@ export function ChatShell(props: ChatShellProps) {
         <AuthBanner class="oj-sm-margin-2x" state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })} />
       )}
       <Feed turns={state.turns} showTrace={traceGateOpen(config.ui.trace, props.userRoles)} busy={busy && authOk} renderer={renderer} historyStatus={state.historyStatus}
-        {...(initials !== undefined && { userInitials: initials })}
         {...(state.historyError !== undefined && { historyError: state.historyError })}
         {...(state.progressText !== undefined && { progressText: state.progressText })}>
-        {state.turns.length === 0 && !historyLoading && (ctl.workflowError
-          ? <StartersUnavailable error={ctl.workflowError} />
-          : <Starters questions={starters} disabled={!canSend} onPick={ctl.sendStarter} />)}
+        {/* An empty conversation opens with the agent's greeting (the starters inside it); it goes once there are turns. */}
+        {state.turns.length === 0 && !historyLoading && (
+          <>
+            <Greeting text={config.ui.greeting ?? props.strings.greeting} questions={starters} disabled={!canSend}
+              onPick={ctl.sendStarter} />
+            {ctl.workflowError && <StartersUnavailable error={ctl.workflowError} />}
+          </>
+        )}
         {!busy && !wait && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
       </Feed>
       {wait ? (
         <HitlBar key={wait.token} wait={wait} disabled={!authOk || ctl.inFlight} onResume={ctl.resume} />
       ) : (
-        <Composer disabled={!canSend} onSend={ctl.send}
-          {...(config.ui.placeholder !== undefined && { placeholder: config.ui.placeholder })}
+        <Composer disabled={!canSend} onSend={ctl.send} placeholder={config.ui.placeholder ?? props.strings.placeholder}
           {...(attachments !== null && {
             attachments: { tray: attachments, accept: config.files.accept, maxSizeMB: config.files.maxSizeMB },
           })} />

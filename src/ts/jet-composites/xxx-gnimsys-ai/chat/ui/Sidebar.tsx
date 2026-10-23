@@ -115,7 +115,8 @@ function ConversationRow(props: { row: Row; actions: { current: RowActions } }) 
           <oj-c-truncating-text class="gai-conv-name" title={name} value={name} truncation="ellipsis" weight={active ? "semiBold" : "normal"} />
         )}
       </div>
-      <span slot="secondary" class="gai-conv-date oj-typography-body-xs oj-text-color-secondary oj-helper-white-space-nowrap">{formatDate(item.updatedAt)}</span>
+      {/* On the name's line, at its end (one line per row). */}
+      <span slot="metadata" class="gai-conv-date oj-typography-body-xs oj-text-color-secondary oj-helper-white-space-nowrap">{formatDate(item.updatedAt)}</span>
       <RowControls slot="action">
         {/* Delete in the menu arms the row: the red Confirm replaces the menu, and a click on it within CONFIRM_MS deletes. */}
         {armed ? (
@@ -205,13 +206,14 @@ export function Sidebar(props: {
     // The conversations drawer's content (oj-c-drawer-layout start slot, see ChatShell).
     <div slot="start" class="gai-sidebar oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-height-full"
       data-testid="gai-sidebar" role="complementary" aria-label="Conversations">
+      {/* One compact row of small buttons: the drawer toggle, Refresh, and New at the end. */}
       <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-center oj-sm-padding-2x oj-border-bottom">
         {props.toggle}
-        <oj-c-button data-testid="gai-conv-refresh" chroming="borderless" display="icons" label="Refresh"
+        <oj-c-button data-testid="gai-conv-refresh" size="sm" chroming="borderless" display="icons" label="Refresh"
           disabled={list.loading} onojAction={list.refresh}>
           <span slot="startIcon" class="oj-ux-ico-refresh" />
         </oj-c-button>
-        <oj-c-button class="oj-helper-margin-start-auto" data-testid="gai-conv-new" chroming="outlined" label="New" onojAction={props.onNew}>
+        <oj-c-button class="oj-helper-margin-start-auto" data-testid="gai-conv-new" size="sm" chroming="outlined" label="New" onojAction={props.onNew}>
           <span slot="startIcon" class="oj-ux-ico-plus" />
         </oj-c-button>
       </div>

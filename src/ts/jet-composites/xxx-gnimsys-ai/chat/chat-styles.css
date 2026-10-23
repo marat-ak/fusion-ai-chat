@@ -1,14 +1,19 @@
 /* xxx-gnimsys-ai-chat: layout, typography, colour and controls come from Core Pack (oj-c) components and Redwood
-   utility classes. Only what neither expresses stays here, each rule with its reason. No colours. Prefix `gai-`. */
+   utility classes. Only what neither expresses stays here, each rule with its reason. Colours only as Redwood tokens.
+   Prefix `gai-`. */
 
 /* JET custom-element convention: hidden until rendered (no utility class can target the tag). */
 xxx-gnimsys-ai-chat:not(.oj-complete) {
   visibility: hidden;
 }
 
-/* A definite default height the page can override, so the feed scrolls inside (utilities only set percentages). */
+/* The element fills its container's width: in a flex column that does not stretch its items (VB page layouts) a block
+   would otherwise shrink to its content, narrow when empty and wider after a long reply. A definite default height the
+   page can override lets the feed scroll inside (utilities only set percentages, and none can target the tag). */
 xxx-gnimsys-ai-chat {
   display: block;
+  width: 100%;
+  box-sizing: border-box;
   height: 560px;
 }
 
@@ -37,21 +42,38 @@ xxx-gnimsys-ai-chat[hidden] {
   flex-shrink: 0;
 }
 
-/* A reflowing drawer sizes to its content, so the sidebar sets the width (width utilities are fractions of the
-   parent); an overlay drawer is at least 320px wide and the sidebar fills it. */
-.gai-sidebar {
-  width: 260px;
-  min-width: 100%;
-}
-
-/* Starters sit at the bottom of an empty feed (the auto-margin helpers are horizontal only). */
-.gai-push-down {
+/* The transcript sits at the bottom of the feed and grows upwards, as in Redwood's own chat; once it overflows, the
+   auto margin is zero and the feed scrolls normally (the auto-margin helpers are horizontal only). */
+.gai-feed > :first-child {
   margin-top: auto;
 }
 
-/* Bubbles keep a gap to the opposite side (no max-width utility; oj-sm-width-* sets the width itself). */
-.gai-bubble {
+/* A reflowing drawer sizes to its content, so the sidebar sets the width (width utilities are fractions of the
+   parent); an overlay drawer is at least 320px wide and the sidebar fills it. */
+.gai-sidebar {
+  width: 280px;
+  min-width: 100%;
+}
+
+/* Bubbles (and the greeting): a comfortable reading width, Redwood's large corner radius without the panel's border,
+   and the 1.5 line height of Redwood's own chat text (no max-width, border-radius or line-height utility; oj-panel
+   brings a border; the body typography classes set 1.25 for 16px text, tight for long replies and lists). */
+.gai-bubble,
+.gai-greeting {
   max-width: 80%;
+  border-radius: var(--oj-core-border-radius-xl);
+  line-height: 1.5;
+}
+
+/* The user's bubble: a soft neutral one step darker than the feed (the oj-bg-neutral-* utilities skip 40). */
+.gai-bubble--user {
+  background-color: rgb(var(--oj-palette-neutral-rgb-40));
+}
+
+/* Avatars are flat: Redwood paints a texture over every oj-c-avatar background colour and has no property to turn
+   it off. The selector reaches the avatar's own inner element; if JET changes it, the texture simply comes back. */
+.gai-avatar div {
+  background-image: none;
 }
 
 /* ---- Reply markdown: the sanitized HTML has no classes, so its elements are styled by selector. ---- */
@@ -70,17 +92,33 @@ xxx-gnimsys-ai-chat[hidden] {
   margin-bottom: 0;
 }
 
+/* Paragraphs, lists and tables are spaced by half a line instead of the browser's full line. */
+.gai-md p,
+.gai-md ul,
+.gai-md ol,
+.gai-md table,
+.gai-md pre {
+  margin-top: 0;
+  margin-bottom: var(--oj-core-spacing-2x);
+}
+
+/* List markers take a smaller indent than the browser's 40px, so long lists keep their width in a narrow bubble. */
+.gai-md ul,
+.gai-md ol {
+  padding-inline-start: var(--oj-core-spacing-6x);
+}
+
 /* Images fit the bubble. */
 .gai-md img {
   max-width: 100%;
 }
 
-/* Code blocks scroll instead of widening the bubble. */
+/* Code blocks scroll instead of widening the bubble, on the feed's neutral so they stand out of the white bubble. */
 .gai-md pre {
   overflow-x: auto;
   padding: var(--oj-core-spacing-2x);
   border-radius: var(--oj-core-border-radius-md);
-  background: var(--oj-core-bg-color-content);
+  background: rgb(var(--oj-palette-neutral-rgb-20));
 }
 
 /* Tables get cell borders and padding. */

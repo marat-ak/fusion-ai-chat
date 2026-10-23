@@ -2,7 +2,8 @@ import "oj-c/text-area";
 import { useRef } from "preact/hooks";
 
 /**
- * A two-row message field (Redwood text area, label hidden and used as the accessible name). The text is controlled:
+ * A message field that starts as one row and grows with its text up to five (Redwood text area, label hidden and used
+ * as the accessible name). The text is controlled:
  * every keystroke reports the raw text, so the caller's Send state follows it. Enter sends, Shift+Enter is a new line,
  * and an Enter that ends an IME composition is left to the IME. To empty the field after a send, the caller remounts it
  * (a new `key`): the field commits its text when it is disabled while focused, after the clear, and that late commit
@@ -25,7 +26,8 @@ export function MessageArea(props: {
       data-testid={props.testId}
       labelHint={props.label}
       labelEdge="none"
-      rows={2}
+      rows={1}
+      maxRows={5}
       resizeBehavior="none"
       userAssistanceDensity="compact"
       value={props.value}

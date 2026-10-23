@@ -76,6 +76,7 @@ test("open_conversation_renders_messages_oldest_first", async ({ page }) => {
   await expect(page.getByTestId("gai-history-loading")).toHaveCount(0);
   await expect(page.getByTestId("gai-history-unavailable")).toHaveCount(0);
   await expect(page.getByTestId("gai-starter")).toHaveCount(0);
+  await expect(page.getByTestId("gai-greeting")).toHaveCount(0);
   expect(await componentConversationId(page)).toBe("conv-1");
   const msgs = async () => (await mockRequests(page)).filter((r) => r.url.endsWith("/orchestrator/conversations/v1/conv-1/messages"));
   expect(await msgs()).toHaveLength(1);

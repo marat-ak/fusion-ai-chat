@@ -4,7 +4,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import type { ChatState, Turn } from "../lib/state/conversation";
 import { Banner } from "./Banner";
-import { Bubble } from "./Bubble";
+import { AGENT_INDENT, Bubble } from "./Bubble";
 import { TracePanel } from "./TracePanel";
 import type { MarkdownRenderer } from "./Bubble";
 
@@ -18,8 +18,6 @@ export function Feed(props: {
   renderer: MarkdownRenderer | null;
   /** The trace gate is open: assistant turns show their node trace. */
   showTrace: boolean;
-  /** Initials on the user's avatar. */
-  userInitials?: string;
   /**
    * History of an opened conversation: "unavailable" shows a notice at the top of the feed (it stays above the turns
    * sent afterwards); "loading" shows one at the end, above the composer.
@@ -36,7 +34,8 @@ export function Feed(props: {
     if (el) el.scrollTop = el.scrollHeight;
   });
   return (
-    <div class="gai-feed oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-flex-1 oj-sm-padding-4x" ref={ref} role="log" aria-live="polite">
+    <div class="gai-feed oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-flex-1 oj-sm-padding-4x oj-bg-neutral-20" ref={ref}
+      role="log" aria-live="polite">
       {props.historyStatus === "unavailable" && (
         <Banner testId="gai-history-unavailable" severity="warning" class="oj-sm-margin-2x-bottom"
           summary={`History unavailable${err?.status ? ` (HTTP ${err.status})` : ""}${err?.text ? `: ${err.text}` : ""}`} />
@@ -44,12 +43,12 @@ export function Feed(props: {
       {props.turns.map((t) => (
         <Fragment key={t.id}>
           {/* An assistant turn that has not produced text (nor failed) yet is represented by the progress line alone. */}
-          {t.role === "assistant" && t.streaming && t.text === "" && !t.error ? null : <Bubble turn={t} renderer={props.renderer} {...(props.userInitials !== undefined && { userInitials: props.userInitials })} />}
+          {t.role === "assistant" && t.streaming && t.text === "" && !t.error ? null : <Bubble turn={t} renderer={props.renderer} />}
           {props.showTrace && t.role === "assistant" && t.trace !== undefined && t.trace.length > 0 && <TracePanel entries={t.trace} />}
         </Fragment>
       ))}
       {props.busy && (
-        <div class={`oj-flex oj-sm-align-items-center oj-sm-align-self-flex-start oj-sm-padding-1x-horizontal ${SECONDARY}`}
+        <div class={`oj-flex oj-sm-align-items-center oj-sm-align-self-flex-start ${AGENT_INDENT} ${SECONDARY}`}
           data-testid="gai-progress" role="status">
           {props.progressText ? props.progressText : <oj-c-progress-circle size="sm" value={-1} aria-label="Working" />}
         </div>

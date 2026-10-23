@@ -50,7 +50,7 @@ export function AttachButton(props: { tray: AttachmentTray; accept: string[]; di
           props.tray.add(files);
         }}
       />
-      <oj-c-button class="oj-sm-margin-2x-end" data-testid="gai-attach" chroming="borderless" display="icons" label="Attach files"
+      <oj-c-button class="oj-sm-margin-1x-end" data-testid="gai-attach" chroming="borderless" display="icons" label="Attach files"
         disabled={props.disabled} onojAction={() => input.current?.click()}>
         <span slot="startIcon" class="oj-ux-ico-attach-file" />
       </oj-c-button>

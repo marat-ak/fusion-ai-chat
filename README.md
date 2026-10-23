@@ -36,7 +36,7 @@ Published contract: [`chat/schemas/config-v1.schema.json`](src/ts/jet-composites
   },
   "auth": { "kind": "fusionShell" },
   "protocol": { "checkVersion": "2607100", "hcmRestBase": "/hcmRestApi/rest/latest/en/11.13.18.05:9" },
-  "ui": { "title": "Inventory Transaction Wizard", "placeholder": "Ask…", "starterQuestions": "fromWorkflow", "conversations": true },
+  "ui": { "title": "Inventory Transaction Wizard", "greeting": "How can I help you?", "placeholder": "Ask…", "starterQuestions": "fromWorkflow", "conversations": true },
   "files": { "enabled": true, "maxFiles": 5, "maxSizeMB": 50, "accept": ["pdf", "png", "jpg", "xlsx"] }
 }
 ```
@@ -52,6 +52,10 @@ Required inputs (never defaulted):
 | `protocol.hcmRestBase` | config | only when `files.enabled`: the `hcmRestApi` base for `hcmAiStudioConversations` |
 | `user.userName` | element property `user` | owner filter of the user's conversation list |
 | `person-id` | element attribute | only when `files.enabled`: Oracle `PersonId` (dev1 rows show `"-1"`) |
+
+Optional texts: `ui.greeting` is the agent's greeting bubble on an empty conversation (the starter questions sit
+inside it; default: the component's localized "How can I help you?"); `ui.placeholder` is the composer placeholder
+(default: "Ask a question…").
 
 A missing required input shows a **needs-input** panel listing what is missing; an unknown key or a wrong
 value shows an **invalid** panel. Nothing is fetched until the config passes. `{{key}}` placeholders in
@@ -83,8 +87,9 @@ unavailable). Methods: `newConversation()`, `send(text)`, `openConversation(id)`
 the component shows a needs-input/invalid panel. `ai-chat-submit` and `ai-chat-action` arrive with the
 widgets in v1.1.
 
-Sizing: the element is `display: block; height: 560px` by default; set your own `height` on
-`xxx-gnimsys-ai-chat` in the page CSS, and the chat fills it with the feed scrolling inside.
+Sizing: the element is `display: block; width: 100%; height: 560px` by default, so it fills its container's width
+even in a flex column that does not stretch its items; set your own `height` on `xxx-gnimsys-ai-chat` in the page
+CSS, and the chat fills it with the feed scrolling inside.
 
 ## Dev loop (VB page on the pod, bundle from your machine)
 

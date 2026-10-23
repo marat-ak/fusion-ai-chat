@@ -3,7 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 // Host page = src/index.html (default mock config: workflow MOCK_WF on pod "mockpod", starters "fromWorkflow").
 // Mock pod chat fixtures by message: "hello" (any other text too) -> "Hel","lo!" deltas, final "Hello! How can I help?"
 // + follow-ups; "fail" -> error final "ErrorRecord[boom]"; "unsafe html" -> a final with an overlay div, a remote image,
-// a raw anchor and form controls. BOSS workflows -> starters "Show my invoices", "Create a PO".
+// a raw anchor and form controls; "long list" -> a heading, a paragraph and a 26-item numbered list + follow-ups
+// "Show more", "Cancel". BOSS workflows -> starters "Show my invoices", "Create a PO".
 const MOCK_POD = "http://localhost:8787";
 
 type MockRequest = { method: string; url: string; headers: Record<string, string>; body: unknown };
@@ -32,11 +33,15 @@ test("starters_from_workflow_render_and_send", async ({ page }) => {
   await page.goto("/");
   const starters = page.getByTestId("gai-starter");
   await expect(starters).toHaveText(["Show my invoices", "Create a PO"]);
+  // The starters sit in the agent's greeting bubble.
+  await expect(page.getByTestId("gai-greeting-text")).toHaveText("How can I help you?");
+  await expect(page.getByTestId("gai-greeting").getByTestId("gai-starter")).toHaveCount(2);
 
   await starters.first().locator("button").click();
   await expect(page.getByTestId("gai-bubble-user")).toHaveText(["Show my invoices"]);
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
   await expect(page.getByTestId("gai-starter")).toHaveCount(0);
+  await expect(page.getByTestId("gai-greeting")).toHaveCount(0);
   expect(((await chatRequests(page)).at(-1)?.body as { message?: string }).message).toBe("Show my invoices");
 });
 
@@ -247,4 +252,66 @@ test("workflow_lookup_failure_shows_notice", async ({ page }) => {
   await sendText(page, "hello");
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
   await expect(page.getByTestId("gai-workflow-error")).toHaveCount(0);
+});
+
+test("greeting_shows_without_starters", async ({ page }) => {
+  // Explicit empty starters and no sidebar: the greeting alone opens the conversation, with the default texts.
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
+      agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
+      auth: { kind: "fusionShell" },
+      protocol: { checkVersion: "2607100" },
+      ui: { starterQuestions: [], conversations: false },
+    };
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("gai-greeting-text")).toHaveText("How can I help you?");
+  await expect(page.getByTestId("gai-starter")).toHaveCount(0);
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
+  await expect(input).toHaveAttribute("placeholder", "Ask a question…");
+
+  // The first send replaces the greeting with the conversation.
+  await sendText(page, "hello");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  await expect(page.getByTestId("gai-greeting")).toHaveCount(0);
+});
+
+test("greeting_and_placeholder_from_config", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
+      agent: { workflowCode: "MOCK_WF", pod: "mockpod" },
+      auth: { kind: "fusionShell" },
+      protocol: { checkVersion: "2607100" },
+      ui: { greeting: "Hi! Ask me about your invoices.", placeholder: "Type a question", starterQuestions: ["Show my invoices"], conversations: false },
+    };
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("gai-greeting-text")).toHaveText("Hi! Ask me about your invoices.");
+  await expect(page.getByTestId("gai-greeting").getByTestId("gai-starter")).toHaveText(["Show my invoices"]);
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toHaveAttribute("placeholder", "Type a question");
+});
+
+test("component_fills_container_width_empty_and_after_reply", async ({ page }) => {
+  // The host page wraps the chat in a flex column that does not stretch its items, as VB page layouts do: a chat that
+  // sized itself to its content would be narrow while empty and wider after a long reply.
+  await page.goto("/");
+  const container = page.locator("#chat-container");
+  expect(await container.evaluate((el) => getComputedStyle(el).alignItems)).toBe("flex-start");
+  const widthGap = async (): Promise<{ host: number; shell: number }> => {
+    const [c, h, s] = await Promise.all([container.boundingBox(), page.locator("#chat").boundingBox(), page.locator(".gai-shell").boundingBox()]);
+    if (c === null || h === null || s === null) throw new Error("chat not laid out");
+    return { host: Math.abs(h.width - c.width), shell: Math.abs(s.width - c.width) };
+  };
+
+  await expect(page.getByTestId("gai-greeting")).toBeVisible();
+  const empty = await widthGap();
+  expect(empty.host).toBeLessThanOrEqual(2);
+  expect(empty.shell).toBeLessThanOrEqual(2);
+
+  await sendText(page, "long list");
+  await expect(page.getByTestId("gai-followup")).toHaveText(["Show more", "Cancel"]);
+  await expect(page.getByTestId("gai-bubble-assistant").locator("ol > li")).toHaveCount(26);
+  const after = await widthGap();
+  expect(after.host).toBeLessThanOrEqual(2);
+  expect(after.shell).toBeLessThanOrEqual(2);
 });
