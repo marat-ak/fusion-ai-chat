@@ -394,3 +394,31 @@ test("component_fills_container_width_empty_and_after_reply", async ({ page }) =
   expect(after.host).toBeLessThanOrEqual(2);
   expect(after.shell).toBeLessThanOrEqual(2);
 });
+
+test("new_conversation_mid_stream_stops_the_reply_cleanly", async ({ page }) => {
+  const problems: string[] = [];
+  page.on("pageerror", (e) => problems.push("pageerror: " + e.message));
+  page.on("console", (m) => { if (m.type() === "error" && /body|stream|lock|abort/i.test(m.text())) problems.push("console: " + m.text()); });
+  // Frames 1 s apart: the reply is still streaming when the user starts a new conversation.
+  await page.request.get(`${MOCK_POD}/__mock/arm?sseGap=1000`);
+  await page.goto("/");
+  await expect(page.getByTestId("gai-starter")).toHaveCount(2);
+  await sendText(page, "hello");
+  // A partial reply (the final one comes seconds later).
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(/^Hel(lo!)?\s*$/);
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeDisabled();
+
+  await page.getByTestId("gai-conv-new").locator("button").click();
+  await expect(page.locator(".gai-feed .gai-bubble")).toHaveCount(0);
+  await expect(page.getByTestId("gai-greeting")).toBeVisible();
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
+  await expect(input).toBeEnabled();
+  // The stopped reply never comes back into the new conversation.
+  await page.waitForTimeout(2500);
+  await expect(page.locator(".gai-feed .gai-bubble")).toHaveCount(0);
+
+  // The chat streams again afterwards.
+  await sendText(page, "hello");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  expect(problems).toEqual([]);
+});

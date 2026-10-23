@@ -24,12 +24,22 @@ export interface StreamInit { method: EndpointMethod; headers: Record<string, st
 export type StreamFetch = (target: EndpointName, url: string, init: StreamInit) => Promise<Response>;
 
 /**
- * The rest helper's streaming capability, when it has one: `streamFetch(endpointId, {url, method, headers, body?, signal?})`
- * resolves the native Response, unconsumed, for every HTTP status; the helper resolves `url` against the endpoint and owns
- * its auth. VB's RestHelper has no such method (see the endpoint-slice report, Task 4); the dev/e2e mock has it.
+ * A rest helper's own streaming capability, when a page provides one: `streamFetch(endpointId, {url, method, headers,
+ * body?, signal?})` resolves the native Response, unconsumed, for every HTTP status; the helper resolves `url` against the
+ * endpoint and owns its auth.
  */
 export interface StreamingRestHelper {
   streamFetch(endpointId: string, request: { url: string } & StreamInit): Promise<Response>;
+}
+
+/**
+ * The data pack's VB stream provider (xxx-gnimsys-data/rest/vb-stream-fetch): streams through any helper whose request
+ * chains have VB's hookHandler and responseBodyFormat (VB's RestHelper, the dev/e2e mock). Passed in so lib stays free of
+ * the pack's AMD modules.
+ */
+export interface VbStreamProvider {
+  supportsVbStreamFetch(restHelper: unknown, endpointId: string): boolean;
+  createVbStreamFetch(restHelper: unknown): (endpointId: string, request: { url: string } & StreamInit) => Promise<Response>;
 }
 
 /**
@@ -87,11 +97,19 @@ export function objectBody(res: EndpointResponse): Record<string, unknown> | nul
   return typeof b === "object" && b !== null && !Array.isArray(b) ? (b as Record<string, unknown>) : null;
 }
 
-/** The streaming capability of a page-provided rest helper, bound to the endpoint map; undefined when it has none. */
-export function streamFetchOf(restHelper: unknown, endpoints: Record<string, string>): StreamFetch | undefined {
-  const fn = (restHelper as Partial<StreamingRestHelper> | null | undefined)?.streamFetch;
-  if (typeof fn !== "function") return undefined;
-  return (target, url, init) => fn.call(restHelper, endpoints[target] as string, { url, ...init });
+/**
+ * The streaming capability of a page-provided rest helper, decided once and bound to the endpoint map: the helper's own
+ * `streamFetch` when it has one, else the VB provider over it when its chains support that (probed on the FUAI endpoint,
+ * the one the chat streams from); undefined when neither applies (the chat then says streaming is not available).
+ */
+export function streamFetchOf(restHelper: unknown, endpoints: Record<string, string>, provider: VbStreamProvider): StreamFetch | undefined {
+  const own = (restHelper as Partial<StreamingRestHelper> | null | undefined)?.streamFetch;
+  const fuai = endpoints.FUAI;
+  const fetchFn = typeof own === "function"
+    ? own.bind(restHelper)
+    : fuai !== undefined && provider.supportsVbStreamFetch(restHelper, fuai) ? provider.createVbStreamFetch(restHelper) : undefined;
+  if (fetchFn === undefined) return undefined;
+  return (target, url, init) => fetchFn(endpoints[target] as string, { url, ...init });
 }
 
 /** The pod path of a URL when it is pod-relative and normalises to itself (no "..", ".", backslash or "//" tricks). */

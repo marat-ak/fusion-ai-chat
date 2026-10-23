@@ -2,6 +2,11 @@
 import { ENDPOINT_NAMES, ENDPOINT_PREFIXES, EndpointError, endpointBodyText, streamFetchOf } from "../endpoints/EndpointFetch";
 import type { EndpointName, StreamFetch } from "../endpoints/EndpointFetch";
 import { fakeEndpoints, vb } from "./helpers.endpoints";
+import { loadAmd } from "../../../../xxx-gnimsys-data/rest/__tests__/amd";
+import type { VbStreamProvider } from "../endpoints/EndpointFetch";
+
+// The data pack's real VB stream provider (AMD, loaded from source).
+const VbStream = loadAmd("xxx-gnimsys-data/rest/vb-stream-fetch") as VbStreamProvider;
 
 const refused = async (p: Promise<unknown>): Promise<EndpointError> => {
   const e = await p.catch((x: unknown) => x);
@@ -150,16 +155,44 @@ test("stream_http_error_and_network_failure", async () => {
   expect([n.kind, n.status, n.message]).toEqual(["network", 0, "FUAI POST /api/fusion-ai/c: Failed to fetch"]);
 });
 
-test("streamFetchOf_uses_the_rest_helpers_capability", async () => {
+test("streamFetchOf_prefers_the_helpers_own_streamFetch", async () => {
   const res = new Response("");
   const seen: unknown[] = [];
   const restHelper = { get: () => ({}), streamFetch: async (id: string, req: unknown) => { seen.push([id, req]); return res; } };
-  const fn = streamFetchOf(restHelper, { FUAI: "scFUAI", BOSS: "scBOSS" });
+  const fn = streamFetchOf(restHelper, { FUAI: "scFUAI", BOSS: "scBOSS" }, VbStream);
   expect(fn).toBeDefined();
   expect(await (fn as StreamFetch)("FUAI", "/api/fusion-ai/c", { method: "POST", headers: { A: "1" }, body: "{}" })).toBe(res);
   expect(seen).toEqual([["scFUAI", { url: "/api/fusion-ai/c", method: "POST", headers: { A: "1" }, body: "{}" }]]);
-  // VB's RestHelper has no streamFetch: no capability.
-  expect(streamFetchOf({ get: () => ({}) }, { FUAI: "scFUAI" })).toBeUndefined();
+});
+
+test("streamFetchOf_builds_the_vb_provider_for_a_helper_with_hooks", async () => {
+  // A VB-like chain: the provider keeps the native response and VB reads its stand-in.
+  const native = new Response("data: {}\n\n", { headers: { "Content-Type": "text/event-stream" } });
+  const gets: string[] = [];
+  const restHelper = {
+    get(id: string) {
+      gets.push(id);
+      let hooks: { handleResponseHook(r: Response): Response } | undefined;
+      const rest = {
+        initConfiguration: () => rest, requestTransformationFunctions: () => rest, responseBodyFormat: () => rest,
+        hookHandler(h: typeof hooks) { hooks = h; return rest; },
+        async fetch() { const r = hooks ? hooks.handleResponseHook(native) : native; return { response: r, body: await r.text() }; },
+      };
+      return rest;
+    },
+  };
+  const fn = streamFetchOf(restHelper, { FUAI: "scFUAI", BOSS: "scBOSS" }, VbStream);
+  expect(fn).toBeDefined();
+  expect(gets).toEqual(["scFUAI"]); // the one probe
+  const res = await (fn as StreamFetch)("FUAI", "/api/fusion-ai/c", { method: "POST", headers: {} });
+  expect(res).toBe(native);
+  expect(res.bodyUsed).toBe(false);
+});
+
+test("streamFetchOf_without_hooks_or_streamFetch_has_no_capability", () => {
+  const basic = { get: () => ({ initConfiguration() { return this; }, requestTransformationFunctions() { return this; }, fetch: async () => ({}) }) };
+  expect(streamFetchOf(basic, { FUAI: "scFUAI" }, VbStream)).toBeUndefined();
+  expect(streamFetchOf(basic, {}, VbStream)).toBeUndefined();
 });
 
 test("endpointBodyText", () => {

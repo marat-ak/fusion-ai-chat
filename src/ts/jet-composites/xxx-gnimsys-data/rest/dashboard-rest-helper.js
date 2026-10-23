@@ -21,8 +21,9 @@
  * endpoint.fetch({ employeeId: '123' }).then(data => { ... });
  */
 define([
-    './dashboard-logger'
-], function (DashboardLogger) {
+    './dashboard-logger',
+    './endpoint-url'
+], function (DashboardLogger, EndpointUrl) {
     'use strict';
 
     /**
@@ -150,22 +151,9 @@ define([
             const endpoint = this.restHelper.get(this.endpointName);
             const configuredEndpoint = endpoint.initConfiguration(requestConfig);
 
-            // Apply URL transformation
+            // Apply URL transformation (shared with the VB stream provider, see endpoint-url.js)
             configuredEndpoint.requestTransformationFunctions({
-                body: (configuration) => {
-                    const url = new URL(configuration.url);
-                    const endpointUrl = new URL(configuration.endpointDefinition.url);
-
-                    if ((requestConfig.url.startsWith('http://') || requestConfig.url.startsWith('https://')) /*&& url.host !== endpointUrl.host*/) {
-                        // Absolute URL - replace entirely
-                        configuration.url = requestConfig.url;
-                    } else {
-                        // Relative URL - append to base
-                        const cleanUrl = requestConfig.url.replace(/^\//, '');
-                        configuration.url = configuration.url.replace(/\/$/, '') + '/' + cleanUrl;
-                    }
-                    return configuration;
-                }
+                body: (configuration) => EndpointUrl.rewriteEndpointUrl(configuration, requestConfig.url)
             });
             /*
             configuredEndpoint.hookHandler({

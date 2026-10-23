@@ -1,19 +1,15 @@
 /** @jest-environment node */
 import { DEV_MOCK_AUTHORIZATION, MOCK_ENDPOINTS, MockRestHelper } from "../mock-rest-helper";
+import type { MockHookHandler } from "../mock-rest-helper";
 import { loadAmd } from "../../jet-composites/xxx-gnimsys-data/rest/__tests__/amd";
 
-type Sent = { url: string; init: RequestInit };
-
-function fakeFetch(respond: (url: string) => Response): { fetchImpl: typeof fetch; sent: Sent[] } {
-  const sent: Sent[] = [];
-  const fetchImpl = (async (url: string, init: RequestInit) => {
-    sent.push({ url, init });
-    return respond(url);
-  }) as unknown as typeof fetch;
-  return { fetchImpl, sent };
+function fakeFetch(respond: (request: Request) => Response): { fetchImpl: (request: Request) => Promise<Response>; sent: Request[] } {
+  const sent: Request[] = [];
+  return { sent, fetchImpl: async (request: Request) => { sent.push(request); return respond(request); } };
 }
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
+const headersOf = (r: Request): Record<string, string> => Object.fromEntries(r.headers.entries());
 
 const BASE = "http://localhost:8000";
 
@@ -34,6 +30,7 @@ test("get_returns_vb_like_chain", async () => {
   expect(rest.requestTransformationFunctions({
     body: (c) => { seen.push({ url: c.url, endpointDefinition: { ...c.endpointDefinition } }); c.url = c.url + "/rewritten"; return c; },
   })).toBe(rest);
+  expect(rest.responseBodyFormat("text")).toBe(rest);
   await rest.fetch();
   // The body transform gets the endpoint's URL (not the init url) and its result is the request URL.
   expect(seen).toEqual([{ url: BASE, endpointDefinition: { url: BASE } }]);
@@ -41,10 +38,10 @@ test("get_returns_vb_like_chain", async () => {
 });
 
 test("fetch_returns_response_and_body", async () => {
-  const { fetchImpl, sent } = fakeFetch((url) =>
-    url.endsWith("/text") ? new Response("plain", { status: 200, headers: { "Content-Type": "text/plain" } })
-      : url.endsWith("/err") ? json({ detail: "boom" }, 500)
-        : url.endsWith("/empty") ? new Response(null, { status: 204, headers: { "Content-Type": "application/json" } })
+  const { fetchImpl, sent } = fakeFetch((r) =>
+    r.url.endsWith("/text") ? new Response("plain", { status: 200, headers: { "Content-Type": "text/plain" } })
+      : r.url.endsWith("/err") ? json({ detail: "boom" }, 500)
+        : r.url.endsWith("/empty") ? new Response(null, { status: 204, headers: { "Content-Type": "application/json" } })
           : json({ items: [1] }, 200, { ETag: '"1"' }));
   const helper = new MockRestHelper({ serviceConnections: { mockFA: BASE }, fetchImpl });
   const call = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) =>
@@ -56,13 +53,13 @@ test("fetch_returns_response_and_body", async () => {
   expect(ok.response.status).toBe(200);
   expect(ok.response.headers.get("ETag")).toBe('"1"');
   expect(ok.body).toEqual({ items: [1] });
-  expect(sent[0].init.method).toBe("PATCH");
-  expect(sent[0].init.body).toBe('{"a":1}');
-  expect(sent[0].init.headers).toEqual({ "If-Match": '"1"', "Content-Type": "application/json", Authorization: DEV_MOCK_AUTHORIZATION });
+  expect(sent[0].method).toBe("PATCH");
+  expect(await sent[0].text()).toBe('{"a":1}');
+  expect(headersOf(sent[0])).toEqual({ "if-match": '"1"', "content-type": "application/json", authorization: DEV_MOCK_AUTHORIZATION });
 
   const text = await call("/text", { method: "GET", headers: {} });
   expect(text.body).toBe("plain");
-  expect("body" in sent[1].init).toBe(false);
+  expect(sent[1].body).toBeNull();
 
   // Like VB, an HTTP error resolves (the status is the caller's to check) with the body read.
   const err = await call("/err", { method: "GET", headers: {} });
@@ -76,12 +73,37 @@ test("fetch_returns_response_and_body", async () => {
   expect(ok.response.bodyUsed).toBe(true);
 });
 
-test("the_mock_owns_authorization", async () => {
+test("the_mock_owns_authorization_and_passes_the_signal", async () => {
   const { fetchImpl, sent } = fakeFetch(() => json({}));
   const helper = new MockRestHelper({ serviceConnections: { mockFA: BASE }, fetchImpl });
-  await helper.get("mockFA").initConfiguration({ method: "GET", headers: { Authorization: "Bearer caller" }, url: "" }).fetch();
-  expect((sent[0].init.headers as Record<string, string>).Authorization).toBe("Bearer dev-mock");
+  const ac = new AbortController();
+  await helper.get("mockFA").initConfiguration({ method: "GET", headers: { Authorization: "Bearer caller" }, url: "", signal: ac.signal }).fetch();
+  expect(sent[0].headers.get("authorization")).toBe("Bearer dev-mock");
   expect(DEV_MOCK_AUTHORIZATION).toBe("Bearer dev-mock");
+  ac.abort();
+  expect(sent[0].signal.aborted).toBe(true);
+});
+
+test("hook_handler_runs_in_vb_order_and_vb_reads_what_the_response_hook_returned", async () => {
+  const native = json({ detail: "denied" }, 401);
+  const { fetchImpl } = fakeFetch(() => native);
+  const helper = new MockRestHelper({ serviceConnections: { mockFUAI: BASE }, fetchImpl });
+  const calls: string[] = [];
+  const handler: MockHookHandler = {
+    handlePreFetchHook: () => { calls.push("pre"); return undefined; },
+    handleRequestHook: (r) => { calls.push("request " + r.method); return r; },
+    handleResponseHook: (r) => { calls.push("response " + r.status); return new Response("", { status: r.status, headers: r.headers }); },
+    handlePostFetchHook: () => { calls.push("post"); return undefined; },
+    handlePostFetchErrorHook: () => { calls.push("postError"); return undefined; },
+  };
+  const result = await helper.get("mockFUAI").initConfiguration({ method: "POST", headers: {}, body: "{}", url: "" }).hookHandler(handler)
+    .responseBodyFormat("text").fetch();
+  expect(calls).toEqual(["pre", "request POST", "response 401", "postError"]);
+  // The stand-in was read; the native response is untouched.
+  expect(result.response).not.toBe(native);
+  expect(result.body).toBe("");
+  expect(native.bodyUsed).toBe(false);
+  expect(await native.json()).toEqual({ detail: "denied" });
 });
 
 test("unknown_service_connection_rejects", async () => {
@@ -106,30 +128,28 @@ test("dashboard_rest_helper_over_the_mock", async () => {
   const r = await new DashboardRestHelper(helper, MOCK_ENDPOINTS).createEndpoint({ target: "BOSS", url: "/api/boss/data/x?$fields=id" }).fetch();
   expect(r.body).toEqual({ ok: true });
   expect(sent.map((s) => s.url)).toEqual([`${BASE}/api/boss/data/x?$fields=id`]);
-  expect((sent[0].init.headers as Record<string, string>).Authorization).toBe(DEV_MOCK_AUTHORIZATION);
+  expect(sent[0].headers.get("authorization")).toBe(DEV_MOCK_AUTHORIZATION);
 });
 
-test("streamFetch_returns_the_unconsumed_response", async () => {
-  const res = new Response("data: {}\n\n", { status: 200, headers: { "Content-Type": "text/event-stream" } });
-  const { fetchImpl, sent } = fakeFetch(() => res);
+test("the_vb_stream_provider_streams_through_the_mock", async () => {
+  type Provider = {
+    createVbStreamFetch(rh: unknown): (id: string, req: { url: string; method: string; headers: Record<string, string>; body?: string }) => Promise<Response>;
+    supportsVbStreamFetch(rh: unknown, id: string): boolean;
+  };
+  const { createVbStreamFetch, supportsVbStreamFetch } = loadAmd("xxx-gnimsys-data/rest/vb-stream-fetch") as Provider;
+  const enc = new TextEncoder();
+  let ctl: ReadableStreamDefaultController<Uint8Array> | undefined;
+  const native = new Response(new ReadableStream<Uint8Array>({ start(c) { ctl = c; } }), { headers: { "Content-Type": "text/event-stream" } });
+  const { fetchImpl, sent } = fakeFetch(() => native);
   const helper = new MockRestHelper({ serviceConnections: { mockFUAI: BASE + "/" }, fetchImpl });
-  const ac = new AbortController();
-  const r = await helper.streamFetch("mockFUAI", { url: "/api/fusion-ai/x/chat", method: "POST", headers: { Accept: "text/event-stream" }, body: "{}", signal: ac.signal });
-  expect(r).toBe(res);
-  expect(r.bodyUsed).toBe(false);
-  expect(sent).toEqual([{
-    url: `${BASE}/api/fusion-ai/x/chat`,
-    init: { method: "POST", headers: { Accept: "text/event-stream", Authorization: DEV_MOCK_AUTHORIZATION }, body: "{}", signal: ac.signal },
-  }]);
-});
-
-test("streamFetch_resolves_urls_like_dashboard_rest_helper_and_rejects_unknown_ids", async () => {
-  const { fetchImpl, sent } = fakeFetch(() => new Response(""));
-  const helper = new MockRestHelper({ serviceConnections: { mockFUAI: BASE }, fetchImpl });
-  await helper.streamFetch("mockFUAI", { url: "api/fusion-ai/a", method: "GET", headers: {} });
-  await helper.streamFetch("mockFUAI", { url: "https://other.example.com/b", method: "GET", headers: {} });
-  expect(sent.map((s) => s.url)).toEqual([`${BASE}/api/fusion-ai/a`, "https://other.example.com/b"]);
-  expect("body" in sent[0].init).toBe(false);
-  await expect(helper.streamFetch("nope", { url: "/x", method: "GET", headers: {} })).rejects.toThrow("mock rest helper: unknown service connection nope");
-  expect(sent).toHaveLength(2);
+  expect(supportsVbStreamFetch(helper, "mockFUAI")).toBe(true);
+  ctl?.enqueue(enc.encode("data: 1\n\n"));
+  const res = await createVbStreamFetch(helper)("mockFUAI", { url: "/api/fusion-ai/x/chat", method: "POST", headers: { Accept: "text/event-stream" }, body: "{}" });
+  expect(res).toBe(native);
+  expect(sent.map((s) => s.url)).toEqual([`${BASE}/api/fusion-ai/x/chat`]);
+  expect(sent[0].headers.get("accept")).toBe("text/event-stream");
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  expect(new TextDecoder().decode((await reader.read()).value)).toBe("data: 1\n\n");
+  ctl?.close();
+  expect((await reader.read()).done).toBe(true);
 });

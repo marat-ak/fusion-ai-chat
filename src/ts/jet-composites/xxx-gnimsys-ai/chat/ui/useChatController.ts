@@ -6,6 +6,7 @@ import { errorDetail, historyFailureText, isRelogin, messageOf, statusOf } from 
 import type { ChatErrorDetail } from "../lib/errors";
 import type { VbRestHelper } from "xxx-gnimsys-data/rest/index";
 import DashboardRestHelper = require("xxx-gnimsys-data/rest/dashboard-rest-helper");
+import * as VbStream from "xxx-gnimsys-data/rest/vb-stream-fetch";
 import { AiStudioTransport, STREAM_UNAVAILABLE } from "../lib/transport/AiStudioTransport";
 import type { ResumeInput, SendInput } from "../lib/transport/ChatTransport";
 import type { ConversationSummary } from "../lib/history/HistoryStore";
@@ -103,7 +104,8 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   // One endpoint layer per rest helper and endpoint map, keyed on the map's content (a page may rebuild an equal map).
   const endpointKey = JSON.stringify(endpointMap);
   const endpoints = useMemo(() => {
-    const stream = streamFetchOf(restHelper, endpointMap);
+    // Decided once per helper and map: the helper's own streamFetch, else the data pack's VB provider over its chains.
+    const stream = streamFetchOf(restHelper, endpointMap, VbStream);
     return new EndpointFetch({ helper: new DashboardRestHelper(restHelper, endpointMap), ...(stream !== undefined && { stream }) });
   }, [restHelper, endpointKey]);
 
