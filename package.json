@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "description": "Chat component for Oracle AI Agent Studio agents (VB App UI extensions): JET pack xxx-gnimsys-ai, tag <xxx-gnimsys-ai-chat>",
   "dependencies": {
-    "@oracle/oraclejet": "~18.0.0",
-    "@oracle/oraclejet-core-pack": "~18.0.0"
+    "@oracle/oraclejet": "~19.0.10",
+    "@oracle/oraclejet-core-pack": "~19.0.10"
   },
   "devDependencies": {
-    "@oracle/ojet-cli": "~18.0.3",
-    "@oracle/oraclejet-jest-preset": "~18.0.0",
+    "@oracle/ojet-cli": "~19.0.6",
+    "@oracle/oraclejet-jest-preset": "~19.0.10",
     "@playwright/test": "1.56.0",
     "@testing-library/preact": "^3.2.3",
     "@types/jest": "^29.5.3",
@@ -18,7 +18,7 @@
     "http-proxy-middleware": "^3.0.7",
     "jest": "^29.6.2",
     "jest-environment-jsdom": "^29.6.2",
-    "typescript": "5.7.2",
+    "typescript": "5.8.3",
     "underscore": "^1.10.2",
     "yargs-parser": "13.1.2"
   },

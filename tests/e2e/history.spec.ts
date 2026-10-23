@@ -141,6 +141,8 @@ test("delete_removes_row", async ({ page }) => {
   const del = row(page, "conv-2").getByTestId("gai-conv-delete").locator("button");
   await del.click();
   await expect(row(page, "conv-2")).toHaveCount(1);
+  // The armed row shows the confirm control (the row re-renders with its armed state).
+  await expect(del).toHaveAccessibleName("Confirm delete");
   expect((await mockRequests(page)).filter((x) => x.method === "DELETE")).toHaveLength(0);
   await del.click();
   await expect(row(page, "conv-2")).toHaveCount(0);

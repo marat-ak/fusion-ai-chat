@@ -1,7 +1,7 @@
 {
   "name": "xxx-gnimsys-ai",
   "version": "0.1.0",
-  "jetVersion": "^18.0.15",
+  "jetVersion": "^19.0.0",
   "type": "pack",
   "displayName": "Gnimsys AI Chat",
   "description": "Chat component for Oracle AI Agent Studio agents (VB App UI extensions)",

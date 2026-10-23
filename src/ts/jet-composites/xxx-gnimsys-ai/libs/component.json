@@ -3,7 +3,7 @@
   "pack": "xxx-gnimsys-ai",
   "type": "resource",
   "version": "0.1.0",
-  "jetVersion": "^18.0.15",
+  "jetVersion": "^19.0.0",
   "displayName": "Vendored libraries",
   "description": "Vendored UMD builds loaded at runtime by chat/render/vendor.ts (see VENDOR.md)."
 }

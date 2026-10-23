@@ -4,7 +4,7 @@
   as shown at https://oss.oracle.com/licenses/upl/
 
 */
-// Named .cjs on purpose: ojet-tooling 18 treats an existing `test-config/jest.config.js` as a VDOM
+// Named .cjs on purpose: ojet-tooling (18 and 19: lib/mainJsInjector.js) treats an existing `test-config/jest.config.js` as a VDOM
 // app's Jest config and, on every dev `ojet build`, scans `src/jet-composites` (not this MVVM+TS
 // app's `src/ts/jet-composites`) to rewrite its moduleNameMapper — the build crashes with ENOENT.
 module.exports = {

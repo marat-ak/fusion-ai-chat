@@ -43,15 +43,15 @@ type Props = Readonly<{
  * @ojmetadata displayName "Gnimsys AI Chat"
  * @ojmetadata description "Chat with an Oracle AI Agent Studio agent"
  * @ojmetadata dependencies {
- *   "oj-c-button": "^18.0.15",
- *   "oj-c-collapsible": "^18.0.15",
- *   "oj-c-input-text": "^18.0.15",
- *   "oj-c-list-item-layout": "^18.0.15",
- *   "oj-c-list-view": "^18.0.15",
- *   "oj-c-message-banner": "^18.0.15",
- *   "oj-c-progress-circle": "^18.0.15",
- *   "oj-c-text-area": "^18.0.15",
- *   "oj-c-toggle-button": "^18.0.15"
+ *   "oj-c-button": "^19.0.0",
+ *   "oj-c-collapsible": "^19.0.0",
+ *   "oj-c-input-text": "^19.0.0",
+ *   "oj-c-list-item-layout": "^19.0.0",
+ *   "oj-c-list-view": "^19.0.0",
+ *   "oj-c-message-banner": "^19.0.0",
+ *   "oj-c-progress-circle": "^19.0.0",
+ *   "oj-c-text-area": "^19.0.0",
+ *   "oj-c-toggle-button": "^19.0.0"
  * }
  */
 function ChatImpl(props: Props, ref: Ref<ChatHandle>) {

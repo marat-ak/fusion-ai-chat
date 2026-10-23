@@ -6,6 +6,9 @@ export default defineConfig({
   // One mock pod with shared state (request log, one-shot expired relay): spec files must not run concurrently.
   workers: 1,
   reporter: "list",
+  // The host page runs the debug build: every JET/oj-c module is a separate AMD request (~700 per page load), so the chat
+  // is ready 2-7 s after goto depending on host load. The default 5 s made first-render expectations flaky.
+  expect: { timeout: 15_000 },
   use: {
     baseURL: "http://localhost:8000",
   },

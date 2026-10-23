@@ -66,6 +66,20 @@ test("send_hello_streams_and_shows_followups", async ({ page }) => {
   expect(chat[0].headers["accept"]).toBe("text/event-stream");
 });
 
+test("enter_send_empties_composer", async ({ page }) => {
+  await page.goto("/");
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
+  // Enter keeps the focus in the field while the composer is disabled for the turn and enabled again after it.
+  await input.fill("hello");
+  await input.press("Enter");
+  await expect(page.getByTestId("gai-bubble-user")).toHaveText(["hello"]);
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  await expect(input).toBeEnabled();
+  await page.waitForTimeout(300);
+  await expect(input).toHaveValue("");
+  await expect(page.getByTestId("gai-composer-send").locator("button")).toBeDisabled();
+});
+
 test("followup_click_sends_text", async ({ page }) => {
   await page.goto("/");
   await sendText(page, "hello");

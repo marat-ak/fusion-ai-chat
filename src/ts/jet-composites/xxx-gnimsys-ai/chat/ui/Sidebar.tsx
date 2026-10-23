@@ -74,11 +74,8 @@ function RenameInput(props: { initial: string; onSave: (name: string) => void; o
   );
 }
 
-/**
- * One list-view row: the conversation and the view state its template renders from. The list view re-renders a row when
- * its object changes (a data-provider update), so this state lives in the data, not in the template's closure.
- */
-interface Row { id: string; item: ConversationSummary; active: boolean; editing: boolean; armed: boolean }
+/** One list-view row: the conversation and its view state (the item template reads the state from its closure). */
+interface Row { item: ConversationSummary; active: boolean; editing: boolean; armed: boolean }
 
 /** What a row's controls do; read at event time, so a row never acts on a stale render's state. */
 interface RowActions {
@@ -164,25 +161,13 @@ export function Sidebar(props: {
     },
   };
 
-  // Row objects are reused while their conversation and view state are unchanged, so only changed rows re-render.
-  const rowCache = useRef(new Map<string, Row>());
-  const rows = useMemo(() => {
-    const next = new Map<string, Row>();
-    const out = list.items.map((item) => {
-      const state = { active: item.id === activeId, editing: item.id === editing, armed: item.id === armed };
-      const prev = rowCache.current.get(item.id);
-      const same = prev !== undefined && prev.item === item && prev.active === state.active && prev.editing === state.editing
-        && prev.armed === state.armed;
-      const row = same ? prev : { id: item.id, item, ...state };
-      next.set(item.id, row);
-      return row;
-    });
-    rowCache.current = next;
-    return out;
-  }, [list.items, activeId, editing, armed]);
-  const data = useMemo(() => new MutableArrayDataProvider<string, Row>(rows, { keyAttributes: "id" }), []);
-  useEffect(() => { data.data = rows; }, [rows]);
-  const renderRow = useCallback((ctx: { data: Row }) => <ConversationRow row={ctx.data} actions={actions} />, []);
+  // The data holds the conversations; a new template (view state changed) re-renders the rows.
+  const data = useMemo(() => new MutableArrayDataProvider<string, ConversationSummary>(list.items, { keyAttributes: "id" }), []);
+  useEffect(() => { data.data = list.items; }, [list.items]);
+  const renderRow = useCallback((ctx: { data: ConversationSummary }) => {
+    const id = ctx.data.id;
+    return <ConversationRow row={{ item: ctx.data, active: id === activeId, editing: id === editing, armed: id === armed }} actions={actions} />;
+  }, [activeId, editing, armed]);
 
   // The selection always shows the open conversation; a click elsewhere reverts until the row's action has opened it.
   const [resync, setResync] = useState(0);
@@ -224,7 +209,7 @@ export function Sidebar(props: {
             <oj-c-list-view class="gai-conv-list oj-sm-flex-1" aria-label="Conversations" data={data} selectionMode="single" selected={selected}
               onselectedChanged={(e) => { if (!(e.detail.value?.has(activeId) ?? false)) setResync((n) => n + 1); }}
               onojItemAction={(e) => {
-                const id = (e.detail.context.data as Row).id;
+                const id = (e.detail.context.data as ConversationSummary).id;
                 // The open conversation is not reopened: that would replace this session's turns with the pod's history.
                 if (editing !== id && id !== activeId) props.onOpen(id);
               }}>
