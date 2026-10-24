@@ -21,14 +21,18 @@ export function memoryStorage(initial: StoredRead = { kind: "none" }) {
   return { storage, writes, removes: () => removes };
 }
 
-/** The versions each agent has; a code mapped to an Error makes versionsOf reject with it. */
+/** The versions each agent has; a code mapped to an Error makes versionsOf reject with it. `calls`: codes asked for;
+ * `listed`: the listedOnly flag of each call. */
 export function fakeAgents(versions: Record<string, ArtifactVersion[] | Error>) {
   const calls: string[] = [];
+  const listed: boolean[] = [];
   return {
     calls,
+    listed,
     agents: {
-      versionsOf: (code: string): Promise<ArtifactVersion[]> => {
+      versionsOf: (code: string, opts: { listedOnly: boolean }): Promise<ArtifactVersion[]> => {
         calls.push(code);
+        listed.push(opts.listedOnly);
         const v = versions[code];
         return v instanceof Error ? Promise.reject(v) : Promise.resolve(v ?? []);
       },

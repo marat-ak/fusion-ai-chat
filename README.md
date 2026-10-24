@@ -32,7 +32,6 @@ Published contract: [`chat/schemas/config-v1.schema.json`](src/ts/jet-composites
   "mode": "chat",
   "agent": {
     "workflowCode": "KRN_INV_TXN_WIZARD",
-    "pod": "evbp-dev1",
     "additionalContext": { "organization": "{{orgCode}}" }
   },
   "auth": { "kind": "fusionShell" },
@@ -48,8 +47,9 @@ Required inputs (never defaulted):
 |---|---|---|
 | `mode` | config | `"chat"` (spec §2; `"app"` and `"gnimsys"` are refused as not built yet) |
 | `agent` | config | what the page binds: `workflowCode` (the AI Studio workflow code) and `version`, each optional — `{}` binds nothing; what is not bound is chosen by the user as `ui.runSettings` allows (see Run selection) |
-| `agent.pod` | config | pod id used in the token-relay scope `urn:opc:resource:fusion:<pod>:<audience>/` |
-| `auth.kind` | config | `"fusionShell"` |
+| `rest-helper` | element property | the page's VB RestHelper (`vb/helpers/rest`): every pod call goes through it |
+| `endpoint` | element property | the endpoint map: contract name (`FUAI`, `BOSS`, and `FA` when `files.enabled`) -> VB endpoint id of the service connection that owns those calls; the pod comes from the scopes of those service connections (`agent.pod` is refused as an unknown key) |
+| `auth.kind` | config | `"fusionShell"`, still required by the validator; it selects nothing any more (every call goes through `rest-helper` / `endpoint`) and is removed with the endpoint slice |
 | `protocol.checkVersion` | config | AI Studio `X-Ora-Ai-Api-V2-*` check version |
 | `protocol.hcmRestBase` | config | only when `files.enabled`: the `hcmRestApi` base for `hcmAiStudioConversations` |
 | `user.userName` | element property `user` | owner filter of the user's conversation list |
@@ -110,7 +110,12 @@ names are defaulted.
 - Refresh: the unbound parts the user chose (never a bound part) are kept in `sessionStorage` under
   `xxx-gnimsys-ai-chat:run:<location.pathname>:agent=<bound code or ->,version=<bound version or ->`, value
   `{workflowCode?, version?}`. On load a stored choice is re-checked (role still held, agent still listed for that
-  version); one that fails is dropped and the panel shows with a note. Without storage (private windows) the panel shows.
+  version; a bound agent is checked against its own versions only, never against the list); one that fails is dropped
+  and the panel shows with a note. A page that leaves nothing to choose any more (e.g. the draft role was lost) drops the
+  stored value too, with the note above the chat when it would have run something else. Without storage (private
+  windows) the panel shows.
+- The list stops with an explicit error when the pod keeps reporting more agents without new ones (a page with no rows,
+  or 3 pages in a row with no new agent), so it never calls the pod without end.
 - Event `ai-chat-run-changed` (`detail.workflowCode`, `detail.version`) on every run change, the first run included.
 
 A 401 answer whose body carries readable text (`detail` / `title` / `message`) shows that text under the re-login banner:
@@ -224,7 +229,7 @@ extension is not yet proven on a pod: the dev1 spike confirms it.
 
 ## Testing
 
-- Unit (Jest, 110 tests):
+- Unit (Jest):
   `wsl -d CloudBeaver -u root -e bash -lc 'bash /mnt/c/Marat/OSaaS/ClaudeShared/oservices/fusion-ai-chat/scripts/dev.sh npm test'`
 - End-to-end (Playwright, Chromium):
   `wsl -d CloudBeaver -u root -e bash -lc 'bash /mnt/c/Marat/OSaaS/ClaudeShared/oservices/fusion-ai-chat/scripts/e2e.sh npm run e2e'`.

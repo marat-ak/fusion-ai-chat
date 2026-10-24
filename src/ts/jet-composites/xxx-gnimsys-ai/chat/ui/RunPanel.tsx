@@ -131,13 +131,14 @@ export function RunPanel(props: {
     onError.current(e);
   }, []);
 
-  // The versions offered: both when the agent is picked after the version; the bound agent's own versions otherwise.
+  // The versions offered: both when the agent is picked after the version; the bound agent's own versions otherwise (all
+  // of them: a bound agent is never checked against the list).
   const [offered, setOffered] = useState<ArtifactVersion[] | null>(versionChoice && agentChoice ? ARTIFACT_VERSIONS.slice() : null);
   const boundAgent = plan.workflowCode;
   useEffect(() => {
     if (!versionChoice || boundAgent === undefined) return undefined;
     let live = true;
-    directory.versionsOf(boundAgent).then((v) => { if (live) setOffered(v); }, (e: unknown) => { if (live) fail(e); });
+    directory.versionsOf(boundAgent, { listedOnly: false }).then((v) => { if (live) setOffered(v); }, (e: unknown) => { if (live) fail(e); });
     return () => { live = false; };
   }, [directory, boundAgent, versionChoice, fail]);
 

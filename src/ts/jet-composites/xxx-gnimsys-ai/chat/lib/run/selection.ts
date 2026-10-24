@@ -18,7 +18,10 @@ export interface RunState {
   run: Run | null;
   /** Bumped by every run change: the chat is keyed on it, so another run starts in a new conversation. */
   generation: number;
-  /** Why a restored choice was dropped, or could not be checked; shown on the run panel. */
+  /**
+   * Why a restored choice was dropped, or could not be checked: shown on the run panel, or above the run when the page
+   * leaves the user nothing to choose any more (e.g. a stored draft after the draft role was lost).
+   */
   note: string | null;
 }
 
@@ -49,6 +52,15 @@ export function restoredRun(plan: ChoosePlan, choice: StoredChoice): { ok: true;
   return { ok: true, run: { workflowCode, version } };
 }
 
+/** The note of a dropped stored choice, naming it with the page's fixed parts (e.g. "WF_A · Draft"). */
+function droppedNote(plan: ChoosePlan, choice: StoredChoice, reason: string, chooseAgain: boolean): string {
+  const shown = runText({
+    ...((choice.workflowCode ?? plan.workflowCode) !== undefined && { workflowCode: choice.workflowCode ?? plan.workflowCode }),
+    ...((choice.version ?? plan.version) !== undefined && { version: choice.version ?? plan.version }),
+  });
+  return `Your earlier choice (${shown}) is no longer available: ${reason}.${chooseAgain ? " Choose again." : ""}`;
+}
+
 const errorText = (e: unknown): string => {
   const d = errorDetail(e);
   return d.status ? `HTTP ${d.status}` : d.message;
@@ -71,9 +83,29 @@ export class RunSelection {
     this.plan = deps.plan;
     const plan = deps.plan;
     const base = { run: null, generation: 0, note: null };
-    if (plan.kind === "no-agent") this.state = { ...base, phase: "no-agent" };
-    else if (plan.kind === "run") this.state = { ...base, phase: "running", run: plan.run, generation: 1 };
-    else this.state = this.restore(plan);
+    if (plan.kind === "no-agent") {
+      // Nothing is chosen here: a value stored under this page's key while the user could choose is dropped.
+      if (this.deps.storage.read().kind !== "none") this.dropStored = true;
+      this.state = { ...base, phase: "no-agent" };
+    } else if (plan.kind === "run") {
+      this.state = { ...base, phase: "running", run: plan.run, generation: 1, note: this.dropForFixedRun(plan.run) };
+    } else {
+      this.state = this.restore(plan);
+    }
+  }
+
+  /**
+   * A run plan chooses nothing: a value stored under this page's key while the user could choose (e.g. a draft, before the
+   * draft role was lost) is dropped, and when it would have run something else the note says why (shown above the run).
+   */
+  private dropForFixedRun(run: Run): string | null {
+    const stored = this.deps.storage.read();
+    if (stored.kind === "none") return null;
+    this.dropStored = true;
+    if (stored.kind === "unreadable") return "Your earlier choice could not be read.";
+    const fixed: ChoosePlan = { kind: "choose", workflowCode: run.workflowCode, version: run.version };
+    const r = restoredRun(fixed, stored.choice);
+    return r.ok ? null : droppedNote(fixed, stored.choice, r.reason, false);
   }
 
   private restore(plan: ChoosePlan): RunState {
@@ -87,7 +119,7 @@ export class RunSelection {
     const r = restoredRun(plan, stored.choice);
     if (!r.ok) {
       this.dropStored = true;
-      return { ...choosing, note: `Your earlier choice (${runText(stored.choice)}) is no longer available: ${r.reason}. Choose again.` };
+      return { ...choosing, note: droppedNote(plan, stored.choice, r.reason, true) };
     }
     this.pending = r.run;
     return { ...choosing, phase: "checking" };
@@ -116,9 +148,11 @@ export class RunSelection {
     const run = this.pending;
     if (run === null) return;
     this.pending = null;
+    // A bound agent (its version restored) is never checked against the list; a picked one must still be listed.
+    const listedOnly = this.plan.kind === "choose" && this.plan.workflowCode === undefined;
     let versions: ArtifactVersion[];
     try {
-      versions = await this.deps.agents.versionsOf(run.workflowCode);
+      versions = await this.deps.agents.versionsOf(run.workflowCode, { listedOnly });
     } catch (e) {
       if (this.disposed) return;
       this.deps.onError(e);

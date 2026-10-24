@@ -166,3 +166,59 @@ test("run_changed_event_fires", async () => {
   await started;
   expect(d.changes).toEqual([]);
 });
+
+// Review fix: a bound agent is never checked against the agent list (design §5.1: "the versions that agent has").
+test("bound_agent_restore_checks_all_its_versions_picked_agent_only_listed_ones", async () => {
+  // Row 2: the page binds a hidden agent; the restored draft is checked without the list's exclusions.
+  const bound = selection({ bound: { workflowCode: "HIDDEN_WF" }, settings: SETTINGS, roles: ["RUN_DRAFTS"], stored: stored({ version: "DRAFT" }), versions: { HIDDEN_WF: ["PUBLISHED", "DRAFT"] } });
+  await bound.ctl.start();
+  expect([bound.dir.listed, bound.ctl.get().run]).toEqual([[false], { workflowCode: "HIDDEN_WF", version: "DRAFT" }]);
+  // Rows 4-6: an agent the user picked from the list must still be listed.
+  for (const [bnd, roles, choice] of [
+    [{ version: "DRAFT" as const }, ["PICK_AGENTS"], { workflowCode: "WF_A" }],
+    [{}, BOTH, { workflowCode: "WF_A", version: "DRAFT" as const }],
+    [{}, ["PICK_AGENTS"], { workflowCode: "WF_A" }],
+  ] as const) {
+    const s = selection({ bound: bnd, settings: SETTINGS, roles: [...roles], stored: stored(choice), versions: { WF_A: ["PUBLISHED", "DRAFT"] } });
+    await s.ctl.start();
+    expect([s.dir.listed, s.ctl.get().phase]).toEqual([[true], "running"]);
+  }
+});
+
+// Review fix: a page that leaves nothing to choose any more drops what was stored under its key.
+describe("stored_choice_on_a_page_without_choice_is_dropped", () => {
+  test("row_3_lost_draft_role_runs_published_with_the_note", async () => {
+    const s = selection({ bound: { workflowCode: "WF_A" }, settings: SETTINGS, roles: ["PICK_AGENTS"], stored: stored({ version: "DRAFT" }) });
+    expect(s.ctl.get()).toEqual({
+      phase: "running", run: { workflowCode: "WF_A", version: "PUBLISHED" }, generation: 1,
+      note: "Your earlier choice (WF_A · Draft) is no longer available: running drafts needs a role you no longer hold.",
+    });
+    await s.ctl.start();
+    expect([s.store.removes(), s.changes, s.dir.calls]).toEqual([1, [{ workflowCode: "WF_A", version: "PUBLISHED" }], []]);
+  });
+  test("row_3_stored_published_is_dropped_without_a_note", async () => {
+    // What it chose is what runs: nothing to tell, but the value no longer belongs to a choice.
+    const s = selection({ bound: { workflowCode: "WF_A" }, roles: [], stored: stored({ version: "PUBLISHED" }) });
+    expect(s.ctl.get().note).toBeNull();
+    await s.ctl.start();
+    expect(s.store.removes()).toBe(1);
+  });
+  test("row_3_unreadable_is_dropped_with_a_note", async () => {
+    const s = selection({ bound: { workflowCode: "WF_A" }, roles: [], stored: { kind: "unreadable" } });
+    expect(s.ctl.get()).toMatchObject({ phase: "running", note: "Your earlier choice could not be read." });
+    await s.ctl.start();
+    expect(s.store.removes()).toBe(1);
+  });
+  test("no_agent_lost_all_agents_role_is_dropped", async () => {
+    const s = selection({ bound: {}, settings: SETTINGS, roles: ["RUN_DRAFTS"], stored: stored({ workflowCode: "WF_A", version: "DRAFT" }) });
+    expect(s.ctl.get()).toEqual({ phase: "no-agent", run: null, generation: 0, note: null });
+    await s.ctl.start();
+    expect([s.store.removes(), s.changes, s.dir.calls]).toEqual([1, [], []]);
+  });
+  test("nothing_stored_nothing_removed", async () => {
+    for (const s of [selection({ bound: { workflowCode: "WF_A" } }), selection({ bound: {} }), selection({ bound: { workflowCode: "WF_A", version: "DRAFT" } })]) {
+      await s.ctl.start();
+      expect([s.store.removes(), s.ctl.get().note]).toEqual([0, null]);
+    }
+  });
+});

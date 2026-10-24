@@ -5,7 +5,8 @@
 //   a workflowCode is skipped and a blank name shows the code, as there. `sourceWorkflowCode = null` drops customization
 //   rows; the status filter is the selected version instead of the CLI's fixed PUBLISHED;
 // - one agent's versions = the CLI's workflow read `oh` (line 8485): `workflowCode='<code>' and (status='DRAFT' or
-//   status='PUBLISHED')`, plus the list's `sourceWorkflowCode = null` so a version counts only where the list shows it;
+//   status='PUBLISHED')`; for an agent picked from the list (a restored choice), with the list's exclusions too, so a
+//   version counts only where the list shows it; for an agent the page bound, as is (bound parts are never checked);
 // - templates (`isTemplate`) and hidden rows (`hiddenFlag`) are dropped here: the CLI reads those fields (line 8443) but
 //   its list query does not filter them; dropping them is the design's call (§5.1 [my call]).
 // Live pod: whether an end-user token holding the chat roles may read these rows (both statuses) is [open] (design §8).
@@ -31,8 +32,12 @@ export interface AgentPage { rows: AgentRow[]; hasMore: boolean; next: number }
 /** What the run selection reads (the controller and the panel take this interface, so tests can fake it). */
 export interface AgentDirectory {
   page(version: ArtifactVersion, query: string, offset: number, limit?: number): Promise<AgentPage>;
-  /** The versions of one agent the list shows (in ARTIFACT_VERSIONS order); empty when it has none. */
-  versionsOf(workflowCode: string): Promise<ArtifactVersion[]>;
+  /**
+   * The versions one agent has (in ARTIFACT_VERSIONS order); empty when it has none. `listedOnly`: count only rows the
+   * agent list shows (an agent the user picked from it); off for an agent the page bound, which is never checked against
+   * the list (a template, hidden or customization workflow bound by the page still has its versions).
+   */
+  versionsOf(workflowCode: string, opts: { listedOnly: boolean }): Promise<ArtifactVersion[]>;
 }
 
 const quote = (s: string): string => s.replace(/'/g, "''");
@@ -84,11 +89,13 @@ export class OracleAgentDirectory implements AgentDirectory {
     return new Set(items(json).filter(listed).map(codeOf));
   }
 
-  async versionsOf(workflowCode: string): Promise<ArtifactVersion[]> {
-    const json = await this.get(
-      `(workflowCode = '${quote(workflowCode)}' and sourceWorkflowCode = null and (status = 'DRAFT' or status = 'PUBLISHED'))`, VERSION_FIELDS,
-    );
-    const found = new Set(items(json).filter((r) => listed(r) && codeOf(r) === workflowCode).map((r) => r.status));
+  async versionsOf(workflowCode: string, opts: { listedOnly: boolean }): Promise<ArtifactVersion[]> {
+    const code = `workflowCode = '${quote(workflowCode)}'`;
+    const statuses = "(status = 'DRAFT' or status = 'PUBLISHED')";
+    // Listed only: the list's own exclusions (customization rows in the query, templates / hidden rows here). Otherwise the
+    // CLI's workflow read as is (line 8485).
+    const json = await this.get(opts.listedOnly ? `(${code} and sourceWorkflowCode = null and ${statuses})` : `(${code} and ${statuses})`, VERSION_FIELDS);
+    const found = new Set(items(json).filter((r) => (!opts.listedOnly || listed(r)) && codeOf(r) === workflowCode).map((r) => r.status));
     return ARTIFACT_VERSIONS.filter((v) => found.has(v));
   }
 }

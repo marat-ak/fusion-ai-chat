@@ -7,6 +7,7 @@
 //   GET/DELETE /__mock/requests         -> read / clear the request log
 //   POST /__mock/reset                  -> reload the fixture conversation rows and clear the armed one-shots (log kept)
 //   GET /__mock/arm?workflows=<status>  -> the next BOSS workflows query answers <status> (4xx/5xx) once
+//   GET /__mock/arm?workflowsStall=1    -> until reset, every paged workflows query ($offset) answers {items: [], hasMore: true}
 //   GET /__mock/arm?listDelay=<ms>      -> the next BOSS userConversations list answers <ms> (0..30000) late, once
 //   GET /__mock/arm?attachUpload=<status> -> the next attachUpload answers <status> (4xx/5xx) once
 //   GET /__mock/arm?anticsrf=<status>   -> the next /fscmRestApi/anticsrf answers <status> (4xx/5xx) once
@@ -32,6 +33,7 @@ const state = {
   conversations: JSON.parse(fixture("conversations.json")),
   relayExpiredNext: false,
   workflowsStatusNext: null,
+  workflowsStall: false,
   listDelayNext: null,
   attachUploadStatusNext: null,
   anticsrfStatusNext: null,
@@ -200,6 +202,7 @@ const routes = [
       state.conversations = JSON.parse(fixture("conversations.json"));
       state.relayExpiredNext = false;
       state.workflowsStatusNext = null;
+      state.workflowsStall = false;
       state.listDelayNext = null;
       state.attachUploadStatusNext = null;
       state.anticsrfStatusNext = null;
@@ -212,8 +215,8 @@ const routes = [
     method: "GET", path: /^\/__mock\/arm$/, open: true,
     handle: ({ res, url }) => {
       const p = url.searchParams;
-      const usage = "arm: workflows=<4xx|5xx>, listDelay=<0..30000 ms>, attachUpload=<4xx|5xx>, anticsrf=<4xx|5xx>, chat=<4xx|5xx> and/or sseGap=<0..1000 ms> required";
-      if (!["workflows", "listDelay", "attachUpload", "anticsrf", "chat", "sseGap"].some((k) => p.has(k))) return json(res, 400, { detail: usage });
+      const usage = "arm: workflows=<4xx|5xx>, workflowsStall=1, listDelay=<0..30000 ms>, attachUpload=<4xx|5xx>, anticsrf=<4xx|5xx>, chat=<4xx|5xx> and/or sseGap=<0..1000 ms> required";
+      if (!["workflows", "workflowsStall", "listDelay", "attachUpload", "anticsrf", "chat", "sseGap"].some((k) => p.has(k))) return json(res, 400, { detail: usage });
       const status = Number(p.get("workflows"));
       const delay = Number(p.get("listDelay"));
       if (p.has("workflows") && (!Number.isInteger(status) || status < 400 || status > 599)) return json(res, 400, { detail: usage });
@@ -228,6 +231,7 @@ const routes = [
       if (p.has("sseGap") && (!Number.isInteger(sseGap) || sseGap < 0 || sseGap > 1000)) return json(res, 400, { detail: usage });
       const armed = {};
       if (p.has("workflows")) state.workflowsStatusNext = armed.workflows = status;
+      if (p.has("workflowsStall")) state.workflowsStall = armed.workflowsStall = p.get("workflowsStall") === "1";
       if (p.has("listDelay")) state.listDelayNext = armed.listDelay = delay;
       if (p.has("attachUpload")) state.attachUploadStatusNext = armed.attachUpload = upload;
       if (p.has("anticsrf")) state.anticsrfStatusNext = armed.anticsrf = anti;
@@ -354,6 +358,8 @@ const routes = [
         state.workflowsStatusNext = null;
         return json(res, status, { detail: `mock pod: armed workflows ${status}` });
       }
+      // A pod that keeps reporting more rows without returning any (the agent list must stop by itself).
+      if (state.workflowsStall && url.searchParams.has("$offset")) return json(res, 200, { items: [], hasMore: true });
       const filter = url.searchParams.get("$filter");
       let match;
       try {

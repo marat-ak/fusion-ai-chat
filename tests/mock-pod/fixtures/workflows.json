@@ -6,6 +6,7 @@
   { "workflowCode": "TEMPLATE_WF", "name": "Template Agent", "status": "PUBLISHED", "sourceWorkflowCode": null, "isTemplate": true, "hiddenFlag": false },
   { "workflowCode": "TEMPLATE_WF", "name": "Template Agent", "status": "DRAFT", "sourceWorkflowCode": null, "isTemplate": true, "hiddenFlag": false },
   { "workflowCode": "HIDDEN_WF", "name": "Hidden Agent", "status": "PUBLISHED", "sourceWorkflowCode": null, "isTemplate": false, "hiddenFlag": true },
+  { "workflowCode": "HIDDEN_WF", "name": "Hidden Agent", "status": "DRAFT", "sourceWorkflowCode": null, "isTemplate": false, "hiddenFlag": true },
   { "workflowCode": "MOCK_WF_CUST", "name": "Mock Agent (customization)", "status": "PUBLISHED", "sourceWorkflowCode": "MOCK_WF", "isTemplate": false, "hiddenFlag": false },
   { "workflowCode": "MOCK_WF_CUST", "name": "Mock Agent (customization)", "status": "DRAFT", "sourceWorkflowCode": "MOCK_WF", "isTemplate": false, "hiddenFlag": false },
   { "workflowCode": "INVOICE_WF", "name": "Invoice Assistant", "status": "PUBLISHED", "sourceWorkflowCode": null, "isTemplate": false, "hiddenFlag": false,

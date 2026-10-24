@@ -26,7 +26,7 @@ function config(agent: object, runSettings: object | null = SETTINGS): object {
 }
 
 /** The host page with this config and roles; every aiChatRunChanged detail lands in window.__runEvents. */
-async function open(page: Page, opts: { config: object; roles: string[]; stored?: string }): Promise<void> {
+async function open(page: Page, opts: { config: object; roles: string[]; stored?: string; storedKey?: string }): Promise<void> {
   await page.addInitScript((o) => {
     const w = window as unknown as { __CHAT_CONFIG__: object; __CHAT_USER__: object; __runEvents: unknown[] };
     w.__CHAT_CONFIG__ = o.config;
@@ -38,7 +38,7 @@ async function open(page: Page, opts: { config: object; roles: string[]; stored?
       sessionStorage.setItem("__seeded", "1");
       sessionStorage.setItem(o.key, o.stored);
     }
-  }, { ...opts, key: UNBOUND_KEY });
+  }, { ...opts, key: opts.storedKey ?? UNBOUND_KEY });
   await page.goto("/");
 }
 
@@ -211,4 +211,42 @@ test("restored_choice_dropped_with_a_note_when_the_draft_role_is_gone", async ({
     .toHaveText("Your earlier choice (MOCK_WF · Draft) is no longer available: running drafts needs a role you no longer hold. Choose again.");
   await expect(agentRows(page).first()).toBeVisible();
   expect(await page.evaluate((k) => sessionStorage.getItem(k), UNBOUND_KEY)).toBeNull();
+});
+
+// Review fixes (round 1).
+
+test("bound_hidden_agent_with_draft_role_offers_all_its_versions", async ({ page }) => {
+  // HIDDEN_WF is hidden from the agent list, but a page that binds it is never checked against the list.
+  await open(page, { config: config({ workflowCode: "HIDDEN_WF" }), roles: ["RUN_DRAFTS"] });
+  await expect(page.getByTestId("gai-run-version")).toContainText("Published");
+  await expect(page.getByTestId("gai-run-version")).toContainText("Draft");
+  await expect(page.getByTestId("gai-run-no-version")).toHaveCount(0);
+  expect(await workflowQueries(page)).toEqual(expect.arrayContaining([
+    "?$filter=(workflowCode = 'HIDDEN_WF' and (status = 'DRAFT' or status = 'PUBLISHED'))&$fields=workflowCode,status,sourceWorkflowCode,isTemplate,hiddenFlag",
+  ]));
+});
+
+test("stored_draft_dropped_with_a_note_when_a_bound_agent_page_runs_published", async ({ page }) => {
+  // Stored while the user held the draft role (row 2); without it the page runs Published (row 3).
+  const key = "xxx-gnimsys-ai-chat:run:/:agent=MOCK_WF,version=-";
+  await open(page, { config: config({ workflowCode: "MOCK_WF" }), roles: ["PICK_AGENTS"], stored: '{"version":"DRAFT"}', storedKey: key });
+  await expect(page.getByTestId("gai-run-note").getByRole("heading"))
+    .toHaveText("Your earlier choice (MOCK_WF · Draft) is no longer available: running drafts needs a role you no longer hold.");
+  await expect(page.getByTestId("gai-starter")).toHaveText(["Show my invoices", "Create a PO"]);
+  await expect(page.getByTestId("gai-draft-badge")).toHaveCount(0);
+  await expect(page.getByTestId("gai-run-change")).toHaveCount(0);
+  expect(await page.evaluate((k) => sessionStorage.getItem(k), key)).toBeNull();
+  await sendText(page, "hello");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  expect((await turnCalls(page)).map((t) => new URL(t.url, MOCK_POD).pathname)).toEqual(["/api/fusion-ai/orchestrator/agent/v2/MOCK_WF/chat"]);
+});
+
+test("a_pod_reporting_more_agents_without_rows_ends_the_list_with_an_error", async ({ page }) => {
+  await page.request.get(`${MOCK_POD}/__mock/arm?workflowsStall=1`);
+  await open(page, { config: config({}), roles: ["PICK_AGENTS"] });
+  await expect(page.getByTestId("gai-run-error").getByRole("heading"))
+    .toHaveText("Agents unavailable (the agent list stopped at row 0: the pod reports more agents but returned no rows)");
+  // Bounded: one list call, and none after it (the list view would otherwise keep asking for the next block).
+  await page.waitForTimeout(1500);
+  expect((await workflowQueries(page)).filter((q) => q.includes("&$offset="))).toHaveLength(1);
 });

@@ -170,6 +170,7 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
             {...(plan?.kind === "choose" && selection !== null && {
               runChange: { label: choosesAgent(plan) ? "Change agent" : "Change version", onChange: selection.openChooser },
             })}
+            {...(phase === "running" && selection !== null && selection.state.note !== null && { runNote: selection.state.note })}
             // checkInputs: a RestHelper (get()) and an endpoint map with every name the config needs.
             restHelper={restHelper as VbRestHelper}
             endpoints={endpoint as Record<string, string>}

@@ -1,7 +1,7 @@
 // The agent list (design §5.1) over the real endpoint layer: the same rows the vendored Oracle aistudio CLI lists
 // (fusion-ai-agent/mcp/vendor/aistudio.js: list `vz` lines 4283-4284, one workflow `oh` line 8485), plus the design's
 // template/hidden exclusion; paged as a JET DataProvider.
-import { AgentListDataProvider } from "../run/AgentListDataProvider";
+import { AgentListDataProvider, AgentListStalledError, MAX_EMPTY_PAGES } from "../run/AgentListDataProvider";
 import { OracleAgentDirectory } from "../run/OracleAgentDirectory";
 import type { AgentDirectory } from "../run/OracleAgentDirectory";
 import { HistoryError } from "../history/HistoryStore";
@@ -55,12 +55,26 @@ test("draft_list_without_search_and_without_markers_call_for_an_empty_page", asy
   expect(page).toEqual({ rows: [], hasMore: false, next: 1 });
 });
 
-test("versions_of_one_agent_like_the_cli_workflow_read", async () => {
+test("versions_of_a_picked_agent_only_where_the_list_shows_it", async () => {
   const { endpoints, calls } = fakeEndpoints([
     vb({ items: [{ workflowCode: "WF_A", status: "DRAFT" }, { workflowCode: "WF_A", status: "DRAFT" }, { workflowCode: "WF_A", status: "PUBLISHED", hiddenFlag: true }, { workflowCode: "WF_A", status: "ARCHIVED" }] }),
   ]);
-  expect(await new OracleAgentDirectory({ endpoints }).versionsOf("WF_A")).toEqual(["DRAFT"]);
+  expect(await new OracleAgentDirectory({ endpoints }).versionsOf("WF_A", { listedOnly: true })).toEqual(["DRAFT"]);
   const filter = enc("(workflowCode = 'WF_A' and sourceWorkflowCode = null and (status = 'DRAFT' or status = 'PUBLISHED'))");
+  expect(calls[0].url).toBe(`${WORKFLOWS}?$filter=${filter}&$fields=${VERSION_FIELDS}`);
+});
+
+// Design §5.1 row 2: "the versions that agent has" — a bound agent is never checked against the list, so a hidden,
+// template or customization workflow the page binds keeps all its versions (the CLI's workflow read as is, line 8485).
+test("versions_of_a_bound_hidden_agent_are_all_its_versions", async () => {
+  const { endpoints, calls } = fakeEndpoints([
+    vb({ items: [
+      { workflowCode: "HIDDEN_WF", status: "PUBLISHED", hiddenFlag: true },
+      { workflowCode: "HIDDEN_WF", status: "DRAFT", hiddenFlag: true, isTemplate: true, sourceWorkflowCode: "BASE_WF" },
+    ] }),
+  ]);
+  expect(await new OracleAgentDirectory({ endpoints }).versionsOf("HIDDEN_WF", { listedOnly: false })).toEqual(["PUBLISHED", "DRAFT"]);
+  const filter = enc("(workflowCode = 'HIDDEN_WF' and (status = 'DRAFT' or status = 'PUBLISHED'))");
   expect(calls[0].url).toBe(`${WORKFLOWS}?$filter=${filter}&$fields=${VERSION_FIELDS}`);
 });
 
@@ -69,7 +83,7 @@ test("failures_are_explicit", async () => {
   const dir = new OracleAgentDirectory({ endpoints });
   const e1 = await dir.page("PUBLISHED", "", 0).catch((x) => x);
   expect([e1 instanceof HistoryError, e1.status]).toEqual([true, 403]);
-  const e2 = await dir.versionsOf("WF_A").catch((x) => x);
+  const e2 = await dir.versionsOf("WF_A", { listedOnly: true }).catch((x) => x);
   expect([e2 instanceof HistoryError, e2.body]).toEqual([true, "non-JSON response"]);
 });
 
@@ -104,6 +118,45 @@ describe("AgentListDataProvider", () => {
     const byOffset = await dp.fetchByOffset({ offset: 2, size: 2 });
     expect(byOffset.results.map((r) => r.data.name)).toEqual(["C", "D"]);
     expect(dp.getTotalSize instanceof Function && (await dp.getTotalSize())).toBe(-1);
+  });
+
+  // The list view asks for the next block until it is full: a pod answering `hasMore` without rows must not be called
+  // without end (WAF bans bursts). Over the real directory and endpoint layer: one call, then an explicit error.
+  test("has_more_with_no_rows_stops_with_an_error", async () => {
+    const { endpoints, calls } = fakeEndpoints([vb({ items: [], hasMore: true })]);
+    const errors: unknown[] = [];
+    const dp = new AgentListDataProvider({ directory: new OracleAgentDirectory({ endpoints }), version: "PUBLISHED", query: "", onError: (e) => errors.push(e) });
+    const it = dp.fetchFirst({ size: 25 })[Symbol.asyncIterator]();
+    const e = await it.next().catch((x) => x);
+    expect(e).toBeInstanceOf(AgentListStalledError);
+    expect(e.message).toBe("the agent list stopped at row 0: the pod reports more agents but returned no rows");
+    expect(errors).toEqual([e]);
+    expect(calls).toHaveLength(1);
+    // The iteration is over: asking again calls nothing.
+    expect((await it.next()).done).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("pages_bringing_no_new_agent_stop_after_MAX_EMPTY_PAGES", async () => {
+    // An ignored $offset: every page is the first one again (the offset still moves, the rows are already given).
+    const calls: number[] = [];
+    const dir: AgentDirectory = {
+      page: (_v, _q, offset) => {
+        calls.push(offset);
+        return Promise.resolve({ rows: [{ workflowCode: "A", name: "A", versions: ["PUBLISHED"] }], hasMore: true, next: offset + 25 });
+      },
+      versionsOf: () => Promise.resolve([]),
+    };
+    const errors: unknown[] = [];
+    const it = new AgentListDataProvider({ directory: dir, version: "PUBLISHED", query: "", onError: (e) => errors.push(e) }).fetchFirst()[Symbol.asyncIterator]();
+    expect((await it.next()).value.data.map((r) => r.workflowCode)).toEqual(["A"]);
+    expect((await it.next()).value.data).toEqual([]);
+    expect((await it.next()).value.data).toEqual([]);
+    const e = await it.next().catch((x) => x);
+    expect(e).toBeInstanceOf(AgentListStalledError);
+    expect(e.message).toBe(`the agent list stopped at row 75: the pod reports more agents but ${MAX_EMPTY_PAGES} pages in a row brought no new one`);
+    expect([calls, errors]).toEqual([[0, 25, 50, 75], [e]]);
+    expect(MAX_EMPTY_PAGES).toBe(3);
   });
 
   test("a_failed_page_is_reported_and_rejects", async () => {

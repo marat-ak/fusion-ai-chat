@@ -13,6 +13,7 @@ import { traceGateOpen } from "../lib/trace/gate";
 import { resolveOrigin } from "../lib/origin";
 import { createMarkdownRenderer } from "../lib/render/markdown";
 import { loadVendor } from "../render/vendor";
+import { Banner } from "./Banner";
 import { AgentAvatar } from "./Bubble";
 import type { MarkdownRenderer } from "./Bubble";
 import { Composer } from "./Composer";
@@ -132,6 +133,8 @@ export interface ChatShellProps {
   modeSwitch?: ModeSwitch;
   /** Present when the user may choose the run (the page left the agent or the version to them). */
   runChange?: RunChange;
+  /** Why the user's earlier run choice was dropped, shown above the conversation (the run selection's note). */
+  runNote?: string;
   handleRef: Ref<ChatHandle>;
   onConversationIdChanged: (id: string) => void;
   onConversationChanged: (id: string) => void;
@@ -240,6 +243,7 @@ export function ChatShell(props: ChatShellProps) {
           )}
         </div>
       )}
+      {props.runNote !== undefined && <Banner testId="gai-run-note" severity="warning" class="oj-sm-margin-2x" summary={props.runNote} />}
       {state.authState !== "ok" && (
         <AuthBanner class="oj-sm-margin-2x" state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })}
           {...(state.authDetail !== undefined && { detail: state.authDetail })} />

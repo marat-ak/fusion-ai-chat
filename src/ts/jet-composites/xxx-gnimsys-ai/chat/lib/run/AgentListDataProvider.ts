@@ -11,6 +11,22 @@ import type { AgentDirectory, AgentRow } from "./OracleAgentDirectory";
 
 type Block = FetchListResult<string, AgentRow>;
 
+/**
+ * Pages in a row that may bring no new agent while the pod still reports more (rows all filtered out or already given):
+ * the third such page ends the list with an error. The list view keeps asking for the next block until it is full, so a
+ * pod that answers `hasMore` without moving on (an ignored `$offset`) would otherwise be called without end — and the
+ * pod's WAF bans request bursts.
+ */
+export const MAX_EMPTY_PAGES = 3;
+
+/** The pod reported more agents but the pages stopped bringing new ones: the list ends here, explicitly. */
+export class AgentListStalledError extends Error {
+  constructor(offset: number, why: string) {
+    super(`the agent list stopped at row ${offset}: ${why}`);
+    this.name = "AgentListStalledError";
+  }
+}
+
 export class AgentListDataProvider implements DataProvider<string, AgentRow> {
   private readonly directory: AgentDirectory;
   private readonly version: ArtifactVersion;
@@ -45,15 +61,25 @@ export class AgentListDataProvider implements DataProvider<string, AgentRow> {
     const fetchParameters = params ?? {};
     let offset = 0;
     let more = true;
+    let empty = 0;
     const given = new Set<string>();
     const block = (data: AgentRow[]): Block =>
       ({ fetchParameters, data, metadata: data.map((r): ItemMetadata<string> => ({ key: r.workflowCode })) });
+    const stalled = (why: string): never => {
+      more = false;
+      const e = new AgentListStalledError(offset, why);
+      if (params?.signal?.aborted !== true) this.onError(e);
+      throw e;
+    };
     const next = async (): Promise<IteratorResult<Block, Block>> => {
       if (!more) return { done: true, value: block([]) };
       const page = await this.load(offset, size, params?.signal);
+      if (page.hasMore && page.next <= offset) stalled("the pod reports more agents but returned no rows");
+      const data = page.rows.filter((r) => !given.has(r.workflowCode));
+      empty = data.length === 0 ? empty + 1 : 0;
+      if (page.hasMore && empty >= MAX_EMPTY_PAGES) stalled(`the pod reports more agents but ${MAX_EMPTY_PAGES} pages in a row brought no new one`);
       offset = page.next;
       more = page.hasMore;
-      const data = page.rows.filter((r) => !given.has(r.workflowCode));
       for (const r of data) given.add(r.workflowCode);
       return { done: !more, value: block(data) };
     };
