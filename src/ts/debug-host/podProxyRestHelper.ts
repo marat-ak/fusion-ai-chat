@@ -1,5 +1,8 @@
-// The debug host's rest helper (spec §17.1): VB's RestHelper interface over the engine's same-origin pod proxy
-//   ANY /api/pod/<instance>/<TARGET>/<pod-path>?<query>
+// The debug host's rest helper (spec §17.1, bridge design §4.1): VB's RestHelper interface over the engine's same-origin
+// conversation-scoped pod proxy, whose base the agent chat hands the page in its URL (`pod`):
+//   ANY /api/pod/c/<conversationId>/<TARGET>/<pod-path>?<query>
+// The engine resolves the conversation's bound instance and pod sign-in; the page knows nothing about instances or
+// sessions, it prefixes every call with the given base.
 // get(endpointId) starts a chain with VB's initConfiguration / requestTransformationFunctions / hookHandler /
 // responseBodyFormat / fetch(), run in VB's rest.js order (as the dev mock runs it): pre-fetch hook, request transforms,
 // `new Request(url, initConfig)`, request hook, network fetch, response hook, then the body of WHATEVER the response hook
@@ -14,20 +17,36 @@
 // hook sees it, so the chat shows it in its existing states: 401 auth-required -> the re-login banner with "Sign in to
 // <instance> in the agent chat first."; every other proxy state -> the failing call's error text. A pod's own answer (no
 // such header) is passed on untouched, its body unread.
+// readPodInfo: `GET <pod>_info`, the conversation's bound instance and pod user (the page's only call of its own).
 // The endpoint table and pod-path rule are the component's own (one source): imported from the pack's source module by a
 // relative path, since a release build ships the pack's internals only inside its bundle (no module file under the
 // `xxx-gnimsys-ai` path).
 import { ENDPOINT_NAMES, ENDPOINT_PREFIXES, podPath } from "../jet-composites/xxx-gnimsys-ai/chat/lib/endpoints/EndpointFetch";
 import type { EndpointName } from "../jet-composites/xxx-gnimsys-ai/chat/lib/endpoints/EndpointFetch";
 
-/** The engine's pod proxy, on the page's own origin. */
-export const POD_PROXY_PATH = "/api/pod";
 /** The proxy's CSRF guard: every proxy call carries it (else 403 csrf-refused). */
 export const POD_PROXY_HEADER = "X-Gnimsys-Pod-Proxy";
 /** Marks an answer of the proxy itself (its value is the state), as opposed to a pod answer passed through. */
 export const POD_PROXY_ERROR_HEADER = "X-Gnimsys-Pod-Proxy-Error";
-/** Instance names in the proxy URL (the proxy's own rule). */
+/** The conversation-scoped proxy base on the page's own origin: `/api/pod/c/<conversationId>/`. */
+const CONVERSATION_BASE = /^\/api\/pod\/c\/[^/?#]+\/$/;
+/** The `_info` call under a conversation base (cannot collide with a TARGET name). */
+export const POD_INFO = "_info";
+/** Instance names as the proxy reports them (the proxy's own rule). */
 const INSTANCE_NAME = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * Whether `pod` is a conversation-scoped proxy base: `/api/pod/c/<conversationId>/`, kept as is by the URL parser (so no
+ * dot segment, backslash or character the parser rewrites can steer a call to another proxy route).
+ */
+export function isConversationBase(pod: string): boolean {
+  if (!CONVERSATION_BASE.test(pod)) return false;
+  try {
+    return new URL(pod, "http://base.invalid").pathname === pod;
+  } catch {
+    return false;
+  }
+}
 /** The request headers the proxy forwards to the pod; it drops every other one. */
 const FORWARDED = ["content-type", "accept", "accept-language", "if-match", "rest-framework-version", "effective-of"];
 const forwarded = (name: string): boolean => FORWARDED.includes(name.toLowerCase()) || name.toLowerCase().startsWith("x-ora-ai-api-v2-");
@@ -74,9 +93,9 @@ export interface ProxyHookHandler {
 export type ProxyBodyFormat = "text" | "json" | "blob" | "arrayBuffer";
 
 export interface PodProxyRestHelperOptions {
-  /** The instance the user picked (its proxy name; never defaulted). */
-  instance: string;
-  /** The instance's label as the proxy lists it (the name the user knows it by). */
+  /** The conversation-scoped proxy base from the page's URL: `/api/pod/c/<conversationId>/` (never defaulted). */
+  pod: string;
+  /** The conversation's bound instance as `_info` reports it: the name the proxy's texts call it by. */
   label: string;
   /** The page's origin (the proxy is same-origin). */
   origin: string;
@@ -115,8 +134,8 @@ export function proxyStateText(state: string, call: { label: string; target: End
       return `Sign in to ${label} in the agent chat first.`;
     case "not-authenticated":
       return "Your agent session has ended: reload the page to sign in again.";
-    case "ambiguous-sign-in":
-      return plus(`You hold several sign-ins for ${label}: keep one in the agent chat`);
+    case "unknown-conversation":
+      return plus("The agent chat of this debugger is gone: ask the agent to open the debugger again");
     case "token-refresh-failed":
       return plus(`The sign-in for ${label} could not be refreshed: sign in again in the agent chat`);
     case "forbidden":
@@ -199,19 +218,19 @@ export class PodProxyRest {
 
 /** Pass an instance as the chat's `rest-helper`, with POD_PROXY_ENDPOINTS as its `endpoint`. */
 export class PodProxyRestHelper {
-  readonly instance: string;
+  readonly pod: string;
   readonly label: string;
   private readonly origin: string;
   private readonly fetchImpl: (request: Request) => Promise<Response>;
 
   constructor(options: PodProxyRestHelperOptions) {
-    const { instance, label, origin } = options;
-    if (typeof instance !== "string" || !INSTANCE_NAME.test(instance) || instance === "." || instance === "..") {
-      throw new Error(`pod proxy rest helper: instance must be a proxy instance name ([A-Za-z0-9._-]), got ${JSON.stringify(instance)}`);
+    const { pod, label, origin } = options;
+    if (typeof pod !== "string" || !isConversationBase(pod)) {
+      throw new Error(`pod proxy rest helper: pod must be a conversation proxy base /api/pod/c/<conversation>/, got ${JSON.stringify(pod)}`);
     }
     if (typeof label !== "string" || label.trim() === "") throw new Error("pod proxy rest helper: instance label required");
     if (typeof origin !== "string" || !/^https?:\/\/[^/]+$/.test(origin)) throw new Error("pod proxy rest helper: origin required (scheme://host[:port])");
-    this.instance = instance;
+    this.pod = pod;
     this.label = label;
     this.origin = origin;
     this.fetchImpl = options.fetchImpl ?? ((request) => globalThis.fetch(request));
@@ -223,9 +242,9 @@ export class PodProxyRestHelper {
     return endpointId;
   }
 
-  /** The proxy URL of a TARGET on this instance (no trailing slash): the chain's endpoint URL. */
+  /** The proxy URL of a TARGET under the conversation base (no trailing slash): the chain's endpoint URL. */
   baseUrl(target: EndpointName): string {
-    return `${this.origin}${POD_PROXY_PATH}/${this.instance}/${target}`;
+    return `${this.origin}${this.pod}${target}`;
   }
 
   get(endpointId: string): PodProxyRest {
@@ -234,8 +253,8 @@ export class PodProxyRestHelper {
 
   /**
    * The proxy request of one call: refused before anything is sent (as the endpoint layer and the proxy do) when the URL
-   * is not this instance's proxy URL of `target` followed by a pod path under one of the target's prefixes, or a header
-   * would not be forwarded. Carries the proxy's CSRF header; same-origin credentials only.
+   * is not this conversation's proxy URL of `target` followed by a pod path under one of the target's prefixes, or a
+   * header would not be forwarded. Carries the proxy's CSRF header; same-origin credentials only.
    */
   request(target: EndpointName, url: string, init: ProxyConfiguration["initConfig"]): { request: Request; path: string } {
     const path = this.podPathOf(target, url);
@@ -262,7 +281,7 @@ export class PodProxyRestHelper {
   private podPathOf(target: EndpointName, url: string): string {
     const refuse = (why: string): never => { throw new Error(`pod proxy rest helper: ${target} refuses ${url}: ${why}`); };
     const base = this.baseUrl(target) + "/";
-    if (!url.startsWith(base)) refuse(`not a ${this.instance} ${target} proxy URL`);
+    if (!url.startsWith(base)) refuse(`not a ${target} proxy URL under ${this.pod}`);
     const path = podPath("/" + url.slice(base.length));
     const prefixes = ENDPOINT_PREFIXES[target];
     if (path === null || !prefixes.some((p) => path.startsWith(p) && path.length > p.length)) {
@@ -290,42 +309,37 @@ export class PodProxyRestHelper {
   }
 }
 
-/** One instance of the user's, as the proxy lists it. */
-export interface PodInstance {
-  name: string;
-  label: string;
-  connected: boolean;
-  /** The pod user of the instance's sign-in, when the proxy knows it. */
-  podUser?: string;
-  /** Every pod user the user is signed in as on this instance (several = calls answer ambiguous-sign-in). */
-  podUsers?: string[];
-  /** Configuration gaps of the instance (its calls answer not-configured where they matter). */
-  missing?: string[];
-}
+/** The conversation's binding as `GET <pod>_info` answers it: its bound instance and, when known, the pod user. */
+export type PodInfo = { state: "bound"; instance: string; podUser?: string } | { state: "auth-required" };
 
-/** A failed instance listing: the HTTP status (0 without an HTTP answer) and the readable reason. */
-export class PodInstancesError extends Error {
+/** A failed `_info` read: the HTTP status (0 without an HTTP answer) and the readable reason. */
+export class PodInfoError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
     super(message);
-    this.name = "PodInstancesError";
+    this.name = "PodInfoError";
     this.status = status;
   }
 }
 
-const strList = (v: unknown): string[] | null => (Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : null);
-
-/** `GET /api/pod/instances` -> `{instances: [...]}`: the user's instances, their connection state, pod user and gaps. */
-export async function listPodInstances(options: { origin: string; fetchImpl?: (request: Request) => Promise<Response> }): Promise<PodInstance[]> {
+/**
+ * `GET <pod>_info` -> `{instance, podUser?}`: the instance and pod sign-in the engine bound to the conversation. A proxy
+ * `401 auth-required` (the conversation has no pod sign-in yet) is a state, not an error; every other failure throws.
+ */
+export async function readPodInfo(options: { pod: string; origin: string; fetchImpl?: (request: Request) => Promise<Response> }): Promise<PodInfo> {
+  const { pod, origin } = options;
+  if (!isConversationBase(pod)) throw new Error(`readPodInfo: pod must be a conversation proxy base /api/pod/c/<conversation>/, got ${JSON.stringify(pod)}`);
   const fetchImpl = options.fetchImpl ?? ((request) => globalThis.fetch(request));
+  const fail = (status: number, why: string): never => { throw new PodInfoError(status, `the debugger's pod binding is unavailable${why}`); };
   let response: Response;
   try {
-    response = await fetchImpl(new Request(`${options.origin}${POD_PROXY_PATH}/instances`, {
+    response = await fetchImpl(new Request(`${origin}${pod}${POD_INFO}`, {
       method: "GET", headers: { Accept: "application/json", [POD_PROXY_HEADER]: "1" }, credentials: "same-origin",
     }));
   } catch (e) {
-    throw new PodInstancesError(0, `instances unavailable: ${e instanceof Error ? e.message : String(e)}`);
+    return fail(0, `: ${e instanceof Error ? e.message : String(e)}`);
   }
+  const state = response.headers.get(POD_PROXY_ERROR_HEADER);
   const text = await response.text();
   let json: unknown;
   try {
@@ -333,27 +347,17 @@ export async function listPodInstances(options: { origin: string; fetchImpl?: (r
   } catch {
     json = undefined;
   }
+  if (response.status === 401 && state === "auth-required") return { state: "auth-required" };
   if (response.status >= 400) {
-    const state = response.headers.get(POD_PROXY_ERROR_HEADER);
+    // The proxy's own `message`, else a non-JSON body's text (a JSON body without a message says nothing more).
     const message = isObj(json) ? str(json, "message") : undefined;
-    const said = message ?? (text.trim() !== "" ? text.trim().slice(0, 300) : undefined);
-    throw new PodInstancesError(response.status, `instances unavailable (HTTP ${response.status}${state !== null ? ` ${state}` : ""})${said !== undefined ? `: ${said}` : ""}`);
+    const said = message ?? (json === undefined && text.trim() !== "" ? text.trim().slice(0, 300) : undefined);
+    return fail(response.status, ` (HTTP ${response.status}${state !== null ? ` ${state}` : ""})${said !== undefined ? `: ${said}` : ""}`);
   }
-  const bad = (): never => { throw new PodInstancesError(response.status, "instances unavailable: unexpected answer shape"); };
-  if (json === undefined) throw new PodInstancesError(response.status, "instances unavailable: the answer is not JSON");
-  if (!isObj(json) || !Array.isArray(json.instances)) return bad();
-  return (json.instances as unknown[]).map((it): PodInstance => {
-    if (!isObj(it)) return bad();
-    const { name, label, connected, podUser, podUsers, missing } = it;
-    if (typeof name !== "string" || !INSTANCE_NAME.test(name) || typeof label !== "string" || label === "" || typeof connected !== "boolean") return bad();
-    if (podUser !== undefined && podUser !== null && typeof podUser !== "string") return bad();
-    if (podUsers !== undefined && podUsers !== null && strList(podUsers) === null) return bad();
-    if (missing !== undefined && missing !== null && strList(missing) === null) return bad();
-    return {
-      name, label, connected,
-      ...(typeof podUser === "string" && podUser !== "" && { podUser }),
-      ...(Array.isArray(podUsers) && podUsers.length > 0 && { podUsers: podUsers as string[] }),
-      ...(Array.isArray(missing) && missing.length > 0 && { missing: missing as string[] }),
-    };
-  });
+  if (json === undefined) return fail(response.status, ": the answer is not JSON");
+  if (!isObj(json)) return fail(response.status, ": unexpected answer shape");
+  const { instance, podUser } = json;
+  if (typeof instance !== "string" || !INSTANCE_NAME.test(instance)) return fail(response.status, ": unexpected answer shape");
+  if (podUser !== undefined && podUser !== null && typeof podUser !== "string") return fail(response.status, ": unexpected answer shape");
+  return { state: "bound", instance, ...(typeof podUser === "string" && podUser !== "" && { podUser }) };
 }

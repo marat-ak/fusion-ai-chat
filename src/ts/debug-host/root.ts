@@ -7,9 +7,9 @@ import "ojs/ojknockout";
 import { DebugHostViewModel } from "./hostController";
 
 whenDocumentReady().then(() => {
-  const vm = new DebugHostViewModel({ origin: window.location.origin });
+  const vm = new DebugHostViewModel({ origin: window.location.origin, search: window.location.search });
   ko.applyBindings(vm, document.getElementById("globalBody"));
   // release the application bootstrap busy state (main.js sets oj_whenReady)
   Context.getPageContext().getBusyContext().applicationBootstrapComplete();
-  vm.loadInstances();
+  vm.start();
 });

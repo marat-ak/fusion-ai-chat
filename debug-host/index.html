@@ -3,6 +3,7 @@
   The agent builders' debugger page (spec §17.1): the app shell's page for the debug-host build flavour
   (`npm run build:debug-host`; scripts/hooks/debug-host.js puts it in place of src/index.html). Served under
   /ai-chat-debug/ on the fusion-ai-agent vhost and shown in the agent UI's side panel. Every asset URL is relative.
+  The agent chat binds the run through the URL: ?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED.
 -->
 <html lang="en-us">
   <head>
@@ -31,22 +32,17 @@
   </head>
   <body class="oj-web-applayout-body">
     <div id="globalBody" class="oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap">
-      <div class="oj-sm-padding-4x-horizontal oj-sm-padding-2x-top">
+      <div class="oj-sm-padding-4x-horizontal oj-sm-padding-2x-vertical">
         <h1 class="oj-typography-heading-xs oj-sm-margin-0">AI Chat Debugger</h1>
+        <!-- The run the agent chat bound through the URL (read-only: the page has no inputs). -->
+        <oj-bind-if test="[[hasBound]]">
+          <p data-testid="dbg-bound" class="oj-typography-body-sm oj-text-color-secondary oj-sm-margin-0"><oj-bind-text value="[[bound]]"></oj-bind-text></p>
+        </oj-bind-if>
       </div>
-      <oj-c-form-layout class="oj-sm-padding-4x-horizontal" max-columns="2" direction="row" user-assistance-density="compact">
-        <oj-c-select-single data-testid="dbg-instance" label-hint="Instance" item-text="label"
-          data="[[instanceData]]" value="{{instance}}"></oj-c-select-single>
-        <oj-c-radioset data-testid="dbg-version" label-hint="Version" direction="row"
-          options="[[versionOptions]]" value="{{version}}"></oj-c-radioset>
-        <oj-c-input-text data-testid="dbg-workflow" label-hint="Workflow code" value="{{workflowCode}}"></oj-c-input-text>
-        <oj-c-input-text data-testid="dbg-app" label-hint="App code" value="{{appCode}}"></oj-c-input-text>
-      </oj-c-form-layout>
-      <div class="oj-flex oj-sm-align-items-center oj-sm-padding-4x-horizontal oj-sm-padding-2x-vertical">
-        <oj-c-button data-testid="dbg-run" class="oj-sm-margin-2x-end" label="Run" chroming="callToAction" on-oj-action="[[run]]"></oj-c-button>
-        <oj-c-button data-testid="dbg-refresh" label="Refresh instances" chroming="outlined" disabled="[[loading]]"
-          on-oj-action="[[loadInstances]]"></oj-c-button>
-      </div>
+      <oj-bind-if test="[[hasOpenFromChat]]">
+        <oj-c-message-banner data-testid="dbg-open-from-chat" class="oj-sm-margin-4x-horizontal oj-sm-margin-2x-bottom" type="section"
+          data="[[openFromChat]]"></oj-c-message-banner>
+      </oj-bind-if>
       <oj-bind-if test="[[hasNotices]]">
         <oj-c-message-banner data-testid="dbg-notices" class="oj-sm-margin-4x-horizontal oj-sm-margin-2x-bottom" type="section"
           data="[[notices]]"></oj-c-message-banner>

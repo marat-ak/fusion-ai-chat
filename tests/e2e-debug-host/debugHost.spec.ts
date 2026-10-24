@@ -1,37 +1,35 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// The debug host page (debug-host release build) at /ai-chat-debug/ behind the fake pod proxy (tests/fake-pod-proxy:
-// instances "Dev 1" signed in as test.user, "No User" without a pod user, "Stale" listed as signed in but answering 401
-// auth-required, "Off" not signed in, "No Config" whose FUAI calls answer 424 not-configured), in front of the mock pod.
+// The debug host page (debug-host release build) at /ai-chat-debug/ behind the fake pod proxy's conversation form
+// (tests/fake-pod-proxy: conversations u1__dev1 bound to dev1 as test.user, u1__nouser without a pod user, u1__unbound
+// without a pod sign-in, u1__stale whose sign-in is gone by the first call, u1__noconf whose FUAI calls answer 424
+// not-configured; any other conversation is unknown), in front of the mock pod. The agent chat opens the page as
+// /ai-chat-debug/?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED; its header button opens the
+// bare page.
 const MOCK_POD = "http://localhost:8787";
 const ORIGIN = "http://localhost:8790";
+const OPEN_FROM_CHAT = "Open the debugger from the chat — ask the agent to debug a workflow";
 
-type ProxyCall = { method: string; instance: string; target: string; path: string; headers: Record<string, string> };
+type ProxyCall = { method: string; conversation?: string; target?: string; path: string; headers: Record<string, string> };
 type PodCall = { method: string; url: string; headers: Record<string, string>; body: unknown };
 
 const proxyCalls = async (page: Page): Promise<ProxyCall[]> => (await page.request.get(`${ORIGIN}/__proxy/requests`)).json();
 const podCalls = async (page: Page): Promise<PodCall[]> => (await page.request.get(`${MOCK_POD}/__mock/requests`)).json();
 
-// Core Pack (oj-c) testids sit on the custom element: typing and clicks go to its inner input/button.
-async function pickInstance(page: Page, option: string): Promise<void> {
-  await page.getByTestId("dbg-instance").locator("input").click();
-  await page.getByRole("option", { name: option }).click();
+/** The page as the agent chat opens it (the side panel's URL form: the base's slashes unencoded). */
+const debuggerUrl = (conversation: string, version: "DRAFT" | "PUBLISHED", workflow = "MOCK_WF"): string =>
+  `/ai-chat-debug/?pod=/api/pod/c/${conversation}/&workflow=${workflow}&version=${version}`;
+
+/** Every request the page itself makes outside its static files (the proxy and anything else under /api/). */
+function apiRequests(page: Page): string[] {
+  const seen: string[] = [];
+  page.on("request", (r) => { if (new URL(r.url()).pathname.startsWith("/api/")) seen.push(`${r.method()} ${r.url()}`); });
+  return seen;
 }
-async function fill(page: Page, testId: string, text: string): Promise<void> {
-  await page.getByTestId(testId).locator("input").fill(text);
-}
-async function version(page: Page, label: "Published" | "Draft"): Promise<void> {
-  await page.getByTestId("dbg-version").getByText(label, { exact: true }).click();
-}
-async function run(page: Page): Promise<void> {
-  await page.getByTestId("dbg-run").locator("button").click();
-}
-async function start(page: Page, option: string, v: "Published" | "Draft"): Promise<void> {
-  await page.goto("/ai-chat-debug/");
-  await pickInstance(page, option);
-  await fill(page, "dbg-workflow", "MOCK_WF");
-  await version(page, v);
-  await run(page);
+
+/** No picker, no input, no Run: the page binds from its URL only. */
+async function expectNoInputs(page: Page): Promise<void> {
+  for (const id of ["dbg-instance", "dbg-version", "dbg-workflow", "dbg-app", "dbg-run", "dbg-refresh"]) await expect(page.getByTestId(id)).toHaveCount(0);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -40,62 +38,58 @@ test.beforeEach(async ({ page }) => {
   await page.request.post(`${MOCK_POD}/__mock/reset`);
 });
 
-test("picker_lists_instances_without_preselect_and_run_needs_input", async ({ page }) => {
+test("missing_param_shows_open_from_chat_panel", async ({ page }) => {
+  const api = apiRequests(page);
+  // The agent UI's header button: the bare page.
   await page.goto("/ai-chat-debug/");
-  const picker = page.getByTestId("dbg-instance").locator("input");
-  await expect(picker).toBeVisible();
-  await expect(picker).toHaveValue("");
+  const panel = page.getByTestId("dbg-open-from-chat");
+  await expect(panel).toContainText(OPEN_FROM_CHAT);
+  await expect(panel).toContainText("pod: missing; workflow: missing; version: missing");
+  await expect(page.locator("xxx-gnimsys-ai-chat")).toHaveCount(0);
+  await expect(page.getByTestId("dbg-bound")).toHaveCount(0);
+  await expectNoInputs(page);
+  // Visual self-check (after the banner's enter animation).
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "test-results/debug-host-open-from-chat.png" });
+
+  // One parameter short: the panel names it.
+  await page.goto("/ai-chat-debug/?pod=/api/pod/c/u1__dev1/&workflow=MOCK_WF");
+  await expect(panel).toContainText(OPEN_FROM_CHAT);
+  await expect(panel).toContainText("version: missing");
+  await expect(panel).not.toContainText("workflow: missing");
   await expect(page.locator("xxx-gnimsys-ai-chat")).toHaveCount(0);
 
-  await run(page);
-  const notices = page.getByTestId("dbg-notices");
-  await expect(notices).toContainText("Instance: pick one");
-  await expect(notices).toContainText("Workflow code or app code: enter one");
-  await expect(notices).toContainText("Version: pick PUBLISHED or DRAFT");
-  await expect(page.locator("xxx-gnimsys-ai-chat")).toHaveCount(0);
-
-  await picker.click();
-  await expect(page.getByRole("option")).toHaveText([
-    "Dev 1 — test.user", "No User — pod user unknown", "Stale — test.user", "Off — not signed in", "No Config — test.user",
-  ]);
-  await page.getByRole("option", { name: "Off — not signed in" }).click();
-  await expect(notices).toContainText("Sign in to Off through the agent chat, then Refresh.");
-  await fill(page, "dbg-workflow", "MOCK_WF");
-  await version(page, "Draft");
-  await run(page);
-  await expect(notices).toContainText("Instance: sign in to Off through the agent chat first, then Refresh");
-  await expect(page.locator("xxx-gnimsys-ai-chat")).toHaveCount(0);
-  expect(await proxyCalls(page)).toEqual([]);
-});
-
-test("needs_input_without_pod_user", async ({ page }) => {
-  await start(page, "No User — pod user unknown", "Draft");
-  await expect(page.getByTestId("dbg-notices")).toContainText("The pod user of No User is unknown");
-  // The chat's own needs-input panel: no user name, never the Keycloak one; nothing is fetched.
-  await expect(page.getByTestId("gai-state-panel")).toContainText("user.userName");
-  await expect(page.getByTestId("gai-composer-input")).toHaveCount(0);
+  // Zero requests: nothing reached the proxy, and the page asked nothing under /api/.
   await page.waitForLoadState("networkidle");
   expect(await proxyCalls(page)).toEqual([]);
+  expect(api).toEqual([]);
 });
 
-test("auth_required_shows_the_sign_in_banner", async ({ page }) => {
-  await start(page, "Stale — test.user", "Published");
-  await expect(page.getByTestId("gai-auth-banner")).toBeVisible();
-  await expect(page.getByTestId("gai-auth-detail")).toHaveText("Sign in to Stale in the agent chat first.");
-  const calls = await proxyCalls(page);
-  expect(calls.length).toBeGreaterThan(0);
-  for (const c of calls) expect([c.instance, c.headers["x-gnimsys-pod-proxy"], c.headers.authorization]).toEqual(["stale", "1", undefined]);
-  expect(await podCalls(page)).toEqual([]);
+test("invalid_pod_base_refused", async ({ page }) => {
+  const api = apiRequests(page);
+  for (const pod of ["/api/pod/dev1/", "/api/pod/c/../", "/api/pod/c/%2e%2e/", "https://evil.example.com/api/pod/c/u1__dev1/"]) {
+    await page.goto(`/ai-chat-debug/?pod=${encodeURIComponent(pod)}&workflow=MOCK_WF&version=DRAFT`);
+    const panel = page.getByTestId("dbg-open-from-chat");
+    await expect(panel).toContainText(OPEN_FROM_CHAT);
+    await expect(panel).toContainText(`pod: not the chat conversation's proxy base /api/pod/c/<conversation>/ (got ${JSON.stringify(pod)})`);
+    await expect(page.locator("xxx-gnimsys-ai-chat")).toHaveCount(0);
+  }
+  await page.waitForLoadState("networkidle");
+  expect(await proxyCalls(page)).toEqual([]);
+  expect(api).toEqual([]);
 });
 
-test("streamed_draft_turn_with_mode_switch_trace_and_raw_frames", async ({ page }) => {
+test("binds_workflow_and_version_from_url_and_streams_a_draft_turn_through_the_conversation_base", async ({ page }) => {
   // JET, the theme, the Core Pack and the icon font come from the build: the page loads nothing from another origin.
   const foreign: string[] = [];
   page.on("request", (r) => { if (!r.url().startsWith(ORIGIN + "/")) foreign.push(r.url()); });
   // A side panel's width (the conversations drawer then starts closed, as an overlay).
   await page.setViewportSize({ width: 560, height: 900 });
-  await start(page, "Dev 1 — test.user", "Draft");
+  await page.goto(debuggerUrl("u1__dev1", "DRAFT"));
 
+  await expect(page.getByTestId("dbg-bound")).toHaveText("Workflow MOCK_WF · DRAFT · dev1");
+  await expectNoInputs(page);
+  await expect(page.getByTestId("dbg-open-from-chat")).toHaveCount(0);
   await expect(page.getByTestId("gai-mode-switch")).toContainText("Chat");
   await expect(page.getByTestId("gai-starter")).toHaveText(["Show my invoices", "Create a PO"]);
   await page.evaluate(() => {
@@ -125,10 +119,15 @@ test("streamed_draft_turn_with_mode_switch_trace_and_raw_frames", async ({ page 
   await expect(frames.first()).toContainText('#1 {"nodeProgressMessage"');
   await expect(frames.last()).toContainText('"finishReason":"stop"');
 
-  // The page called the proxy (CSRF header, no credentials of its own); the proxy called the pod's /debug with its bearer.
-  const debug = (await proxyCalls(page)).filter((c) => c.path.endsWith("/debug"));
-  expect(debug.map((c) => [c.method, c.instance, c.target, c.path, c.headers["x-gnimsys-pod-proxy"], c.headers.authorization]))
-    .toEqual([["POST", "dev1", "FUAI", "/api/fusion-ai/orchestrator/agent/v2/MOCK_WF/debug", "1", undefined]]);
+  // Every call went to the conversation base with the CSRF header and no credentials of its own: first the binding
+  // (_info), then the chat's calls; the run is the URL's workflow and version (DRAFT -> /debug).
+  const calls = await proxyCalls(page);
+  expect(calls[0]).toMatchObject({ method: "GET", conversation: "u1__dev1", target: "_info", path: "" });
+  for (const c of calls) expect([c.conversation, c.headers["x-gnimsys-pod-proxy"], c.headers.authorization]).toEqual(["u1__dev1", "1", undefined]);
+  const debug = calls.filter((c) => c.path.endsWith("/debug"));
+  expect(debug.map((c) => [c.method, c.target, c.path])).toEqual([["POST", "FUAI", "/api/fusion-ai/orchestrator/agent/v2/MOCK_WF/debug"]]);
+  expect(calls.some((c) => c.path.endsWith("/chat"))).toBe(false);
+  // The proxy called the pod's /debug with the bound sign-in's bearer.
   const pod = await podCalls(page);
   const run = pod.filter((c) => c.url.includes("/MOCK_WF/"));
   expect(run.map((c) => c.url)).toEqual(["/api/fusion-ai/orchestrator/agent/v2/MOCK_WF/debug"]);
@@ -142,10 +141,47 @@ test("streamed_draft_turn_with_mode_switch_trace_and_raw_frames", async ({ page 
   await page.screenshot({ path: "test-results/debug-host-draft-turn.png" });
 });
 
+test("needs_input_without_pod_user", async ({ page }) => {
+  await page.goto(debuggerUrl("u1__nouser", "DRAFT"));
+  await expect(page.getByTestId("dbg-notices")).toContainText("The pod user of dev1 is unknown: the chat needs it as its user name.");
+  // The chat's own needs-input panel: no user name, never the Keycloak one; nothing but the binding is fetched.
+  await expect(page.getByTestId("gai-state-panel")).toContainText("user.userName");
+  await expect(page.getByTestId("gai-composer-input")).toHaveCount(0);
+  await page.waitForLoadState("networkidle");
+  expect((await proxyCalls(page)).map((c) => [c.conversation, c.target])).toEqual([["u1__nouser", "_info"]]);
+});
+
+test("info_auth_required_shows_the_sign_in_banner", async ({ page }) => {
+  await page.goto(debuggerUrl("u1__unbound", "DRAFT"));
+  await expect(page.getByTestId("dbg-notices")).toContainText("Sign in to the pod through the agent chat, then ask the agent to open the debugger again.");
+  await expect(page.getByTestId("dbg-bound")).toHaveText("Workflow MOCK_WF · DRAFT");
+  await expect(page.locator("xxx-gnimsys-ai-chat")).toHaveCount(0);
+  await page.waitForLoadState("networkidle");
+  expect((await proxyCalls(page)).map((c) => [c.conversation, c.target])).toEqual([["u1__unbound", "_info"]]);
+  expect(await podCalls(page)).toEqual([]);
+});
+
+test("call_auth_required_shows_the_chat_sign_in_banner", async ({ page }) => {
+  await page.goto(debuggerUrl("u1__stale", "PUBLISHED"));
+  await expect(page.getByTestId("gai-auth-banner")).toBeVisible();
+  await expect(page.getByTestId("gai-auth-detail")).toHaveText("Sign in to dev1 in the agent chat first.");
+  const calls = await proxyCalls(page);
+  expect(calls.length).toBeGreaterThan(1);
+  for (const c of calls) expect([c.conversation, c.headers["x-gnimsys-pod-proxy"], c.headers.authorization]).toEqual(["u1__stale", "1", undefined]);
+  expect(await podCalls(page)).toEqual([]);
+});
+
+test("unknown_conversation_is_explicit", async ({ page }) => {
+  await page.goto(debuggerUrl("u1__gone", "DRAFT"));
+  await expect(page.getByTestId("dbg-notices")).toContainText("the debugger's pod binding is unavailable (HTTP 404 unknown-conversation): fake pod proxy: unknown-conversation");
+  await expect(page.locator("xxx-gnimsys-ai-chat")).toHaveCount(0);
+});
+
 test("not_configured_turn_shows_the_proxy_reason", async ({ page }) => {
-  await start(page, "No Config — test.user", "Published");
-  await expect(page.getByTestId("dbg-notices")).toContainText("No Config is missing setup: FUAI token key");
+  await page.goto(debuggerUrl("u1__noconf", "PUBLISHED"));
+  await expect(page.getByTestId("dbg-bound")).toHaveText("Workflow MOCK_WF · PUBLISHED · noconf");
   await page.getByTestId("gai-composer-input").locator("textarea").fill("hello");
   await page.getByTestId("gai-composer-send").locator("button").click();
-  await expect(page.getByTestId("gai-error")).toContainText("Instance No Config is not configured for FUAI calls (missing FUAI token key)");
+  await expect(page.getByTestId("gai-error")).toContainText("Instance noconf is not configured for FUAI calls (missing FUAI token key)");
+  expect((await proxyCalls(page)).some((c) => c.path.endsWith("/MOCK_WF/chat"))).toBe(true);
 });

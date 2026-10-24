@@ -1,14 +1,16 @@
 // e2e of the debug host (tests/e2e-debug-host): a small stand-in for the engine's same-origin pod proxy (spec §17.1,
-// engine contract 2026-10-24) in front of the mock pod, plus the static debug-host build, on ONE origin as the gateway
-// serves them (the fusion-ai-agent vhost: /ai-chat-debug/ static, /api/pod/* engine).
+// engine contract 2026-10-24; bridge design §4.2 conversation form) in front of the mock pod, plus the static debug-host
+// build, on ONE origin as the gateway serves them (the fusion-ai-agent vhost: /ai-chat-debug/ static, /api/pod/* engine).
 //   node tests/fake-pod-proxy/server.mjs     (port 8790; serves ./web, i.e. run after `npm run build:debug-host`)
 // Proxy behaviour mirrored from the engine contract: X-Gnimsys-Pod-Proxy: 1 required on every call (403 csrf-refused);
-// GET /api/pod/instances -> {instances:[{name,label,connected,podUser?,podUsers?,missing?}]}; ANY
-// /api/pod/<instance>/<TARGET>/<pod-path> -> the mock pod with a Bearer, response piped unbuffered; proxy states carry
-// X-Gnimsys-Pod-Proxy-Error: <state> and a JSON {state, message, ...} body; only the forwarded request headers reach the pod.
-// Instances: dev1 (signed in as test.user), nouser (signed in, pod user unknown), stale (listed as signed in, but its token
-// is gone: 401 auth-required), off (not signed in), noconf (FUAI not configured: 424 not-configured).
-// Test controls: GET/DELETE /__proxy/requests -> read / clear the log of proxied calls (instances listings not logged).
+// GET /api/pod/c/<conversationId>/_info -> {instance, podUser?} of the conversation's bound sign-in, or 401 auth-required;
+// ANY /api/pod/c/<conversationId>/<TARGET>/<pod-path> -> the mock pod with the bound sign-in's Bearer, response piped
+// unbuffered; an unknown conversation answers 404 unknown-conversation; proxy states carry X-Gnimsys-Pod-Proxy-Error:
+// <state> and a JSON {state, message, ...} body; only the forwarded request headers reach the pod.
+// Conversations (all of the test user's): u1__dev1 (bound to dev1, pod user test.user), u1__nouser (bound to dev1, pod
+// user unknown), u1__unbound (no pod sign-in: 401 auth-required, _info included), u1__stale (_info answers, but the
+// sign-in is gone by the first call: 401 auth-required), u1__noconf (FUAI not configured: 424 not-configured).
+// Test controls: GET/DELETE /__proxy/requests -> read / clear the log of every /api/pod/ call (_info included).
 import http from "node:http";
 import { createReadStream, statSync } from "node:fs";
 import path from "node:path";
@@ -27,13 +29,13 @@ const TARGETS = {
   SALESCOMMON: ["/api/sales-common/"],
 };
 const FORWARDED = ["content-type", "accept", "accept-language", "if-match", "rest-framework-version", "effective-of"];
-const INSTANCES = [
-  { name: "dev1", label: "Dev 1", connected: true, podUser: "test.user" },
-  { name: "nouser", label: "No User", connected: true },
-  { name: "stale", label: "Stale", connected: true, podUser: "test.user" },
-  { name: "off", label: "Off", connected: false },
-  { name: "noconf", label: "No Config", connected: true, podUser: "test.user", missing: ["FUAI token key"] },
-];
+const CONVERSATIONS = {
+  u1__dev1: { instance: "dev1", podUser: "test.user" },
+  u1__nouser: { instance: "dev1" },
+  u1__unbound: null,
+  u1__stale: { instance: "dev1", podUser: "test.user", stale: true },
+  u1__noconf: { instance: "noconf", podUser: "test.user", missing: ["FUAI token key"] },
+};
 const TYPES = {
   ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".json": "application/json",
   ".svg": "image/svg+xml", ".png": "image/png", ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf", ".map": "application/json",
@@ -62,19 +64,22 @@ function serveStatic(req, res, pathname) {
 }
 
 function proxy(req, res, url) {
+  const m = /^\/api\/pod\/c\/([^/]+)\/([^/]+)(\/.*)?$/.exec(url.pathname);
+  const [, conversation, target, podPath = ""] = m ?? [];
+  log.push({ method: req.method, conversation, target, path: m ? podPath + url.search : url.pathname + url.search, headers: { ...req.headers } });
   if (req.headers["x-gnimsys-pod-proxy"] !== "1") return proxyState(res, 403, "csrf-refused");
-  if (url.pathname === "/api/pod/instances") return json(res, 200, { instances: INSTANCES });
-  const m = /^\/api\/pod\/([^/]+)\/([^/]+)(\/.*)$/.exec(url.pathname);
   if (!m) return proxyState(res, 400, "bad-path");
-  const [, name, target, podPath] = m;
-  const instance = INSTANCES.find((i) => i.name === name);
-  log.push({ method: req.method, instance: name, target, path: podPath + url.search, headers: { ...req.headers } });
-  if (!instance) return proxyState(res, 403, "forbidden");
+  if (!Object.hasOwn(CONVERSATIONS, conversation)) return proxyState(res, 404, "unknown-conversation");
+  const bound = CONVERSATIONS[conversation];
+  if (target === "_info" && podPath === "") {
+    if (bound === null) return proxyState(res, 401, "auth-required");
+    return json(res, 200, { instance: bound.instance, ...(bound.podUser !== undefined && { podUser: bound.podUser }) });
+  }
   const prefixes = TARGETS[target];
   if (!prefixes) return proxyState(res, 404, "unknown-target");
   if (!prefixes.some((p) => podPath.startsWith(p) && podPath.length > p.length)) return proxyState(res, 403, "path-not-allowed", { target, path: podPath });
-  if (!instance.connected || name === "stale") return proxyState(res, 401, "auth-required", { instance: name });
-  if (name === "noconf" && target === "FUAI") return proxyState(res, 424, "not-configured", { instance: name, target, missing: instance.missing });
+  if (bound === null || bound.stale) return proxyState(res, 401, "auth-required");
+  if (bound.missing && target === "FUAI") return proxyState(res, 424, "not-configured", { instance: bound.instance, target, missing: bound.missing });
 
   const headers = { authorization: POD_TOKEN };
   for (const [k, v] of Object.entries(req.headers)) if (FORWARDED.includes(k) || k.startsWith("x-ora-ai-api-v2-")) headers[k] = v;

@@ -197,25 +197,31 @@ A second build flavour of this repo's app shell, for the fusion-ai-agent UI's si
 
 - Page `debug-host/index.html` instead of `src/index.html`, entry `src/ts/debug-host/root.ts` instead of `src/ts/root.ts`:
   the rest helper is fixed per build (the dev mock's modules are removed from this output).
-- No query parameters. The page lists the user's pod instances from `GET /api/pod/instances` (no preselect, also with one
-  instance; instances without a pod sign-in, without a known pod user, with several sign-ins or with setup gaps are shown
-  with a notice), takes the workflow code, the app code and `PUBLISHED`/`DRAFT`, and Run mounts the chat with
-  `ui.modeSwitch`, `ui.debug.rawFrames`, `ui.trace.roles` = `["AI_CHAT_DEBUGGER"]` paired with `user.roles`, and
-  `user.userName` = the instance's `podUser` (absent: the chat's needs-input panel). Attachments are off with a notice:
-  there is no reliable read of the pod user's PersonId through the FA endpoint yet.
+- Bound from its URL only, no picker and no inputs: the agent chat opens it as
+  `/ai-chat-debug/?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED`. All three are required;
+  `pod` must be the conversation-scoped proxy base (`^/api/pod/c/[^/?#]+/$`, unchanged by the URL parser); a parameter
+  missing, repeated or invalid, or an unknown one, shows the panel "Open the debugger from the chat — ask the agent to
+  debug a workflow" naming the problem, and nothing is requested (the agent UI's header button opens the bare page).
+- With a complete binding the page reads `GET <pod>_info` (`{instance, podUser?}`) and mounts the chat with
+  `agent.workflowCode` / `agent.version` from the URL, `ui.modeSwitch`, `ui.debug.rawFrames`, `ui.trace.roles` =
+  `["AI_CHAT_DEBUGGER"]` paired with `user.roles`, and `user.userName` = `podUser` (absent: the chat's needs-input
+  panel, never the Keycloak name). `_info` answering `401 auth-required` (no pod sign-in on the conversation) shows "Sign
+  in to the pod through the agent chat, then ask the agent to open the debugger again."; any other failure shows its
+  reason. Attachments are off with a notice: there is no reliable read of the pod user's PersonId through the FA endpoint
+  yet.
 - Rest helper `src/ts/debug-host/podProxyRestHelper.ts`: VB's RestHelper chain (hooks, body format) over the engine's
-  same-origin proxy `ANY /api/pod/<instance>/<TARGET>/<pod-path>` with `X-Gnimsys-Pod-Proxy: 1` and same-origin
-  credentials; endpoint map `{FA: "FA", …}`. The chat streams through it with the data pack's VB stream provider, as on a
-  pod. Refused before sending: a path outside the target's prefixes, a header the proxy does not forward. Proxy states
-  (`X-Gnimsys-Pod-Proxy-Error`) get a readable `detail`: `auth-required` → the re-login banner "Sign in to <instance> in
-  the agent chat first."; the others → the call's error text.
+  same-origin proxy `ANY <pod><TARGET>/<pod-path>` (the conversation's bound instance and pod sign-in) with
+  `X-Gnimsys-Pod-Proxy: 1` and same-origin credentials; endpoint map `{FA: "FA", …}`. The chat streams through it with
+  the data pack's VB stream provider, as on a pod. Refused before sending: a path outside the target's prefixes, a header
+  the proxy does not forward. Proxy states (`X-Gnimsys-Pod-Proxy-Error`) get a readable `detail`: `auth-required` → the
+  re-login banner "Sign in to <instance> in the agent chat first."; the others → the call's error text.
 - Served from the build only: JET 19, Redwood and the Core Pack from `node_modules`; Oracle's UX icon font (the version
   pinned by `oraclejetconfig.json` `fontUrl`) downloaded once per version into `node_modules/.cache/ojux-iconfont/` (its
   own layer in the image) and copied into `css/ojux/<version>/`; the bundle is `js/bundle.<sha256:16>.js`. The build
   fails on any remaining remote `href`/`src`.
 - Image `gnimsys/ai-chat-debug` (`debug-host/Dockerfile`, context = repo root; nginx serving `/ai-chat-debug/`, see
   `debug-host/nginx.conf` and `debug-host/deploy.yml`).
-- e2e: `scripts/e2e.sh npm run e2e:debug-host` — the release build behind a fake of the proxy
+- e2e: `scripts/e2e.sh npm run e2e:debug-host` — the release build behind a fake of the proxy's conversation form
   (`tests/fake-pod-proxy/server.mjs`) in front of the mock pod.
 
 ## Known limits (v1.0)
