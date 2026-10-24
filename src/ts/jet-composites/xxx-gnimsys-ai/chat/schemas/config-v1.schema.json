@@ -4,17 +4,38 @@
   "title": "xxx-gnimsys-ai-chat config v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["agent", "auth", "protocol"],
+  "required": ["mode", "agent", "auth", "protocol"],
   "properties": {
+    "mode": {
+      "$comment": "Spec §2: chat | app | gnimsys. Only the implemented modes are accepted: app and gnimsys are refused until they are built.",
+      "enum": ["chat"]
+    },
     "agent": {
       "type": "object",
       "additionalProperties": false,
       "required": ["workflowCode"],
       "properties": {
         "workflowCode": { "type": "string", "minLength": 1 },
+        "version": {
+          "$comment": "PUBLISHED runs the published workflow (/chat); DRAFT runs the draft through Studio's test path (/debug, invocationMode ADMIN).",
+          "enum": ["PUBLISHED", "DRAFT"],
+          "default": "PUBLISHED"
+        },
         "triggerType": { "const": "chat" },
         "additionalContext": { "type": "object" },
         "responseLanguage": { "type": "string" }
+      }
+    },
+    "app": {
+      "$comment": "The Agentic App of mode app (spec §8, not built yet): carried so a mode switch can offer it once it is built.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicationCode", "applicationType"],
+      "properties": {
+        "applicationCode": { "type": "string", "minLength": 1 },
+        "applicationType": { "enum": ["PUBLISHED", "DRAFT"] },
+        "panel": { "type": "string" },
+        "appContext": { "type": "string" }
       }
     },
     "auth": {
@@ -54,6 +75,22 @@
           "required": ["roles"],
           "properties": {
             "roles": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "modeSwitch": {
+          "$comment": "Debug hosts: the header's mode switch, listing the modes that are implemented and configured; a switch is a full reset.",
+          "type": "boolean",
+          "default": false
+        },
+        "debug": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rawFrames": {
+              "$comment": "Debug hosts: every reply's raw SSE data payloads in a collapsible panel under it.",
+              "type": "boolean",
+              "default": false
+            }
           }
         }
       }

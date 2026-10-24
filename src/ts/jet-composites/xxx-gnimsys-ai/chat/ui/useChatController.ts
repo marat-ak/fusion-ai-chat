@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "p
 import type { ChatConfig } from "../lib/config/types";
 import { substitute } from "../lib/config/substitute";
 import { EndpointFetch, streamFetchOf } from "../lib/endpoints/EndpointFetch";
-import { errorDetail, historyFailureText, isRelogin, messageOf, statusOf } from "../lib/errors";
+import { bodyTextOf, errorDetail, historyFailureText, isRelogin, messageOf, statusOf } from "../lib/errors";
 import type { ChatErrorDetail } from "../lib/errors";
 import type { VbRestHelper } from "xxx-gnimsys-data/rest/index";
 import DashboardRestHelper = require("xxx-gnimsys-data/rest/dashboard-rest-helper");
@@ -115,7 +115,9 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
     return new AiStudioTransport({
       endpoints,
       workflowCode: config.agent.workflowCode,
+      version: config.agent.version,
       checkVersion: config.protocol.checkVersion,
+      rawFrames: config.ui.debug.rawFrames,
       ...(ac !== undefined && { additionalContext: substitute(ac, context ?? {}) }),
       ...(lang !== undefined && { responseLanguage: lang }),
     });
@@ -137,7 +139,7 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   }, [config, endpoints, personId]);
 
   const workflowSource = useMemo(
-    () => new OracleWorkflowInfo({ endpoints, workflowCode: config.agent.workflowCode }),
+    () => new OracleWorkflowInfo({ endpoints, workflowCode: config.agent.workflowCode, status: config.agent.version }),
     [config, endpoints],
   );
 
@@ -167,11 +169,13 @@ export function useChatController(config: ChatConfig, props: ChatControllerProps
   // The same, as state, for the UI.
   const [inFlight, setInFlight] = useState(false);
 
-  // An endpoint's 401 is the re-login state (a banner with a reload; nothing is retried); the in-flight turn is closed
-  // with `done`, which ends it as "No reply received". Any other failure of a turn ends it with its error.
+  // An endpoint's 401 is the re-login state (a banner with a reload and the 401's own text, if any; nothing is retried);
+  // the in-flight turn is closed with `done`, which ends it as "No reply received". Any other failure of a turn ends it
+  // with its error.
   const fail = useCallback((e: unknown, endTurn: boolean) => {
     if (isRelogin(e)) {
-      dispatch({ type: "auth", state: "relogin" });
+      const detail = bodyTextOf(e);
+      dispatch({ type: "auth", state: "relogin", ...(detail !== undefined && { detail }) });
       if (endTurn) dispatch({ type: "event", event: { type: "done" } });
     } else if (endTurn) {
       dispatch({ type: "event", event: { type: "error", message: messageOf(e) } });

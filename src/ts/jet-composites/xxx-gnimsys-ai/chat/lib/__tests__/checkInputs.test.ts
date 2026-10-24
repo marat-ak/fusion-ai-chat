@@ -1,6 +1,6 @@
 import { checkInputs } from "../config/checkInputs";
 
-const cfg = { agent: { workflowCode: "WF" }, auth: { kind: "fusionShell" }, protocol: { checkVersion: "2607100" } };
+const cfg = { mode: "chat", agent: { workflowCode: "WF" }, auth: { kind: "fusionShell" }, protocol: { checkVersion: "2607100" } };
 const filesCfg = { ...cfg, protocol: { checkVersion: "2607100", hcmRestBase: "/hcmRestApi/x" }, files: { enabled: true } };
 const RH = { get: () => ({}) };
 const EP = { FUAI: "scFUAI", BOSS: "scBOSS" };

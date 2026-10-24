@@ -5,6 +5,7 @@ import { useEffect, useRef } from "preact/hooks";
 import type { ChatState, Turn } from "../lib/state/conversation";
 import { Banner } from "./Banner";
 import { AGENT_INDENT, Bubble } from "./Bubble";
+import { RawFramesPanel } from "./RawFramesPanel";
 import { TracePanel } from "./TracePanel";
 import type { MarkdownRenderer } from "./Bubble";
 
@@ -18,6 +19,8 @@ export function Feed(props: {
   renderer: MarkdownRenderer | null;
   /** The trace gate is open: assistant turns show their node trace. */
   showTrace: boolean;
+  /** `ui.debug.rawFrames`: assistant turns show their raw SSE frames. */
+  showRawFrames: boolean;
   /**
    * History of an opened conversation: "unavailable" shows a notice at the top of the feed (it stays above the turns
    * sent afterwards); "loading" shows one at the end, above the composer.
@@ -45,6 +48,7 @@ export function Feed(props: {
           {/* An assistant turn that has not produced text (nor failed) yet is represented by the progress line alone. */}
           {t.role === "assistant" && t.streaming && t.text === "" && !t.error ? null : <Bubble turn={t} renderer={props.renderer} />}
           {props.showTrace && t.role === "assistant" && t.trace !== undefined && t.trace.length > 0 && <TracePanel entries={t.trace} />}
+          {props.showRawFrames && t.role === "assistant" && t.raw !== undefined && t.raw.length > 0 && <RawFramesPanel frames={t.raw} />}
         </Fragment>
       ))}
       {props.busy && (

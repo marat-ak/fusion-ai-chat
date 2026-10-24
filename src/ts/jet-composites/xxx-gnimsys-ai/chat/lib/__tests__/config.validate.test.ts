@@ -1,6 +1,7 @@
 import { validateConfig, parseConfigProp } from "../config/validate";
 
 const min = {
+  mode: "chat",
   agent: { workflowCode: "WF_1" },
   auth: { kind: "fusionShell" },
   protocol: { checkVersion: "2607100" },
@@ -22,7 +23,7 @@ test("agent.pod is an unknown key (the pod lives in the endpoints' service conne
 
 test("a valid config has no pod", () => {
   const r = validateConfig(min);
-  expect(r.ok && Object.keys(r.config.agent)).toEqual(["workflowCode"]);
+  expect(r.ok && Object.keys(r.config.agent)).toEqual(["workflowCode", "version"]);
 });
 
 test("unknown top-level key is invalid", () => {

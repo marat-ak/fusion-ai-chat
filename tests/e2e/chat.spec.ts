@@ -120,6 +120,7 @@ test("error_reply_shows_error_bubble_and_reenables_composer", async ({ page }) =
 test("needs_input_makes_no_requests", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
+      mode: "chat",
       agent: {},
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100" },
@@ -337,6 +338,7 @@ test("greeting_shows_without_starters", async ({ page }) => {
   // Explicit empty starters and no sidebar: the greeting alone opens the conversation, with the default texts.
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
+      mode: "chat",
       agent: { workflowCode: "MOCK_WF" },
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100" },
@@ -358,6 +360,7 @@ test("greeting_shows_without_starters", async ({ page }) => {
 test("greeting_and_placeholder_from_config", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
+      mode: "chat",
       agent: { workflowCode: "MOCK_WF" },
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100" },

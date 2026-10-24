@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 // Mock pod chat-hello.sse starts with three nodeProgressMessage frames (START, CHAT_LLM start, START end; traceId trace-1).
 const TRACE_CONFIG = {
+  mode: "chat",
   agent: { workflowCode: "MOCK_WF" },
   auth: { kind: "fusionShell" },
   protocol: { checkVersion: "2607100", hcmRestBase: "/hcmRestApi/rest/latest/en/11.13.18.05:9" },

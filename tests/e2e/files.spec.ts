@@ -158,6 +158,7 @@ test("no_streaming_send_with_file_uploads_nothing_and_keeps_the_tray", async ({ 
 test("files_disabled_hides_attach_ui", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
+      mode: "chat",
       agent: { workflowCode: "MOCK_WF" },
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100", hcmRestBase: "/hcmRestApi/rest/latest/en/11.13.18.05:9" },
@@ -197,6 +198,7 @@ test("sixth_file_is_rejected_with_count_reason", async ({ page }) => {
 test("txt_oversize_is_rejected", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
+      mode: "chat",
       agent: { workflowCode: "MOCK_WF" },
       auth: { kind: "fusionShell" },
       protocol: { checkVersion: "2607100", hcmRestBase: "/hcmRestApi/rest/latest/en/11.13.18.05:9" },

@@ -1,5 +1,8 @@
-import type { ChatConfig, Problem, ValidateResult } from "./types";
+import { CHAT_MODES, IMPLEMENTED_MODES } from "./types";
+import type { ArtifactVersion, ChatConfig, ChatMode, Problem, ValidateResult } from "./types";
 export type { ChatConfig, Problem, ValidateResult } from "./types";
+
+const VERSIONS: readonly ArtifactVersion[] = ["PUBLISHED", "DRAFT"];
 
 const DEFAULT_ACCEPT = ["pdf", "docx", "xlsx", "pptx", "csv", "txt", "md", "html", "json", "xml", "zip", "image/*"];
 
@@ -73,13 +76,32 @@ export function validateConfig(input: unknown): ValidateResult {
   };
 
   for (const k of Object.keys(input)) {
-    if (!["agent", "auth", "protocol", "ui", "files", "datasources", "widgets", "submit", "history"].includes(k)) bad(k, "unknown key");
+    if (!["mode", "agent", "app", "auth", "protocol", "ui", "files", "datasources", "widgets", "submit", "history"].includes(k)) bad(k, "unknown key");
   }
+
+  // mode: required, no default; a mode that is not built yet is refused rather than shown half-working.
+  let mode: ChatMode | undefined;
+  if (input.mode === undefined) need("mode");
+  else if (typeof input.mode !== "string" || !(CHAT_MODES as readonly string[]).includes(input.mode)) bad("mode", `must be one of ${CHAT_MODES.map((m) => `"${m}"`).join(", ")}`);
+  else if (!(IMPLEMENTED_MODES as readonly string[]).includes(input.mode)) bad("mode", `"${input.mode}" is not built yet`);
+  else mode = input.mode as ChatMode;
+  const version = (o: Obj | undefined, k: string, path: string, required: boolean): ArtifactVersion | undefined => {
+    const v = o?.[k];
+    if (v === undefined) {
+      if (required) need(path);
+      return undefined;
+    }
+    if (!(VERSIONS as readonly unknown[]).includes(v)) { bad(path, 'must be "PUBLISHED" or "DRAFT"'); return undefined; }
+    return v as ArtifactVersion;
+  };
 
   // agent
   // The pod is not configured here: it lives in the scopes of the page's service connections (the endpoint map).
-  const agent = section("agent", ["workflowCode", "triggerType", "additionalContext", "responseLanguage"]);
-  const workflowCode = str(agent, "workflowCode", "agent.workflowCode", true);
+  const agent = section("agent", ["workflowCode", "version", "triggerType", "additionalContext", "responseLanguage"]);
+  // The workflow modes (chat, gnimsys) need the workflow; mode `app` talks to an app instead.
+  const workflowCode = str(agent, "workflowCode", "agent.workflowCode", input.mode !== "app");
+  // Documented default: the published workflow (`/chat`); DRAFT runs the draft through Studio's `/debug` test path.
+  const agentVersion = version(agent, "version", "agent.version", false) ?? "PUBLISHED";
   let triggerType: "chat" | undefined;
   if (agent?.triggerType !== undefined) {
     if (agent.triggerType !== "chat") bad("agent.triggerType", 'must be "chat"');
@@ -91,6 +113,14 @@ export function validateConfig(input: unknown): ValidateResult {
     else additionalContext = agent.additionalContext;
   }
   const responseLanguage = str(agent, "responseLanguage", "agent.responseLanguage", false);
+
+  // app (mode `app`, spec §8): when present, the app and its version are required.
+  const app = section("app", ["applicationCode", "applicationType", "panel", "appContext"]);
+  const appRequired = app !== undefined || input.mode === "app";
+  const applicationCode = str(app, "applicationCode", "app.applicationCode", appRequired);
+  const applicationType = version(app, "applicationType", "app.applicationType", appRequired);
+  const panel = str(app, "panel", "app.panel", false);
+  const appContext = str(app, "appContext", "app.appContext", false);
 
   // auth
   const auth = section("auth", ["kind"]);
@@ -112,7 +142,7 @@ export function validateConfig(input: unknown): ValidateResult {
   if (hcmRestBase !== undefined && !hcmRestBase.startsWith("/hcmRestApi/")) bad("protocol.hcmRestBase", 'must start with "/hcmRestApi/"');
 
   // ui
-  const ui = section("ui", ["title", "greeting", "placeholder", "starterQuestions", "conversations", "viewer", "trace"]);
+  const ui = section("ui", ["title", "greeting", "placeholder", "starterQuestions", "conversations", "viewer", "trace", "modeSwitch", "debug"]);
   const title = str(ui, "title", "ui.title", false);
   const greeting = str(ui, "greeting", "ui.greeting", false);
   const placeholder = str(ui, "placeholder", "ui.placeholder", false);
@@ -139,6 +169,16 @@ export function validateConfig(input: unknown): ValidateResult {
     }
   }
 
+  const modeSwitch = bool(ui, "modeSwitch", "ui.modeSwitch", false);
+  let rawFrames = false;
+  if (ui?.debug !== undefined) {
+    if (!isObj(ui.debug)) bad("ui.debug", "must be an object");
+    else {
+      for (const k of Object.keys(ui.debug)) if (k !== "rawFrames") bad(join("ui.debug", k), "unknown key");
+      rawFrames = bool(ui.debug, "rawFrames", "ui.debug.rawFrames", false);
+    }
+  }
+
   // datasources
   const ds = section("datasources", ["allowInline", "allowPrefixes"]);
   const allowInline = bool(ds, "allowInline", "datasources.allowInline", false);
@@ -161,12 +201,22 @@ export function validateConfig(input: unknown): ValidateResult {
   if (missing.length) return { ok: false, kind: "needs-input", problems: missing };
 
   const cfg: ChatConfig = {
+    mode: mode as "chat", // the only implemented mode
     agent: {
       workflowCode: workflowCode!,
+      version: agentVersion,
       ...(triggerType && { triggerType }),
       ...(additionalContext && { additionalContext }),
       ...(responseLanguage !== undefined && { responseLanguage }),
     },
+    ...(app !== undefined && {
+      app: {
+        applicationCode: applicationCode!,
+        applicationType: applicationType!,
+        ...(panel !== undefined && { panel }),
+        ...(appContext !== undefined && { appContext }),
+      },
+    }),
     auth: { kind: "fusionShell" },
     protocol: { checkVersion: checkVersion!, ...(hcmRestBase !== undefined && { hcmRestBase }) },
     ui: {
@@ -177,6 +227,8 @@ export function validateConfig(input: unknown): ValidateResult {
       conversations,
       viewer,
       ...(trace !== undefined && { trace }),
+      modeSwitch,
+      debug: { rawFrames },
     },
     files: { enabled: filesEnabled, maxFiles, maxSizeMB, accept },
     datasources: { allowInline, allowPrefixes },

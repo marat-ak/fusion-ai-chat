@@ -1,10 +1,12 @@
 import { Action, ExtendGlobalProps, PropertyChanged, registerCustomElement } from "ojs/ojvcomponent";
 import { ComponentProps, ComponentType, Ref } from "preact";
 import { forwardRef } from "preact/compat";
-import { useCallback, useImperativeHandle, useMemo, useRef } from "preact/hooks";
+import { useCallback, useImperativeHandle, useMemo, useRef, useState } from "preact/hooks";
 import componentStrings = require("ojL10n!./resources/nls/chat-strings");
 import "css!xxx-gnimsys-ai/chat/chat-styles.css";
 import { checkInputs } from "./lib/config/checkInputs";
+import { availableModes } from "./lib/config/modes";
+import type { ChatMode } from "./lib/config/types";
 import { ChatShell } from "./ui/ChatShell";
 import type { ChatHandle } from "./ui/ChatShell";
 import { StatePanel } from "./ui/StatePanel";
@@ -52,6 +54,7 @@ type Props = Readonly<{
  *   "oj-c-avatar": "^19.0.0",
  *   "oj-c-badge": "^19.0.0",
  *   "oj-c-button": "^19.0.0",
+ *   "oj-c-buttonset-single": "^19.0.0",
  *   "oj-c-collapsible": "^19.0.0",
  *   "oj-c-drawer-layout": "^19.0.0",
  *   "oj-c-input-text": "^19.0.0",
@@ -91,20 +94,33 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
   const onConversationChanged = useCallback((id: string) => propsRef.current.onAiChatConversationChanged?.({ conversationId: id }), []);
   const onError = useCallback((detail: ChatErrorDetail) => propsRef.current.onAiChatError?.(detail), []);
 
+  // Mode: the config's, until the header's switch (ui.modeSwitch) picks another; a new config mode starts over from it.
+  const configMode: ChatMode | undefined = check.ok ? check.config.mode : undefined;
+  const [picked, setPicked] = useState<{ base: ChatMode | undefined; mode: ChatMode } | null>(null);
+  const mode = picked !== null && picked.base === configMode ? picked.mode : configMode;
+  const onModeChange = useCallback((m: ChatMode) => setPicked({ base: configMode, mode: m }), [configMode]);
+  const switched = mode !== configMode;
+  // The shell's config, stable across renders: the controller's services are memoized on it, so a new object per render
+  // would rebuild them (and reload the list and the workflow) on every property writeback.
+  const shellConfig = useMemo(() => (check.ok ? { ...check.config, mode: mode as typeof check.config.mode } : null), [check, mode]);
+
   return (
     <div class="gai-chat oj-sm-height-full oj-typography-body-md oj-text-color-primary">
       {check.ok ? (
         <ChatShell
-          // Another agent (or another endpoint map, i.e. another pod) is another chat: remount so no turns or conversation id
-          // carry over to it.
-          key={`${JSON.stringify(endpoint)}/${check.config.agent.workflowCode}`}
-          config={check.config}
+          // Another agent, version, mode (or another endpoint map, i.e. another pod) is another chat: remount so no turns or
+          // conversation id carry over to it.
+          key={`${JSON.stringify(endpoint)}/${check.config.agent.workflowCode}/${check.config.agent.version}/${mode}`}
+          // Set whenever check.ok; a valid config has a mode, and the switch offers only implemented modes (availableModes).
+          config={shellConfig as NonNullable<typeof shellConfig>}
           strings={componentStrings.chat}
           userName={(user as { userName: string } /* checkInputs: userName non-empty */).userName}
           {...(personId !== undefined && { personId })}
           userRoles={user?.roles ?? []}
           {...(props.context !== undefined && { context: props.context })}
-          {...(props.conversationId !== undefined && { conversationId: props.conversationId })}
+          // A mode switch starts a new conversation: the host's conversation belongs to the config's mode.
+          {...(props.conversationId !== undefined && !switched && { conversationId: props.conversationId })}
+          {...(check.config.ui.modeSwitch && { modeSwitch: { modes: availableModes(check.config), value: mode as ChatMode, onChange: onModeChange } })}
           // checkInputs: a RestHelper (get()) and an endpoint map with every name the config needs.
           restHelper={restHelper as VbRestHelper}
           endpoints={endpoint as Record<string, string>}

@@ -34,6 +34,7 @@ async function sseInOneChunk(request: Request): Promise<Response> {
 
 // Dev host page config: every call goes through the mock rest helper to the mock pod (tests/mock-pod).
 const defaultMockConfig = {
+  mode: "chat",
   agent: { workflowCode: "MOCK_WF" },
   auth: { kind: "fusionShell" },
   protocol: { checkVersion: "2607100", hcmRestBase: "/hcmRestApi/rest/latest/en/11.13.18.05:9" },

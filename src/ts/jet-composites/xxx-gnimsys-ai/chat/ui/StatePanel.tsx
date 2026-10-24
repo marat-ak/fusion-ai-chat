@@ -21,13 +21,19 @@ export function StatePanel(props: { kind: "needs-input" | "invalid"; problems: P
   );
 }
 
-/** Re-login / not-authorized / unavailable state: no retry loop, only an explicit page reload when one can help. */
-export function AuthBanner(props: { state: Exclude<ChatState["authState"], "ok">; reason?: AuthReason; status?: number; class?: string }) {
+/**
+ * Re-login / not-authorized / unavailable state: no retry loop, only an explicit page reload when one can help.
+ * `detail`: the endpoint's own text from its 401 answer (what signing in means for that endpoint), shown under the notice.
+ */
+export function AuthBanner(props: { state: Exclude<ChatState["authState"], "ok">; reason?: AuthReason; status?: number; detail?: string; class?: string }) {
   const notice = authNotice(props.state, props.reason, props.status);
   return (
     <Banner testId="gai-auth-banner" severity="error" summary={notice.text} {...(props.class !== undefined && { class: props.class })}>
-      {notice.reload ? (
-        <oj-c-button data-testid="gai-auth-reload" label="Reload" chroming="outlined" onojAction={() => location.reload()} />
+      {notice.reload || props.detail !== undefined ? (
+        <>
+          {props.detail !== undefined && <div data-testid="gai-auth-detail">{props.detail}</div>}
+          {notice.reload && <oj-c-button data-testid="gai-auth-reload" label="Reload" chroming="outlined" onojAction={() => location.reload()} />}
+        </>
       ) : undefined}
     </Banner>
   );

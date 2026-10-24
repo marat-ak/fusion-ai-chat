@@ -3,7 +3,7 @@ import type { HistoryMessage } from "../history/HistoryStore";
 import type { UploadedAttachment } from "../files/AttachmentService";
 import type { AuthReason } from "../auth/AuthFetch";
 
-export interface Turn { id: string; role: "user" | "assistant"; text: string; streaming?: boolean; error?: { message: string; status?: number; code?: string }; attachments?: UploadedAttachment[]; trace?: TraceEntry[] }
+export interface Turn { id: string; role: "user" | "assistant"; text: string; streaming?: boolean; error?: { message: string; status?: number; code?: string }; attachments?: UploadedAttachment[]; trace?: TraceEntry[]; raw?: string[] }
 export interface WaitInfo { kind: "HUMAN" | "WAIT"; token: string; jobId: string; approval: boolean; feedback: boolean; requestChangeMessage?: string; waitMinutes?: number }
 export interface ChatState {
   conversationId: string;
@@ -22,6 +22,8 @@ export interface ChatState {
   authReason?: AuthReason;
   /** HTTP status of the failed auth call, when it had one. */
   authStatus?: number;
+  /** "relogin": the readable text the endpoint's 401 answer carried (what signing in means for that endpoint), if any. */
+  authDetail?: string;
   nextTurnId: number;
 }
 export type ChatAction =
@@ -31,7 +33,7 @@ export type ChatAction =
   | { type: "new_conversation"; id: string } | { type: "open_conversation"; id: string }
   // statusCheckOnly: a WAIT node's Refresh — the user said nothing, so no user turn is added.
   | { type: "resume_sent"; action: "APPROVE_ACTION" | "REJECT_ACTION" | "RFI_ACTION"; content?: string; statusCheckOnly?: boolean }
-  | { type: "auth"; state: ChatState["authState"]; reason?: AuthReason; status?: number };
+  | { type: "auth"; state: ChatState["authState"]; reason?: AuthReason; status?: number; detail?: string };
 
 export function initialState(conversationId: string): ChatState {
   return { conversationId, turns: [], status: "idle", followups: [], historyStatus: "none", authState: "ok", nextTurnId: 1 };
@@ -86,6 +88,12 @@ function reduceEvent(s: ChatState, e: ChatEvent): ChatState {
       // An empty output keeps the text streamed so far.
       const text = e.text === "" ? state.turns[idx].text : e.text;
       return { ...patchTurn(state, idx, { text, streaming: false }), progressText: undefined };
+    }
+    case "raw": {
+      // The reply in progress is the last turn (its frames keep coming after a `final` or `wait` ended its text).
+      const lastIdx = s.turns.length - 1;
+      const { state, idx } = s.turns[lastIdx]?.role === "assistant" ? { state: s, idx: lastIdx } : ensureStreaming(s);
+      return patchTurn(state, idx, { raw: [...(state.turns[idx].raw ?? []), e.payload] });
     }
     case "followups":
       return { ...s, followups: [...e.questions] };
@@ -164,13 +172,19 @@ export function reduce(state: ChatState, action: ChatAction): ChatState {
       return rest;
     }
     case "auth": {
-      const { authReason: _r, authStatus: _s, ...rest } = state;
-      return { ...rest, authState: action.state, ...(action.reason !== undefined && { authReason: action.reason }), ...(action.status !== undefined && { authStatus: action.status }) };
+      const { authReason: _r, authStatus: _s, authDetail: _d, ...rest } = state;
+      return {
+        ...rest, authState: action.state, ...(action.reason !== undefined && { authReason: action.reason }), ...(action.status !== undefined && { authStatus: action.status }),
+        ...(action.detail !== undefined && { authDetail: action.detail }),
+      };
     }
   }
 }
 
 /** The auth state outlives a conversation switch. */
-function authOf(s: ChatState): Pick<ChatState, "authState" | "authReason" | "authStatus"> {
-  return { authState: s.authState, ...(s.authReason !== undefined && { authReason: s.authReason }), ...(s.authStatus !== undefined && { authStatus: s.authStatus }) };
+function authOf(s: ChatState): Pick<ChatState, "authState" | "authReason" | "authStatus" | "authDetail"> {
+  return {
+    authState: s.authState, ...(s.authReason !== undefined && { authReason: s.authReason }), ...(s.authStatus !== undefined && { authStatus: s.authStatus }),
+    ...(s.authDetail !== undefined && { authDetail: s.authDetail }),
+  };
 }

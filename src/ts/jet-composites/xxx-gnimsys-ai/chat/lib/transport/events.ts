@@ -19,4 +19,6 @@ export type ChatEvent =
   | { type: "wait"; kind: "HUMAN" | "WAIT"; token: string; message: string; approval: boolean; feedback: boolean; requestChangeMessage?: string; waitMinutes?: number }
   | { type: "job"; jobId: string }
   | { type: "error"; message: string; status?: number; code?: string }
+  /** One SSE `data:` payload exactly as received (only with the transport's `rawFrames` on). */
+  | { type: "raw"; payload: string }
   | { type: "done" };

@@ -1,10 +1,12 @@
 import "oj-c/button";
+import "oj-c/buttonset-single";
 import "oj-c/drawer-layout";
 import "oj-c/progress-circle";
 import ResponsiveUtils = require("ojs/ojresponsiveutils");
 import type { Ref } from "preact";
 import { useEffect, useImperativeHandle, useRef, useState } from "preact/hooks";
-import type { ChatConfig } from "../lib/config/types";
+import { MODE_LABELS } from "../lib/config/modes";
+import type { ChatConfig, ChatMode } from "../lib/config/types";
 import type { VbRestHelper } from "xxx-gnimsys-data/rest/index";
 import { traceGateOpen } from "../lib/trace/gate";
 import { resolveOrigin } from "../lib/origin";
@@ -88,6 +90,23 @@ function PendingBar() {
   );
 }
 
+/**
+ * The header's mode switch (`ui.modeSwitch`): the modes the config offers (implemented and configured) and the current
+ * one. Picking another mode is a full reset: the component remounts the chat in that mode, in a new conversation.
+ */
+export interface ModeSwitch { modes: ChatMode[]; value: ChatMode; onChange: (mode: ChatMode) => void }
+
+function ModeSwitchControl(props: ModeSwitch) {
+  const items = props.modes.map((m) => ({ value: m, label: MODE_LABELS[m] }));
+  return (
+    <oj-c-buttonset-single data-testid="gai-mode-switch" aria-label="Mode" size="sm" chroming="outlined" value={props.value} items={items}
+      onvalueChanged={(e) => {
+        const v = e.detail.value as ChatMode | undefined;
+        if (v !== undefined && v !== props.value && props.modes.includes(v)) props.onChange(v);
+      }} />
+  );
+}
+
 /** The component's translatable texts (resources/nls). */
 export interface ChatStrings { greeting: string; placeholder: string }
 
@@ -105,6 +124,8 @@ export interface ChatShellProps {
   endpoints: Record<string, string>;
   /** The element's `conversation-id` property (in/out). */
   conversationId?: string;
+  /** Present when `ui.modeSwitch` is on. */
+  modeSwitch?: ModeSwitch;
   handleRef: Ref<ChatHandle>;
   onConversationIdChanged: (id: string) => void;
   onConversationChanged: (id: string) => void;
@@ -183,7 +204,7 @@ export function ChatShell(props: ChatShellProps) {
   const toggle = <DrawerToggle open={drawerOpen} onChange={setDrawerOpen} />;
   const main = (
     <div class="gai-shrink oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-flex-1 oj-sm-height-full">
-      {((listOn && !drawerOpen) || title !== undefined) && (
+      {((listOn && !drawerOpen) || title !== undefined || props.modeSwitch !== undefined) && (
         <div class="oj-flex-bar oj-sm-align-items-center oj-sm-padding-2x oj-border-bottom">
           {listOn && !drawerOpen && <div class="oj-flex-bar-start">{toggle}</div>}
           {title !== undefined && (
@@ -193,12 +214,15 @@ export function ChatShell(props: ChatShellProps) {
               <h2 class="gai-shrink oj-typography-heading-xs oj-sm-margin-0">{title}</h2>
             </div>
           )}
+          {props.modeSwitch !== undefined && <div class="oj-flex-bar-end"><ModeSwitchControl {...props.modeSwitch} /></div>}
         </div>
       )}
       {state.authState !== "ok" && (
-        <AuthBanner class="oj-sm-margin-2x" state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })} />
+        <AuthBanner class="oj-sm-margin-2x" state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })}
+          {...(state.authDetail !== undefined && { detail: state.authDetail })} />
       )}
-      <Feed turns={state.turns} showTrace={traceGateOpen(config.ui.trace, props.userRoles)} busy={busy && authOk} renderer={renderer} historyStatus={state.historyStatus}
+      <Feed turns={state.turns} showTrace={traceGateOpen(config.ui.trace, props.userRoles)} showRawFrames={config.ui.debug.rawFrames} busy={busy && authOk}
+        renderer={renderer} historyStatus={state.historyStatus}
         {...(state.historyError !== undefined && { historyError: state.historyError })}
         {...(state.progressText !== undefined && { progressText: state.progressText })}>
         {/* An empty conversation opens with the agent's greeting (the starters inside it); it goes once there are turns. */}

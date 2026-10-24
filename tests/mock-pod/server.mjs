@@ -1,4 +1,4 @@
-// Mock Fusion pod for e2e: token relay, AI Studio v2 chat SSE, BOSS history, messages, attachments.
+// Mock Fusion pod for e2e: token relay, AI Studio v2 chat and debug (draft) SSE, BOSS history, messages, attachments.
 // Zero dependencies (Node 22 `http`). State is in memory and resets on process start.
 // BOSS PATCH/DELETE on userConversations require `If-Match: "1"` (the rows' etag) and answer 412 without it.
 //   node tests/mock-pod/server.mjs        (PORT env, default 8787; binds 0.0.0.0)
@@ -195,6 +195,17 @@ const routes = [
         : b.message === "long list" ? "chat-long-list.sse"
         : "chat-hello.sse";
       return streamSse(res, pick);
+    },
+  },
+  {
+    // The draft's test path, as the vendored aistudio CLI's debug runner calls it: the run must say it is an ADMIN debug run.
+    method: "POST", path: /^\/api\/fusion-ai\/orchestrator\/agent\/v2\/[^/]+\/debug$/,
+    handle: ({ res, body }) => {
+      const b = body && typeof body === "object" ? body : {};
+      if (b.invocationMode !== "ADMIN" || b.debugParams?.isDebug !== true) {
+        return json(res, 400, { detail: "mock pod: /debug needs invocationMode ADMIN and debugParams.isDebug" });
+      }
+      return streamSse(res, b.resumeInput ? "chat-resumed.sse" : b.message === "approve me" ? "chat-wait.sse" : "chat-hello.sse");
     },
   },
   {

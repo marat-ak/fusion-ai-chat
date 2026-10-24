@@ -1,3 +1,4 @@
+import type { ArtifactVersion } from "../config/types";
 import type { EndpointFetch } from "../endpoints/EndpointFetch";
 import { HistoryError } from "./HistoryStore";
 import { historyCall, historyJson } from "./OracleHistoryStore";
@@ -7,19 +8,22 @@ export interface WorkflowInfo { name: string; starterQuestions: string[]; follow
 export class OracleWorkflowInfo {
   private endpoints: EndpointFetch;
   private workflowCode: string;
+  private status: ArtifactVersion;
 
-  constructor(deps: { endpoints: EndpointFetch; workflowCode: string }) {
+  /** `status`: the copy the chat runs (agent.version), so a draft shows its own name and starters. */
+  constructor(deps: { endpoints: EndpointFetch; workflowCode: string; status: ArtifactVersion }) {
     this.endpoints = deps.endpoints;
     this.workflowCode = deps.workflowCode;
+    this.status = deps.status;
   }
 
   async get(): Promise<WorkflowInfo> {
-    const filter = `workflowCode='${this.workflowCode.replace(/'/g, "''")}' and status='PUBLISHED'`;
+    const filter = `workflowCode='${this.workflowCode.replace(/'/g, "''")}' and status='${this.status}'`;
     const fields = "name,firstStarterQuestion,secondStarterQuestion,thirdStarterQuestion,followupEnabledFlag";
     const url = `/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$fields=${encodeURIComponent(fields)}&$filter=${encodeURIComponent(filter)}`;
     const json = historyJson(await historyCall(this.endpoints, "BOSS", url));
     const item = ((json.items as any[] | undefined) ?? [])[0];
-    if (!item) throw new HistoryError(404, "workflow not published");
+    if (!item) throw new HistoryError(404, this.status === "DRAFT" ? "workflow draft not found" : "workflow not published");
     if (typeof item.name !== "string" || item.name === "") throw new HistoryError(0, "workflow name missing");
     return {
       name: item.name,

@@ -31,7 +31,7 @@ export function createSseDataSplitter(): { push(chunk: string): string[]; flush(
   };
 }
 
-export interface AiStudioFrame { jobId?: string; conversationId?: string; nodeProgressMessage?: { type: string; progressMessage?: string; nodeCode?: string; nodeName?: string; nodeType?: string; traceId?: string }; message?: { content?: { text?: string }[]; output?: string; finishReason?: string; followUpQuestions?: string[] }; waitingNodeDetails?: { type: "HUMAN" | "WAIT"; initialMessage?: string; callbackToken: string; approvalEnabledFlag?: boolean; feedbackEnabledFlag?: boolean; requestChangeMessage?: string; waitTimeInMinutes?: number }; errorNodeCode?: string; }
+export interface AiStudioFrame { jobId?: string; conversationId?: string; nodeProgressMessage?: { type: string; progressMessage?: string; nodeCode?: string; nodeName?: string; nodeType?: string; traceId?: string }; message?: { content?: { text?: string }[] | string; output?: string; finishReason?: string; followUpQuestions?: string[] }; waitingNodeDetails?: { type: "HUMAN" | "WAIT"; initialMessage?: string; callbackToken: string; approvalEnabledFlag?: boolean; feedbackEnabledFlag?: boolean; requestChangeMessage?: string; waitTimeInMinutes?: number }; errorNodeCode?: string; }
 
 export function parseFrame(payload: string): { ok: true; frame: AiStudioFrame } | { ok: false; error: string } {
   try {
@@ -61,7 +61,8 @@ export function frameToEvents(frame: AiStudioFrame): ChatEvent[] {
     ev.push(e);
   }
   const m = frame.message;
-  const delta = m?.content?.[0]?.text;
+  // `content` is an array of parts or a string: Oracle's Studio chat client and the CLI's `/debug` runner accept both.
+  const delta = typeof m?.content === "string" ? m.content : m?.content?.[0]?.text;
   if (typeof delta === "string") ev.push({ type: "delta", text: delta });
   // Unset = absent, null or "" (Oracle client semantics: a finishReason is set when truthy).
   const fr = m?.finishReason;
