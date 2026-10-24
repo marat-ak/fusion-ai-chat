@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
-import type { ChatConfig } from "../lib/config/types";
+import type { RunConfig } from "../lib/config/types";
 import { substitute } from "../lib/config/substitute";
 import { EndpointFetch, streamFetchOf } from "../lib/endpoints/EndpointFetch";
 import { bodyTextOf, errorDetail, historyFailureText, isRelogin, messageOf, statusOf } from "../lib/errors";
@@ -96,7 +96,7 @@ export interface ChatController {
 interface ListState { items: ConversationSummary[]; hasMore: boolean; loading: boolean; error: ChatErrorDetail | null; next: number }
 
 /** Single owner of the chat services and the conversation reducer. Call only with a validated config. */
-export function useChatController(config: ChatConfig, props: ChatControllerProps, deps: ChatControllerDeps): ChatController {
+export function useChatController(config: RunConfig, props: ChatControllerProps, deps: ChatControllerDeps): ChatController {
   const { restHelper, endpoints: endpointMap } = deps;
   const { userName, personId, context } = props;
   const listEnabled = config.ui.conversations;

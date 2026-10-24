@@ -1,3 +1,4 @@
+import "oj-c/badge";
 import "oj-c/button";
 import "oj-c/buttonset-single";
 import "oj-c/drawer-layout";
@@ -6,7 +7,7 @@ import ResponsiveUtils = require("ojs/ojresponsiveutils");
 import type { Ref } from "preact";
 import { useEffect, useImperativeHandle, useRef, useState } from "preact/hooks";
 import { MODE_LABELS } from "../lib/config/modes";
-import type { ChatConfig, ChatMode } from "../lib/config/types";
+import type { ChatMode, RunConfig } from "../lib/config/types";
 import type { VbRestHelper } from "xxx-gnimsys-data/rest/index";
 import { traceGateOpen } from "../lib/trace/gate";
 import { resolveOrigin } from "../lib/origin";
@@ -110,8 +111,11 @@ function ModeSwitchControl(props: ModeSwitch) {
 /** The component's translatable texts (resources/nls). */
 export interface ChatStrings { greeting: string; placeholder: string }
 
+/** The header's "Change" control (design §5.1): reopens the run panel; present only when the user may choose something. */
+export interface RunChange { label: string; onChange: () => void }
+
 export interface ChatShellProps {
-  config: ChatConfig;
+  config: RunConfig;
   strings: ChatStrings;
   userName: string;
   personId?: string;
@@ -126,6 +130,8 @@ export interface ChatShellProps {
   conversationId?: string;
   /** Present when `ui.modeSwitch` is on. */
   modeSwitch?: ModeSwitch;
+  /** Present when the user may choose the run (the page left the agent or the version to them). */
+  runChange?: RunChange;
   handleRef: Ref<ChatHandle>;
   onConversationIdChanged: (id: string) => void;
   onConversationChanged: (id: string) => void;
@@ -202,19 +208,36 @@ export function ChatShell(props: ChatShellProps) {
   // The drawer's toggle: in the drawer's own header while it is open (an overlay drawer covers this header, and neither an
   // outside click nor Escape outside it closes it), in the chat header while it is closed.
   const toggle = <DrawerToggle open={drawerOpen} onChange={setDrawerOpen} />;
+  // A draft run is marked in the header for as long as it runs (design §5.1), whoever bound or chose it.
+  const draft = config.agent.version === "DRAFT";
+  const change = props.runChange;
   const main = (
     <div class="gai-shrink oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-flex-1 oj-sm-height-full">
-      {((listOn && !drawerOpen) || title !== undefined || props.modeSwitch !== undefined) && (
+      {((listOn && !drawerOpen) || title !== undefined || draft || props.modeSwitch !== undefined || change !== undefined) && (
         <div class="oj-flex-bar oj-sm-align-items-center oj-sm-padding-2x oj-border-bottom">
           {listOn && !drawerOpen && <div class="oj-flex-bar-start">{toggle}</div>}
-          {title !== undefined && (
-            // The agent: its avatar, then its name.
+          {(title !== undefined || draft) && (
+            // The agent: its avatar, then its name; the Draft badge after it.
             <div class="oj-flex-bar-middle oj-sm-align-items-center oj-sm-padding-2x-horizontal">
-              <AgentAvatar size="2xs" class="oj-sm-margin-3x-end" />
-              <h2 class="gai-shrink oj-typography-heading-xs oj-sm-margin-0">{title}</h2>
+              {title !== undefined && (
+                <>
+                  <AgentAvatar size="2xs" class="oj-sm-margin-3x-end" />
+                  <h2 class="gai-shrink oj-typography-heading-xs oj-sm-margin-0">{title}</h2>
+                </>
+              )}
+              {draft && <oj-c-badge data-testid="gai-draft-badge" class="gai-badge oj-sm-margin-2x-start" size="sm" variant="warning" label="Draft" />}
             </div>
           )}
-          {props.modeSwitch !== undefined && <div class="oj-flex-bar-end"><ModeSwitchControl {...props.modeSwitch} /></div>}
+          {(props.modeSwitch !== undefined || change !== undefined) && (
+            <div class="oj-flex-bar-end oj-sm-align-items-center">
+              {change !== undefined && (
+                <oj-c-button data-testid="gai-run-change" size="sm" chroming="borderless" label={change.label} onojAction={change.onChange}>
+                  <span slot="startIcon" class="oj-ux-ico-edit" />
+                </oj-c-button>
+              )}
+              {props.modeSwitch !== undefined && <ModeSwitchControl {...props.modeSwitch} />}
+            </div>
+          )}
         </div>
       )}
       {state.authState !== "ok" && (

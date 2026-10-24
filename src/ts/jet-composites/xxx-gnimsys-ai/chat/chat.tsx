@@ -6,17 +6,27 @@ import componentStrings = require("ojL10n!./resources/nls/chat-strings");
 import "css!xxx-gnimsys-ai/chat/chat-styles.css";
 import { checkInputs } from "./lib/config/checkInputs";
 import { availableModes } from "./lib/config/modes";
-import type { ChatMode } from "./lib/config/types";
+import { withRun } from "./lib/config/types";
+import type { ChatMode, Run } from "./lib/config/types";
+import { errorDetail } from "./lib/errors";
+import { choosesAgent } from "./lib/run/plan";
 import { ChatShell } from "./ui/ChatShell";
 import type { ChatHandle } from "./ui/ChatShell";
+import { CheckingPanel, NoAgentPanel, RunPanel } from "./ui/RunPanel";
 import { StatePanel } from "./ui/StatePanel";
 import type { ChatErrorDetail } from "./ui/useChatController";
+import { useRunSelection } from "./ui/useRunSelection";
 import type { VbRestHelper } from "xxx-gnimsys-data/rest/index";
 
 type Props = Readonly<{
   /** Agent configuration (config-v1 schema), as an object or a JSON string. Required. */
   config?: object | string;
-  /** The VB application user object (`$application.user`); the component reads `userName` and `roles`. `userName` is required: it is the owner filter for the user's conversations. With `config.ui.trace` set, a user holding one of its `roles` sees the agent's node trace under each reply. */
+  /**
+   * The VB application user object (`$application.user`); the component reads `userName` and `roles`. `userName` is
+   * required: it is the owner filter for the user's conversations. With `config.ui.trace` set, a user holding one of its
+   * `roles` sees the agent's node trace under each reply; with `config.ui.runSettings`, `roles` decide who may choose an
+   * agent or a draft the page did not bind.
+   */
   user?: { userName?: string; roles?: string[]; [k: string]: unknown };
   /** Oracle PersonId of the user. Required when config.files.enabled is true. */
   personId?: string;
@@ -40,6 +50,11 @@ type Props = Readonly<{
    * conversation list/history/name/rename/delete or attachment call fails. `status`: the HTTP status, when there was one.
    */
   onAiChatError?: Action<{ message: string; status?: number }>;
+  /**
+   * Fired whenever the run changes: the workflow and version the chat runs, bound by the page or chosen by the user
+   * (the first run included). A change of run always starts a new conversation.
+   */
+  onAiChatRunChanged?: Action<{ workflowCode: string; version: "PUBLISHED" | "DRAFT" }>;
 }>;
 
 // The Core Pack (oj-c) components imported by ui/*.tsx, named as in the runtime's oj-c catalog; the pod's JET runtime
@@ -74,11 +89,12 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
   const { config, user, personId, restHelper, endpoint } = props;
   const check = useMemo(() => checkInputs(config, user, personId, restHelper, endpoint), [config, user, personId, restHelper, endpoint]);
 
-  // Methods delegate to the mounted shell; with a needs-input/invalid config there is none and they throw.
+  // Methods delegate to the mounted shell; with a needs-input/invalid config, or before a run is chosen, there is none and
+  // they throw.
   const shell = useRef<ChatHandle | null>(null);
   useImperativeHandle(ref, () => {
     const live = (): ChatHandle => {
-      if (shell.current === null) throw new Error("xxx-gnimsys-ai-chat is not configured: see its needs-input/invalid panel");
+      if (shell.current === null) throw new Error("xxx-gnimsys-ai-chat has no running chat (config needs input or is invalid, or no agent is chosen yet): see its panel");
       return shell.current;
     };
     return {
@@ -93,6 +109,17 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
   const onConversationIdChanged = useCallback((id: string) => propsRef.current.onConversationIdChanged?.(id), []);
   const onConversationChanged = useCallback((id: string) => propsRef.current.onAiChatConversationChanged?.({ conversationId: id }), []);
   const onError = useCallback((detail: ChatErrorDetail) => propsRef.current.onAiChatError?.(detail), []);
+  const onRunChanged = useCallback(
+    (run: Run) => propsRef.current.onAiChatRunChanged?.({ workflowCode: run.workflowCode, version: run.version }), [],
+  );
+  const onRunError = useCallback((e: unknown) => propsRef.current.onAiChatError?.(errorDetail(e)), []);
+
+  // The run (design §5.1): bound by the page, or chosen by the user as ui.runSettings and their roles allow. checkInputs
+  // has validated the rest helper and the endpoint map whenever check.ok.
+  const selection = useRunSelection(check.ok ? check.config : null, user?.roles ?? [], restHelper as VbRestHelper | undefined,
+    endpoint as Record<string, string> | undefined, onRunChanged, onRunError);
+  const run = selection?.state.run ?? null;
+  const generation = selection?.state.generation ?? 0;
 
   // Mode: the config's, until the header's switch (ui.modeSwitch) picks another; a new config mode starts over from it.
   const configMode: ChatMode | undefined = check.ok ? check.config.mode : undefined;
@@ -102,35 +129,56 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
   const switched = mode !== configMode;
   // The shell's config, stable across renders: the controller's services are memoized on it, so a new object per render
   // would rebuild them (and reload the list and the workflow) on every property writeback.
-  const shellConfig = useMemo(() => (check.ok ? { ...check.config, mode: mode as typeof check.config.mode } : null), [check, mode]);
+  const shellConfig = useMemo(
+    () => (check.ok && run !== null ? { ...withRun(check.config, run), mode: mode as typeof check.config.mode } : null), [check, mode, run],
+  );
 
+  if (!check.ok) {
+    return (
+      <div class="gai-chat oj-sm-height-full oj-typography-body-md oj-text-color-primary">
+        <StatePanel kind={check.kind} problems={check.problems} />
+      </div>
+    );
+  }
+  const phase = selection?.state.phase;
+  const plan = selection?.plan;
   return (
     <div class="gai-chat oj-sm-height-full oj-typography-body-md oj-text-color-primary">
-      {check.ok ? (
-        <ChatShell
-          // Another agent, version, mode (or another endpoint map, i.e. another pod) is another chat: remount so no turns or
-          // conversation id carry over to it.
-          key={`${JSON.stringify(endpoint)}/${check.config.agent.workflowCode}/${check.config.agent.version}/${mode}`}
-          // Set whenever check.ok; a valid config has a mode, and the switch offers only implemented modes (availableModes).
-          config={shellConfig as NonNullable<typeof shellConfig>}
-          strings={componentStrings.chat}
-          userName={(user as { userName: string } /* checkInputs: userName non-empty */).userName}
-          {...(personId !== undefined && { personId })}
-          userRoles={user?.roles ?? []}
-          {...(props.context !== undefined && { context: props.context })}
-          // A mode switch starts a new conversation: the host's conversation belongs to the config's mode.
-          {...(props.conversationId !== undefined && !switched && { conversationId: props.conversationId })}
-          {...(check.config.ui.modeSwitch && { modeSwitch: { modes: availableModes(check.config), value: mode as ChatMode, onChange: onModeChange } })}
-          // checkInputs: a RestHelper (get()) and an endpoint map with every name the config needs.
-          restHelper={restHelper as VbRestHelper}
-          endpoints={endpoint as Record<string, string>}
-          handleRef={shell}
-          onConversationIdChanged={onConversationIdChanged}
-          onConversationChanged={onConversationChanged}
-          onError={onError}
-        />
-      ) : (
-        <StatePanel kind={check.kind} problems={check.problems} />
+      {phase === "no-agent" && <NoAgentPanel />}
+      {phase === "checking" && <CheckingPanel />}
+      {phase === "choosing" && selection !== null && plan?.kind === "choose" && (
+        <RunPanel plan={plan} current={run} note={selection.state.note} directory={selection.directory} onChoose={selection.choose}
+          {...(run !== null && { onCancel: selection.cancel })} onError={onRunError} />
+      )}
+      {shellConfig !== null && run !== null && (
+        // While the run panel is open from "Change", the chat stays mounted behind it, so Cancel returns to it unchanged.
+        <div class="oj-sm-height-full" hidden={phase !== "running"}>
+          <ChatShell
+            // Another run (agent or version: a new generation), mode or endpoint map (another pod) is another chat: remount
+            // so no turns or conversation id carry over to it.
+            key={`${JSON.stringify(endpoint)}/${run.workflowCode}/${run.version}/${generation}/${mode}`}
+            config={shellConfig}
+            strings={componentStrings.chat}
+            userName={(user as { userName: string } /* checkInputs: userName non-empty */).userName}
+            {...(personId !== undefined && { personId })}
+            userRoles={user?.roles ?? []}
+            {...(props.context !== undefined && { context: props.context })}
+            // The host's conversation belongs to the first run in the config's mode: a run change or a mode switch starts a
+            // new conversation.
+            {...(props.conversationId !== undefined && !switched && generation === 1 && { conversationId: props.conversationId })}
+            {...(check.config.ui.modeSwitch && { modeSwitch: { modes: availableModes(shellConfig), value: mode as ChatMode, onChange: onModeChange } })}
+            {...(plan?.kind === "choose" && selection !== null && {
+              runChange: { label: choosesAgent(plan) ? "Change agent" : "Change version", onChange: selection.openChooser },
+            })}
+            // checkInputs: a RestHelper (get()) and an endpoint map with every name the config needs.
+            restHelper={restHelper as VbRestHelper}
+            endpoints={endpoint as Record<string, string>}
+            handleRef={shell}
+            onConversationIdChanged={onConversationIdChanged}
+            onConversationChanged={onConversationChanged}
+            onError={onError}
+          />
+        </div>
       )}
     </div>
   );

@@ -5,11 +5,25 @@ export const CHAT_MODES: readonly ChatMode[] = ["chat", "app", "gnimsys"];
 export const IMPLEMENTED_MODES: readonly ChatMode[] = ["chat"];
 /** Which copy of a workflow (or app) runs: the published one (`/chat`) or the draft (Studio's `/debug` test path). */
 export type ArtifactVersion = "PUBLISHED" | "DRAFT";
+export const ARTIFACT_VERSIONS: readonly ArtifactVersion[] = ["PUBLISHED", "DRAFT"];
+
+/**
+ * Who may choose what the page did not bind (design §5.1): a user holding one of `allAgentsRoles` picks the agent, one
+ * holding one of `draftRoles` may run drafts. Both lists are required; an empty list = nobody.
+ */
+export interface RunSettings { allAgentsRoles: string[]; draftRoles: string[] }
+
+/** The workflow and version a chat runs. */
+export interface Run { workflowCode: string; version: ArtifactVersion }
 
 export interface ChatConfig {
   /** Only an implemented mode passes validation (IMPLEMENTED_MODES). */
   mode: "chat";
-  agent: { workflowCode: string; version: ArtifactVersion; triggerType?: "chat"; additionalContext?: Record<string, unknown>; responseLanguage?: string | "auto" };
+  /**
+   * `workflowCode` / `version` absent = not bound by the page: who may choose them is `ui.runSettings` (design §5.1); the
+   * run is resolved in the component, never defaulted here.
+   */
+  agent: { workflowCode?: string; version?: ArtifactVersion; triggerType?: "chat"; additionalContext?: Record<string, unknown>; responseLanguage?: string | "auto" };
   /** The Agentic App of mode `app` (spec §8, not built): carried so a mode switch can offer it once it is built. */
   app?: { applicationCode: string; applicationType: ArtifactVersion; panel?: string; appContext?: string };
   auth: { kind: "fusionShell" };
@@ -22,6 +36,8 @@ export interface ChatConfig {
     modeSwitch: boolean;
     /** Debug hosts: `rawFrames` lists each reply's raw SSE frames under it. */
     debug: { rawFrames: boolean };
+    /** Absent = nobody may choose an unbound agent or version. */
+    runSettings?: RunSettings;
   };
   files: { enabled: boolean; maxFiles: number; maxSizeMB: number; accept: string[] };
   datasources: { allowInline: boolean; allowPrefixes: string[] };
@@ -29,6 +45,13 @@ export interface ChatConfig {
   submit: { envelope: "gnimsysSubmit" };
   history: { kind: "oracle" };
 }
+/** The config of a running chat: its run resolved (bound by the page or chosen by the user). */
+export type RunConfig = Omit<ChatConfig, "agent"> & { agent: ChatConfig["agent"] & Run };
+
+export function withRun(config: ChatConfig, run: Run): RunConfig {
+  return { ...config, agent: { ...config.agent, workflowCode: run.workflowCode, version: run.version } };
+}
+
 export type Problem = { path: string; message: string };
 export type ValidateResult =
   | { ok: true; config: ChatConfig }

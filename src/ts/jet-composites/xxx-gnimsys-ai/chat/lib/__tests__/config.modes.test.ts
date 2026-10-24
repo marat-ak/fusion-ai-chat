@@ -1,7 +1,10 @@
 // Config keys of the debugger features (spec §5, §17): mode, agent.version, app, ui.modeSwitch, ui.debug.rawFrames.
 import { validateConfig } from "../config/validate";
 import { availableModes, MODE_LABELS } from "../config/modes";
+import { withRun } from "../config/types";
 import type { ChatConfig } from "../config/types";
+
+const RUN = { workflowCode: "WF_1", version: "PUBLISHED" as const };
 
 const min = { mode: "chat", agent: { workflowCode: "WF_1" }, auth: { kind: "fusionShell" }, protocol: { checkVersion: "2607100" } };
 const ok = (input: object): ChatConfig => {
@@ -29,7 +32,9 @@ describe("mode", () => {
 });
 
 describe("agent.version", () => {
-  test("documented_default_is_PUBLISHED", () => expect(ok(min).agent.version).toBe("PUBLISHED"));
+  // Absent stays absent: PUBLISHED is supplied by the run resolution (design §5.1), never by the validator.
+  test("absent_stays_unbound", () => expect("version" in ok(min).agent).toBe(false));
+  test("PUBLISHED_is_kept_as_bound", () => expect(ok({ ...min, agent: { workflowCode: "WF_1", version: "PUBLISHED" } }).agent.version).toBe("PUBLISHED"));
   test("DRAFT_is_accepted", () => expect(ok({ ...min, agent: { workflowCode: "WF_1", version: "DRAFT" } }).agent.version).toBe("DRAFT"));
   test("other_values_are_invalid", () => {
     for (const version of ["draft", "LATEST", 1]) {
@@ -84,8 +89,8 @@ describe("ui.modeSwitch and ui.debug", () => {
 describe("availableModes", () => {
   test("lists_only_implemented_and_configured_modes", () => {
     // chat is implemented and its workflow configured; app is configured but not built; gnimsys is not built.
-    expect(availableModes(ok({ ...min, app: { applicationCode: "A", applicationType: "PUBLISHED" } }))).toEqual(["chat"]);
-    expect(availableModes(ok(min))).toEqual(["chat"]);
+    expect(availableModes(withRun(ok({ ...min, app: { applicationCode: "A", applicationType: "PUBLISHED" } }), RUN))).toEqual(["chat"]);
+    expect(availableModes(withRun(ok(min), RUN))).toEqual(["chat"]);
   });
   test("labels", () => expect(MODE_LABELS).toEqual({ chat: "Chat", app: "App", gnimsys: "Gnimsys" }));
 });

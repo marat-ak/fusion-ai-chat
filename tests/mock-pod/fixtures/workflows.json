@@ -1,0 +1,15 @@
+[
+  { "workflowCode": "MOCK_WF", "name": "Mock Agent", "status": "PUBLISHED", "sourceWorkflowCode": null, "isTemplate": false, "hiddenFlag": false,
+    "firstStarterQuestion": "Show my invoices", "secondStarterQuestion": "", "thirdStarterQuestion": "Create a PO" },
+  { "workflowCode": "MOCK_WF", "name": "Mock Agent", "status": "DRAFT", "sourceWorkflowCode": null, "isTemplate": false, "hiddenFlag": false,
+    "firstStarterQuestion": "Show my invoices", "secondStarterQuestion": "", "thirdStarterQuestion": "Create a PO" },
+  { "workflowCode": "TEMPLATE_WF", "name": "Template Agent", "status": "PUBLISHED", "sourceWorkflowCode": null, "isTemplate": true, "hiddenFlag": false },
+  { "workflowCode": "TEMPLATE_WF", "name": "Template Agent", "status": "DRAFT", "sourceWorkflowCode": null, "isTemplate": true, "hiddenFlag": false },
+  { "workflowCode": "HIDDEN_WF", "name": "Hidden Agent", "status": "PUBLISHED", "sourceWorkflowCode": null, "isTemplate": false, "hiddenFlag": true },
+  { "workflowCode": "MOCK_WF_CUST", "name": "Mock Agent (customization)", "status": "PUBLISHED", "sourceWorkflowCode": "MOCK_WF", "isTemplate": false, "hiddenFlag": false },
+  { "workflowCode": "MOCK_WF_CUST", "name": "Mock Agent (customization)", "status": "DRAFT", "sourceWorkflowCode": "MOCK_WF", "isTemplate": false, "hiddenFlag": false },
+  { "workflowCode": "INVOICE_WF", "name": "Invoice Assistant", "status": "PUBLISHED", "sourceWorkflowCode": null, "isTemplate": false, "hiddenFlag": false,
+    "firstStarterQuestion": "Which invoices are on hold?" },
+  { "workflowCode": "DRAFT_ONLY_WF", "name": "Draft Only Agent", "status": "DRAFT", "sourceWorkflowCode": null, "isTemplate": false, "hiddenFlag": false,
+    "firstStarterQuestion": "Try the draft" }
+]

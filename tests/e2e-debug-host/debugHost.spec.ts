@@ -92,6 +92,10 @@ test("binds_workflow_and_version_from_url_and_streams_a_draft_turn_through_the_c
   await expect(page.getByTestId("dbg-open-from-chat")).toHaveCount(0);
   await expect(page.getByTestId("gai-mode-switch")).toContainText("Chat");
   await expect(page.getByTestId("gai-starter")).toHaveText(["Show my invoices", "Create a PO"]);
+  // Agent and version both bound by the URL: no run choice at all (bridge design §5.1, first row); the draft is marked.
+  await expect(page.getByTestId("gai-run-panel")).toHaveCount(0);
+  await expect(page.getByTestId("gai-run-change")).toHaveCount(0);
+  await expect(page.getByTestId("gai-draft-badge")).toBeVisible();
   await page.evaluate(() => {
     const seen: string[] = [];
     (window as unknown as { __seen: string[] }).__seen = seen;

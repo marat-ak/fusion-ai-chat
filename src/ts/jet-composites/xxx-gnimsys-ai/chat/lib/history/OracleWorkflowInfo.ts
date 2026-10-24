@@ -5,6 +5,24 @@ import { historyCall, historyJson } from "./OracleHistoryStore";
 
 export interface WorkflowInfo { name: string; starterQuestions: string[]; followupEnabled: boolean }
 
+/**
+ * The pod answered, with no row for the workflow in that version: the workflow is not published (or has no draft). Not an
+ * HTTP failure, so it carries no status (the notice names the reason, never a made-up "HTTP 404").
+ */
+export class WorkflowNotFoundError extends Error {
+  readonly version: ArtifactVersion;
+  constructor(version: ArtifactVersion) {
+    super(version === "DRAFT" ? "no draft version" : "workflow not published");
+    this.name = "WorkflowNotFoundError";
+    this.version = version;
+  }
+}
+
+/** The starters notice: the HTTP status of a failed lookup, else the reason (e.g. "workflow not published"). */
+export function startersUnavailableText(error: { message: string; status?: number }): string {
+  return `Starter questions unavailable (${error.status ? "HTTP " + error.status : error.message})`;
+}
+
 export class OracleWorkflowInfo {
   private endpoints: EndpointFetch;
   private workflowCode: string;
@@ -23,7 +41,7 @@ export class OracleWorkflowInfo {
     const url = `/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$fields=${encodeURIComponent(fields)}&$filter=${encodeURIComponent(filter)}`;
     const json = historyJson(await historyCall(this.endpoints, "BOSS", url));
     const item = ((json.items as any[] | undefined) ?? [])[0];
-    if (!item) throw new HistoryError(404, this.status === "DRAFT" ? "workflow draft not found" : "workflow not published");
+    if (!item) throw new WorkflowNotFoundError(this.status);
     if (typeof item.name !== "string" || item.name === "") throw new HistoryError(0, "workflow name missing");
     return {
       name: item.name,

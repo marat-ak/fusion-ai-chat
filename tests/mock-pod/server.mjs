@@ -1,4 +1,5 @@
-// Mock Fusion pod for e2e: token relay, AI Studio v2 chat and debug (draft) SSE, BOSS history, messages, attachments.
+// Mock Fusion pod for e2e: token relay, AI Studio v2 chat and debug (draft) SSE, BOSS history and workflows (filtered and
+// paged like BOSS: see WORKFLOWS / parseWorkflowFilter), messages, attachments.
 // Zero dependencies (Node 22 `http`). State is in memory and resets on process start.
 // BOSS PATCH/DELETE on userConversations require `If-Match: "1"` (the rows' etag) and answer 412 without it.
 //   node tests/mock-pod/server.mjs        (PORT env, default 8787; binds 0.0.0.0)
@@ -93,6 +94,94 @@ function relayToken(scope) {
 
 const rowOut = (r) => ({ ...r, $context: { etag: ETAG } });
 const findRow = (id) => state.conversations.find((r) => r.id === id);
+
+// BOSS workflows: MOCK_WF (PUBLISHED + DRAFT), a template, a hidden row, a customization row (sourceWorkflowCode set),
+// INVOICE_WF (PUBLISHED), DRAFT_ONLY_WF (DRAFT), then 30 PUBLISHED rows so the agent list has a second page.
+const WORKFLOWS = [
+  ...JSON.parse(fixture("workflows.json")),
+  ...Array.from({ length: 30 }, (_, i) => {
+    const n = String(i + 1).padStart(2, "0");
+    return { workflowCode: `PAGED_WF_${n}`, name: `Paged Agent ${n}`, status: "PUBLISHED", sourceWorkflowCode: null, isTemplate: false, hiddenFlag: false };
+  }),
+];
+
+// WORKFLOW_FILTER: the BOSS $filter subset the chat sends: comparisons `field = 'v'` / `field = null` / `field ~= 'v'`
+// (case-insensitive equal) / `field ~LIKE '%v%'` (case-insensitive, % = any text), joined by `and` / `or` (and binds
+// tighter) with parentheses. Returns a row predicate; throws on anything else.
+function parseWorkflowFilter(text) {
+  const tokens = [];
+  const re = /\s*(\(|\)|'(?:[^']|'')*'|~LIKE\b|~=|=|[A-Za-z_][A-Za-z0-9_.]*)/gy;
+  let m;
+  let at = 0;
+  while (at < text.length) {
+    re.lastIndex = at;
+    m = re.exec(text);
+    if (m === null) {
+      if (text.slice(at).trim() === "") break;
+      throw new Error(`unexpected input at ${at}: ${text.slice(at, at + 20)}`);
+    }
+    tokens.push(m[1]);
+    at = re.lastIndex;
+  }
+  let i = 0;
+  const peek = () => tokens[i];
+  const take = (want) => {
+    const t = tokens[i++];
+    if (want !== undefined && t !== want) throw new Error(`expected ${want}, got ${t}`);
+    return t;
+  };
+  const value = () => {
+    const t = take();
+    if (t === "null") return null;
+    if (t === undefined || !t.startsWith("'")) throw new Error(`expected a value, got ${t}`);
+    return t.slice(1, -1).replace(/''/g, "'");
+  };
+  const comparison = () => {
+    const field = take();
+    const op = take();
+    const v = value();
+    if (op === "=") return (row) => (v === null ? row[field] == null : row[field] === v);
+    if (op === "~=") return (row) => typeof row[field] === "string" && row[field].toLowerCase() === String(v).toLowerCase();
+    if (op === "~LIKE") {
+      const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const pattern = new RegExp("^" + String(v).split("%").map(escape).join(".*") + "$", "i");
+      return (row) => typeof row[field] === "string" && pattern.test(row[field]);
+    }
+    throw new Error(`unknown operator ${op}`);
+  };
+  const factor = () => {
+    if (peek() === "(") {
+      take("(");
+      const e = expr();
+      take(")");
+      return e;
+    }
+    return comparison();
+  };
+  const term = () => {
+    let left = factor();
+    while (peek() === "and") {
+      take();
+      const l = left;
+      const r = factor();
+      left = (row) => l(row) && r(row);
+    }
+    return left;
+  };
+  function expr() {
+    let left = term();
+    while (peek() === "or") {
+      take();
+      const l = left;
+      const r = term();
+      left = (row) => l(row) || r(row);
+    }
+    return left;
+  }
+  const result = expr();
+  if (i !== tokens.length) throw new Error(`unexpected ${tokens[i]}`);
+  return result;
+}
 
 // ---- routes (first match wins) ---------------------------------------------------------------
 
@@ -256,16 +345,27 @@ const routes = [
     },
   },
   {
+    // The rows of fixtures/workflows.json + PAGED_WF_01..30 (PUBLISHED), filtered by $filter (WORKFLOW_FILTER grammar) and
+    // paged by $limit/$offset (no $limit = every match); $fields is ignored (whole rows come back).
     method: "GET", path: new RegExp(`^${BOSS}/workflows$`),
-    handle: ({ res }) => {
+    handle: ({ res, url }) => {
       if (state.workflowsStatusNext !== null) {
         const status = state.workflowsStatusNext;
         state.workflowsStatusNext = null;
         return json(res, status, { detail: `mock pod: armed workflows ${status}` });
       }
-      return json(res, 200, {
-        items: [{ name: "Mock Agent", firstStarterQuestion: "Show my invoices", secondStarterQuestion: "", thirdStarterQuestion: "Create a PO" }],
-      });
+      const filter = url.searchParams.get("$filter");
+      let match;
+      try {
+        match = filter === null ? () => true : parseWorkflowFilter(filter);
+      } catch (e) {
+        return json(res, 400, { detail: `mock pod: bad $filter: ${e instanceof Error ? e.message : String(e)}` });
+      }
+      const hits = WORKFLOWS.filter(match);
+      const offset = Number(url.searchParams.get("$offset") ?? 0);
+      const limit = url.searchParams.has("$limit") ? Number(url.searchParams.get("$limit")) : hits.length;
+      const items = hits.slice(offset, offset + limit);
+      return json(res, 200, { items, hasMore: offset + items.length < hits.length, offset, limit, count: items.length });
     },
   },
   {

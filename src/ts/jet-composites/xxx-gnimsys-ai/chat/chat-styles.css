@@ -22,14 +22,24 @@ xxx-gnimsys-ai-chat[hidden] {
   display: none;
 }
 
+/* oj-c-badge's own stylesheet (Core Pack 19, badge-styles.css) fixes the element at 50px wide and at least 50px high, which
+   truncates a label like "Published" and pads its row; the run markers and the Draft badge size to their label. */
+.gai-badge {
+  width: auto;
+  min-height: 0;
+}
+
 /* Flex items that must shrink below their content, so long names truncate and text wraps (no min-width utility). */
 .gai-shrink {
   min-width: 0;
 }
 
-/* The feed and the conversation list scroll inside their column (no min-height or overflow utility). */
+/* The feed, the conversation list and the run panel's agent list (with the panel body around it) scroll inside their
+   column (no min-height or overflow utility). */
 .gai-feed,
-.gai-conv-list {
+.gai-conv-list,
+.gai-run-body,
+.gai-agent-list {
   min-height: 0;
 }
 

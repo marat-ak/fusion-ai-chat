@@ -1,4 +1,5 @@
 import "oj-c/button";
+import { startersUnavailableText } from "../lib/history/OracleWorkflowInfo";
 import { Banner } from "./Banner";
 import { AGENT_INDENT, AgentRow } from "./Bubble";
 
@@ -38,8 +39,10 @@ export function Greeting(props: { text: string; questions: string[]; disabled: b
   );
 }
 
-/** Shown under the greeting when the workflow lookup failed (auth failures use the auth banner instead). */
+/**
+ * Shown under the greeting when the workflow lookup failed (auth failures use the auth banner instead); a workflow without
+ * a row for the run's version says so ("workflow not published", "no draft version").
+ */
 export function StartersUnavailable(props: { error: { message: string; status?: number } }) {
-  const why = props.error.status ? "HTTP " + props.error.status : props.error.message;
-  return <Banner testId="gai-workflow-error" severity="warning" class={AGENT_INDENT} summary={`Starter questions unavailable (${why})`} />;
+  return <Banner testId="gai-workflow-error" severity="warning" class={AGENT_INDENT} summary={startersUnavailableText(props.error)} />;
 }

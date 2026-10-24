@@ -1,8 +1,6 @@
-import { CHAT_MODES, IMPLEMENTED_MODES } from "./types";
-import type { ArtifactVersion, ChatConfig, ChatMode, Problem, ValidateResult } from "./types";
+import { ARTIFACT_VERSIONS as VERSIONS, CHAT_MODES, IMPLEMENTED_MODES } from "./types";
+import type { ArtifactVersion, ChatConfig, ChatMode, Problem, RunSettings, ValidateResult } from "./types";
 export type { ChatConfig, Problem, ValidateResult } from "./types";
-
-const VERSIONS: readonly ArtifactVersion[] = ["PUBLISHED", "DRAFT"];
 
 const DEFAULT_ACCEPT = ["pdf", "docx", "xlsx", "pptx", "csv", "txt", "md", "html", "json", "xml", "zip", "image/*"];
 
@@ -98,10 +96,14 @@ export function validateConfig(input: unknown): ValidateResult {
   // agent
   // The pod is not configured here: it lives in the scopes of the page's service connections (the endpoint map).
   const agent = section("agent", ["workflowCode", "version", "triggerType", "additionalContext", "responseLanguage"]);
-  // The workflow modes (chat, gnimsys) need the workflow; mode `app` talks to an app instead.
-  const workflowCode = str(agent, "workflowCode", "agent.workflowCode", input.mode !== "app");
-  // Documented default: the published workflow (`/chat`); DRAFT runs the draft through Studio's `/debug` test path.
-  const agentVersion = version(agent, "version", "agent.version", false) ?? "PUBLISHED";
+  // The workflow modes (chat, gnimsys) say what the page binds in `agent` (possibly nothing: `{}`); mode `app` talks to an
+  // app instead.
+  if (input.agent === undefined && input.mode !== "app") need("agent");
+  // workflowCode / version: absent or "" = not bound by the page (a VB page parameter missing from the URL arrives as ""):
+  // the component resolves the run from ui.runSettings and the user's roles (design §5.1). Nothing is defaulted here, so an
+  // absent version stays distinguishable from a bound PUBLISHED.
+  const workflowCode = agent?.workflowCode === "" ? undefined : str(agent, "workflowCode", "agent.workflowCode", false);
+  const agentVersion = agent?.version === "" ? undefined : version(agent, "version", "agent.version", false);
   let triggerType: "chat" | undefined;
   if (agent?.triggerType !== undefined) {
     if (agent.triggerType !== "chat") bad("agent.triggerType", 'must be "chat"');
@@ -142,7 +144,7 @@ export function validateConfig(input: unknown): ValidateResult {
   if (hcmRestBase !== undefined && !hcmRestBase.startsWith("/hcmRestApi/")) bad("protocol.hcmRestBase", 'must start with "/hcmRestApi/"');
 
   // ui
-  const ui = section("ui", ["title", "greeting", "placeholder", "starterQuestions", "conversations", "viewer", "trace", "modeSwitch", "debug"]);
+  const ui = section("ui", ["title", "greeting", "placeholder", "starterQuestions", "conversations", "viewer", "trace", "modeSwitch", "debug", "runSettings"]);
   const title = str(ui, "title", "ui.title", false);
   const greeting = str(ui, "greeting", "ui.greeting", false);
   const placeholder = str(ui, "placeholder", "ui.placeholder", false);
@@ -179,6 +181,27 @@ export function validateConfig(input: unknown): ValidateResult {
     }
   }
 
+  // ui.runSettings: absent = nobody may choose; present = both role lists required (an empty list = nobody), no default
+  // role names.
+  let runSettings: RunSettings | undefined;
+  if (ui?.runSettings !== undefined) {
+    const rs = ui.runSettings;
+    if (!isObj(rs)) bad("ui.runSettings", "must be an object");
+    else {
+      for (const k of Object.keys(rs)) if (k !== "allAgentsRoles" && k !== "draftRoles") bad(join("ui.runSettings", k), "unknown key");
+      const roles = (k: "allAgentsRoles" | "draftRoles"): string[] | undefined => {
+        const path = `ui.runSettings.${k}`;
+        const v = rs[k];
+        if (v === undefined) { need(path); return undefined; }
+        if (!Array.isArray(v) || v.some((x) => typeof x !== "string" || x === "")) { bad(path, "must be an array of non-empty strings"); return undefined; }
+        return v as string[];
+      };
+      const allAgentsRoles = roles("allAgentsRoles");
+      const draftRoles = roles("draftRoles");
+      if (allAgentsRoles !== undefined && draftRoles !== undefined) runSettings = { allAgentsRoles, draftRoles };
+    }
+  }
+
   // datasources
   const ds = section("datasources", ["allowInline", "allowPrefixes"]);
   const allowInline = bool(ds, "allowInline", "datasources.allowInline", false);
@@ -203,8 +226,8 @@ export function validateConfig(input: unknown): ValidateResult {
   const cfg: ChatConfig = {
     mode: mode as "chat", // the only implemented mode
     agent: {
-      workflowCode: workflowCode!,
-      version: agentVersion,
+      ...(workflowCode !== undefined && { workflowCode }),
+      ...(agentVersion !== undefined && { version: agentVersion }),
       ...(triggerType && { triggerType }),
       ...(additionalContext && { additionalContext }),
       ...(responseLanguage !== undefined && { responseLanguage }),
@@ -229,6 +252,7 @@ export function validateConfig(input: unknown): ValidateResult {
       ...(trace !== undefined && { trace }),
       modeSwitch,
       debug: { rawFrames },
+      ...(runSettings !== undefined && { runSettings }),
     },
     files: { enabled: filesEnabled, maxFiles, maxSizeMB, accept },
     datasources: { allowInline, allowPrefixes },

@@ -121,14 +121,14 @@ test("needs_input_makes_no_requests", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = {
       mode: "chat",
-      agent: {},
+      agent: { workflowCode: "MOCK_WF" },
       auth: { kind: "fusionShell" },
-      protocol: { checkVersion: "2607100" },
+      protocol: {},
     };
   });
   await page.goto("/");
   const panel = page.getByTestId("gai-state-panel");
-  await expect(panel).toContainText("agent.workflowCode");
+  await expect(panel).toContainText("protocol.checkVersion");
   await expect(page.getByTestId("gai-composer-input")).toHaveCount(0);
 
   await page.waitForLoadState("networkidle");

@@ -1,5 +1,6 @@
-import { OracleWorkflowInfo } from "../history/OracleWorkflowInfo";
+import { OracleWorkflowInfo, startersUnavailableText, WorkflowNotFoundError } from "../history/OracleWorkflowInfo";
 import { HistoryError } from "../history/HistoryStore";
+import { errorDetail } from "../errors";
 import { fakeEndpoints, vb } from "./helpers.endpoints";
 
 test("workflow_info_maps_three_starters_dropping_empty", async () => {
@@ -20,11 +21,15 @@ test("workflow_info_throws_when_name_missing", async () => {
   expect([e.status, e.body]).toEqual([0, "workflow name missing"]);
 });
 
-test("workflow_info_unpublished_throws_404", async () => {
+// The pod answered 200 with no row: the notice says why, never a made-up "HTTP 404" (design §5.1).
+test("not_published_banner_text", async () => {
   const { endpoints } = fakeEndpoints([vb({ items: [] })]);
   const e = await new OracleWorkflowInfo({ endpoints, workflowCode: "WF_1", status: "PUBLISHED" }).get().catch((x) => x);
-  expect(e).toBeInstanceOf(HistoryError);
-  expect(e.status).toBe(404);
+  expect(e).toBeInstanceOf(WorkflowNotFoundError);
+  expect(errorDetail(e)).toEqual({ message: "workflow not published" });
+  expect(startersUnavailableText(errorDetail(e))).toBe("Starter questions unavailable (workflow not published)");
+  // A real HTTP failure keeps its status.
+  expect(startersUnavailableText({ message: "x", status: 404 })).toBe("Starter questions unavailable (HTTP 404)");
 });
 
 test("workflow_info_http_error_throws_HistoryError_with_body", async () => {

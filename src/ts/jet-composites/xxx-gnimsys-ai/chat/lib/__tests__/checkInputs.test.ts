@@ -74,7 +74,7 @@ describe("rest-helper and endpoint map", () => {
     ]);
   });
   test("config_problems_come_first", () => {
-    const r = checkInputs({ ...cfg, agent: {} }, { userName: "u" }, undefined, undefined, EP);
-    expect(paths(r)).toEqual(["agent.workflowCode", "rest-helper"]);
+    const r = checkInputs({ ...cfg, protocol: {} }, { userName: "u" }, undefined, undefined, EP);
+    expect(paths(r)).toEqual(["protocol.checkVersion", "rest-helper"]);
   });
 });

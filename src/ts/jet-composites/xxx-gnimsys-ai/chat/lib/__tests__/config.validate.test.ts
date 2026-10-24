@@ -11,9 +11,19 @@ test("minimal valid config is ok", () => {
   expect(validateConfig(min).ok).toBe(true);
 });
 
-test("missing workflowCode is needs-input", () => {
+test("agent binding nothing is valid: the run is resolved by role (design §5.1), never defaulted here", () => {
   const r = validateConfig({ ...min, agent: {} });
-  expect(r).toMatchObject({ ok: false, kind: "needs-input", problems: [{ path: "agent.workflowCode" }] });
+  expect(r.ok && r.config.agent).toEqual({});
+});
+
+test("an empty workflowCode or version is not bound (a VB page parameter missing from the URL)", () => {
+  const r = validateConfig({ ...min, agent: { workflowCode: "", version: "" } });
+  expect(r.ok && r.config.agent).toEqual({});
+});
+
+test("a missing agent section is needs-input (the page says what it binds, possibly {})", () => {
+  const { agent: _a, ...noAgent } = min;
+  expect(validateConfig(noAgent)).toEqual({ ok: false, kind: "needs-input", problems: [{ path: "agent", message: "required" }] });
 });
 
 test("agent.pod is an unknown key (the pod lives in the endpoints' service connections)", () => {
@@ -23,7 +33,7 @@ test("agent.pod is an unknown key (the pod lives in the endpoints' service conne
 
 test("a valid config has no pod", () => {
   const r = validateConfig(min);
-  expect(r.ok && Object.keys(r.config.agent)).toEqual(["workflowCode", "version"]);
+  expect(r.ok && Object.keys(r.config.agent)).toEqual(["workflowCode"]);
 });
 
 test("unknown top-level key is invalid", () => {
@@ -127,5 +137,28 @@ describe("ui.greeting", () => {
   test("a non-string is invalid", () => {
     const r = validateConfig({ ...min, ui: { greeting: 1 } });
     expect(r).toMatchObject({ ok: false, kind: "invalid", problems: [{ path: "ui.greeting", message: "must be a string" }] });
+  });
+});
+
+describe("ui.runSettings", () => {
+  const withRs = (runSettings: unknown) => validateConfig({ ...min, ui: { runSettings } });
+  test("absent means nobody may choose (no default role names)", () => {
+    const r = validateConfig(min);
+    expect(r.ok && r.config.ui.runSettings).toBeUndefined();
+  });
+  test("both role lists are kept; an empty list = nobody", () => {
+    const r = withRs({ allAgentsRoles: ["PICK"], draftRoles: [] });
+    expect(r.ok && r.config.ui.runSettings).toEqual({ allAgentsRoles: ["PICK"], draftRoles: [] });
+  });
+  test("both lists are required inside", () => {
+    expect(withRs({})).toEqual({
+      ok: false, kind: "needs-input",
+      problems: [{ path: "ui.runSettings.allAgentsRoles", message: "required" }, { path: "ui.runSettings.draftRoles", message: "required" }],
+    });
+  });
+  test("bad shapes are invalid", () => {
+    for (const rs of [[], "PICK", { allAgentsRoles: "PICK", draftRoles: [] }, { allAgentsRoles: [""], draftRoles: [] }, { allAgentsRoles: [], draftRoles: [1] }, { allAgentsRoles: [], draftRoles: [], x: 1 }]) {
+      expect(withRs(rs)).toMatchObject({ ok: false, kind: "invalid" });
+    }
   });
 });

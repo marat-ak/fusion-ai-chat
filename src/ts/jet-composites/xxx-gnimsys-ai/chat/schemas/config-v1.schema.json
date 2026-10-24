@@ -11,15 +11,14 @@
       "enum": ["chat"]
     },
     "agent": {
+      "$comment": "What the page binds: possibly nothing ({}). Unbound parts are chosen by the user as ui.runSettings allows; the run table is design §5.1 (agent only + no draft role runs PUBLISHED; nothing bound + no all-agents role shows the panel 'No agent in this link'). An empty string counts as not bound (a VB page parameter missing from the URL).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["workflowCode"],
       "properties": {
-        "workflowCode": { "type": "string", "minLength": 1 },
+        "workflowCode": { "type": "string" },
         "version": {
-          "$comment": "PUBLISHED runs the published workflow (/chat); DRAFT runs the draft through Studio's test path (/debug, invocationMode ADMIN).",
-          "enum": ["PUBLISHED", "DRAFT"],
-          "default": "PUBLISHED"
+          "$comment": "PUBLISHED runs the published workflow (/chat); DRAFT runs the draft through Studio's test path (/debug, invocationMode ADMIN). Absent or empty = not bound (no default: see agent).",
+          "enum": ["PUBLISHED", "DRAFT", ""]
         },
         "triggerType": { "const": "chat" },
         "additionalContext": { "type": "object" },
@@ -91,6 +90,16 @@
               "type": "boolean",
               "default": false
             }
+          }
+        },
+        "runSettings": {
+          "$comment": "Who may choose what agent does not bind, matched against user.roles: allAgentsRoles = pick any agent the user can read (BOSS workflows), draftRoles = run drafts (/debug). Roles gate choosing only, never a bound run. Absent = nobody chooses; an empty list = nobody.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allAgentsRoles", "draftRoles"],
+          "properties": {
+            "allAgentsRoles": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "draftRoles": { "type": "array", "items": { "type": "string", "minLength": 1 } }
           }
         }
       }

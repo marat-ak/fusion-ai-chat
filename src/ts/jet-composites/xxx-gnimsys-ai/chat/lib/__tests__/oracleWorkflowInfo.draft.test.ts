@@ -1,5 +1,5 @@
-import { OracleWorkflowInfo } from "../history/OracleWorkflowInfo";
-import { HistoryError } from "../history/HistoryStore";
+import { OracleWorkflowInfo, startersUnavailableText, WorkflowNotFoundError } from "../history/OracleWorkflowInfo";
+import { errorDetail } from "../errors";
 import { fakeEndpoints, vb } from "./helpers.endpoints";
 
 test("draft_reads_the_draft_row", async () => {
@@ -9,9 +9,10 @@ test("draft_reads_the_draft_row", async () => {
   expect(r).toEqual({ name: "Agent (draft)", starterQuestions: ["Q1"], followupEnabled: false });
 });
 
-test("draft_missing_is_a_404_naming_the_draft", async () => {
+test("draft_missing_says_no_draft_version", async () => {
   const { endpoints } = fakeEndpoints([vb({ items: [] })]);
   const e = await new OracleWorkflowInfo({ endpoints, workflowCode: "WF_1", status: "DRAFT" }).get().catch((x) => x);
-  expect(e).toBeInstanceOf(HistoryError);
-  expect([e.status, e.body]).toEqual([404, "workflow draft not found"]);
+  expect(e).toBeInstanceOf(WorkflowNotFoundError);
+  expect([e.message, e.version, "status" in e]).toEqual(["no draft version", "DRAFT", false]);
+  expect(startersUnavailableText(errorDetail(e))).toBe("Starter questions unavailable (no draft version)");
 });

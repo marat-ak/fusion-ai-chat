@@ -47,7 +47,7 @@ Required inputs (never defaulted):
 | Input | Where | Meaning |
 |---|---|---|
 | `mode` | config | `"chat"` (spec §2; `"app"` and `"gnimsys"` are refused as not built yet) |
-| `agent.workflowCode` | config | the AI Studio workflow (agent team) code |
+| `agent` | config | what the page binds: `workflowCode` (the AI Studio workflow code) and `version`, each optional — `{}` binds nothing; what is not bound is chosen by the user as `ui.runSettings` allows (see Run selection) |
 | `agent.pod` | config | pod id used in the token-relay scope `urn:opc:resource:fusion:<pod>:<audience>/` |
 | `auth.kind` | config | `"fusionShell"` |
 | `protocol.checkVersion` | config | AI Studio `X-Ora-Ai-Api-V2-*` check version |
@@ -67,10 +67,51 @@ value shows an **invalid** panel. Nothing is fetched until the config passes. `{
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agent.version` | `"PUBLISHED"` | `"PUBLISHED"` runs the published workflow through `/agent/v2/<wf>/chat`; `"DRAFT"` runs the draft through Studio's own test path `/agent/v2/<wf>/debug` with `invocationMode: "ADMIN"` and `debugParams: {isDebug: true, breakPoints: []}` (no `status`; a resume carries `jobId` + `resumeInput` and no run input) — the request shape of the vendored Oracle aistudio CLI's debug runner. Starter questions then come from the workflow's DRAFT row. |
+| `agent.version` | not bound | `"PUBLISHED"` runs the published workflow through `/agent/v2/<wf>/chat`; `"DRAFT"` runs the draft through Studio's own test path `/agent/v2/<wf>/debug` with `invocationMode: "ADMIN"` and `debugParams: {isDebug: true, breakPoints: []}` (no `status`; a resume carries `jobId` + `resumeInput` and no run input) — the request shape of the vendored Oracle aistudio CLI's debug runner. Starter questions then come from the workflow's DRAFT row. Absent (or `""`) = not bound: the run selection decides (Published for a bound agent and a user without the draft role). A workflow without a row for the version shows "Starter questions unavailable (workflow not published)" / "(no draft version)". |
 | `app` | absent | `{applicationCode, applicationType: "PUBLISHED"\|"DRAFT", panel?, appContext?}` — the Agentic App of mode `app` (not built yet); both codes required when present. |
 | `ui.modeSwitch` | `false` | An `oj-c-buttonset-single` in the header listing the modes that are implemented and configured (today: `Chat`). Picking another mode is a full reset: the chat remounts in a new conversation. |
 | `ui.debug.rawFrames` | `false` | Under each reply a collapsed `Raw frames (N)` panel listing every SSE `data:` payload of that reply verbatim, in arrival order (frames the parser rejects included). |
+
+### Run selection (bridge design §5.1)
+
+A VB page reached from Fusion menu links binds `agent.workflowCode` / `agent.version` from its URL (page input
+parameters; an empty string counts as not bound). What it leaves unbound, the user chooses — version first — if their
+`user.roles` allow:
+
+```json
+"agent": { "workflowCode": "<optional>", "version": "<optional PUBLISHED|DRAFT>" },
+"ui": { "runSettings": { "allAgentsRoles": ["<Fusion role>"], "draftRoles": ["<Fusion role>"] } }
+```
+
+Both lists are required inside `runSettings` (an empty list = nobody); `runSettings` absent = nobody chooses. No role
+names are defaulted.
+
+| Bound at init | User holds | Shown |
+|---|---|---|
+| agent + version | — | no choice; runs it (no role check) |
+| agent only | draft role | version choice limited to the versions that agent has |
+| agent only | no draft role | runs Published |
+| version only | all-agents role | agent list for that version |
+| nothing | all-agents + draft | version → refreshed agent list → agent |
+| nothing | all-agents only | Published agent list → agent |
+| nothing / version only | no all-agents role | panel "No agent in this link" (no pod call) |
+
+- Roles only gate choosing; a bound part is never checked or overridden (Oracle enforces `/debug` rights on the user's
+  token — the role check is not security).
+- The choice opens as a panel in place of the chat; the header's "Change agent" / "Change version" reopens it (Cancel
+  returns to the chat unchanged); every change of run starts a new conversation. A Draft badge stays in the header while a
+  draft runs.
+- Agent list: BOSS `…/agents/v1/$en/workflows` through the BOSS endpoint, the rows the vendored Oracle aistudio CLI lists
+  (`$filter=(status = '<version>' and sourceWorkflowCode = null [and (name ~LIKE '%q%' or workflowCode ~LIKE '%q%')])`,
+  `$limit=25` / `$offset`), templates (`isTemplate`) and hidden rows (`hiddenFlag`) dropped; searchable by name or code,
+  paged as the list scrolls (a JET DataProvider over the endpoint layer); each row shows name, code and a
+  Published / Draft marker per version it has (one extra BOSS read per page). **[open]** whether an end-user token
+  holding the chat roles may read these rows (both statuses) on a live pod — built and tested against the mock pod only.
+- Refresh: the unbound parts the user chose (never a bound part) are kept in `sessionStorage` under
+  `xxx-gnimsys-ai-chat:run:<location.pathname>:agent=<bound code or ->,version=<bound version or ->`, value
+  `{workflowCode?, version?}`. On load a stored choice is re-checked (role still held, agent still listed for that
+  version); one that fails is dropped and the panel shows with a note. Without storage (private windows) the panel shows.
+- Event `ai-chat-run-changed` (`detail.workflowCode`, `detail.version`) on every run change, the first run included.
 
 A 401 answer whose body carries readable text (`detail` / `title` / `message`) shows that text under the re-login banner:
 an endpoint says there what signing in means for it (the debug host's proxy: "Sign in to <instance> in the agent chat
@@ -81,7 +122,7 @@ first.").
 | Property (attribute) | Type | |
 |---|---|---|
 | `config` | object or JSON string | required |
-| `user` | object (`$application.user`) | required: `userName` (string, owner filter of the conversation list); `roles` (string[], optional) used by `ui.trace` |
+| `user` | object (`$application.user`) | required: `userName` (string, owner filter of the conversation list); `roles` (string[], optional) used by `ui.trace` and `ui.runSettings` |
 | `person-id` | string | required when `files.enabled` |
 | `context` | object | values for `{{key}}` in `agent.additionalContext` |
 | `conversation-id` | string, writeback | current conversation; setting it opens that conversation |
@@ -98,8 +139,9 @@ in VB bind `user="[[ $application.user ]]"`.
 
 Events: `ai-chat-conversation-changed` (`detail.conversationId`), `ai-chat-error` (`detail.message`,
 `detail.status?`, `detail.reason?` = `xsrf-unavailable` | `token-undecodable` | `clock-skew` when chat auth is
-unavailable). Methods: `newConversation()`, `send(text)`, `openConversation(id)`; they throw while
-the component shows a needs-input/invalid panel. `ai-chat-submit` and `ai-chat-action` arrive with the
+unavailable), `ai-chat-run-changed` (`detail.workflowCode`, `detail.version`; see Run selection). Methods:
+`newConversation()`, `send(text)`, `openConversation(id)`; they throw while the component shows a needs-input/invalid
+panel or no run is chosen yet. `ai-chat-submit` and `ai-chat-action` arrive with the
 widgets in v1.1.
 
 Sizing: the element is `display: block; width: 100%; height: 560px` by default, so it fills its container's width
