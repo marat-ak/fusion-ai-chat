@@ -7,9 +7,16 @@
 
 'use strict';
 
+const debugHost = require('./debug-host');
+
 module.exports = function (configObj) {
   return new Promise((resolve, reject) => {
   	console.log("Running before_injection hook.");
-  	resolve(configObj);
+  	try {
+  	  if (debugHost.flavourOf(configObj) === debugHost.FLAVOUR) debugHost.stageShell(configObj);
+  	  resolve(configObj);
+  	} catch (e) {
+  	  reject(e);
+  	}
   });
 };

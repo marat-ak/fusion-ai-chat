@@ -113,7 +113,7 @@ export function streamFetchOf(restHelper: unknown, endpoints: Record<string, str
 }
 
 /** The pod path of a URL when it is pod-relative and normalises to itself (no "..", ".", backslash or "//" tricks). */
-function podPath(url: string): string | null {
+export function podPath(url: string): string | null {
   if (!url.startsWith("/") || url.startsWith("//") || url.includes("\\")) return null;
   const raw = url.split(/[?#]/)[0];
   let normalised: string;

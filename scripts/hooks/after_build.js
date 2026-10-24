@@ -7,9 +7,11 @@
 
 'use strict';
 
+const debugHost = require('./debug-host');
+
 module.exports = function (configObj) {
-  return new Promise((resolve, reject) => {
-  	console.log("Running after_build hook.");
-  	resolve(configObj);
-  });
+  console.log("Running after_build hook.");
+  return Promise.resolve()
+    .then(() => (debugHost.flavourOf(configObj) === debugHost.FLAVOUR ? debugHost.finish(configObj) : undefined))
+    .then(() => configObj);
 };

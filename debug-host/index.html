@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<!--
+  The agent builders' debugger page (spec §17.1): the app shell's page for the debug-host build flavour
+  (`npm run build:debug-host`; scripts/hooks/debug-host.js puts it in place of src/index.html). Served under
+  /ai-chat-debug/ on the fusion-ai-agent vhost and shown in the agent UI's side panel. Every asset URL is relative.
+-->
+<html lang="en-us">
+  <head>
+    <title>AI Chat Debugger</title>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1">
+    <link rel="icon" href="css/images/JET-Favicon-Red-32x32.png" type="image/x-icon" />
+
+    <!-- JET's Redwood theme, from this build -->
+    <!-- injector:theme -->
+    <!-- endinjector -->
+    <!-- Redwood UX icon font (oj-ux-ico-*); the debug-host hook serves it from this build -->
+    <!-- injector:font -->
+    <!-- endinjector:font -->
+
+    <style>
+      /* The page fills the side panel's frame and the chat takes the height the form leaves: no utility class sets a
+         viewport height or a flex basis with min-height 0. */
+      html, body { height: 100%; margin: 0; }
+      #globalBody { height: 100%; }
+      .dbg-chat { flex: 1 1 auto; min-height: 0; }
+      /* The chat fills its area (the component's default is 560px; its README: set your own height on the tag). */
+      .dbg-chat xxx-gnimsys-ai-chat { height: 100%; }
+    </style>
+  </head>
+  <body class="oj-web-applayout-body">
+    <div id="globalBody" class="oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap">
+      <div class="oj-sm-padding-4x-horizontal oj-sm-padding-2x-top">
+        <h1 class="oj-typography-heading-xs oj-sm-margin-0">AI Chat Debugger</h1>
+      </div>
+      <oj-c-form-layout class="oj-sm-padding-4x-horizontal" max-columns="2" direction="row" user-assistance-density="compact">
+        <oj-c-select-single data-testid="dbg-instance" label-hint="Instance" item-text="label"
+          data="[[instanceData]]" value="{{instance}}"></oj-c-select-single>
+        <oj-c-radioset data-testid="dbg-version" label-hint="Version" direction="row"
+          options="[[versionOptions]]" value="{{version}}"></oj-c-radioset>
+        <oj-c-input-text data-testid="dbg-workflow" label-hint="Workflow code" value="{{workflowCode}}"></oj-c-input-text>
+        <oj-c-input-text data-testid="dbg-app" label-hint="App code" value="{{appCode}}"></oj-c-input-text>
+      </oj-c-form-layout>
+      <div class="oj-flex oj-sm-align-items-center oj-sm-padding-4x-horizontal oj-sm-padding-2x-vertical">
+        <oj-c-button data-testid="dbg-run" class="oj-sm-margin-2x-end" label="Run" chroming="callToAction" on-oj-action="[[run]]"></oj-c-button>
+        <oj-c-button data-testid="dbg-refresh" label="Refresh instances" chroming="outlined" disabled="[[loading]]"
+          on-oj-action="[[loadInstances]]"></oj-c-button>
+      </div>
+      <oj-bind-if test="[[hasNotices]]">
+        <oj-c-message-banner data-testid="dbg-notices" class="oj-sm-margin-4x-horizontal oj-sm-margin-2x-bottom" type="section"
+          data="[[notices]]"></oj-c-message-banner>
+      </oj-bind-if>
+      <div class="dbg-chat oj-flex oj-sm-flex-direction-column oj-sm-padding-4x-horizontal oj-sm-padding-2x-bottom" data-testid="dbg-chat">
+        <oj-bind-if test="[[chat]]">
+          <xxx-gnimsys-ai-chat config="[[chat().config]]" user="[[chat().user]]" rest-helper="[[chat().restHelper]]"
+            endpoint="[[chat().endpoint]]"></xxx-gnimsys-ai-chat>
+        </oj-bind-if>
+      </div>
+    </div>
+
+    <!-- injector:scripts -->
+    <!-- endinjector -->
+  </body>
+</html>

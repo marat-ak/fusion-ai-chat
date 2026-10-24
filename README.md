@@ -29,6 +29,7 @@ Published contract: [`chat/schemas/config-v1.schema.json`](src/ts/jet-composites
 
 ```json
 {
+  "mode": "chat",
   "agent": {
     "workflowCode": "KRN_INV_TXN_WIZARD",
     "pod": "evbp-dev1",
@@ -45,7 +46,8 @@ Required inputs (never defaulted):
 
 | Input | Where | Meaning |
 |---|---|---|
-| `agent.workflowCode` | config | the published AI Studio workflow (agent team) code |
+| `mode` | config | `"chat"` (spec §2; `"app"` and `"gnimsys"` are refused as not built yet) |
+| `agent.workflowCode` | config | the AI Studio workflow (agent team) code |
 | `agent.pod` | config | pod id used in the token-relay scope `urn:opc:resource:fusion:<pod>:<audience>/` |
 | `auth.kind` | config | `"fusionShell"` |
 | `protocol.checkVersion` | config | AI Studio `X-Ora-Ai-Api-V2-*` check version |
@@ -60,6 +62,19 @@ inside it; default: the component's localized "How can I help you?"); `ui.placeh
 A missing required input shows a **needs-input** panel listing what is missing; an unknown key or a wrong
 value shows an **invalid** panel. Nothing is fetched until the config passes. `{{key}}` placeholders in
 `agent.additionalContext` are replaced from the `context` property.
+
+### Debugger keys (spec §5, §17)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `agent.version` | `"PUBLISHED"` | `"PUBLISHED"` runs the published workflow through `/agent/v2/<wf>/chat`; `"DRAFT"` runs the draft through Studio's own test path `/agent/v2/<wf>/debug` with `invocationMode: "ADMIN"` and `debugParams: {isDebug: true, breakPoints: []}` (no `status`; a resume carries `jobId` + `resumeInput` and no run input) — the request shape of the vendored Oracle aistudio CLI's debug runner. Starter questions then come from the workflow's DRAFT row. |
+| `app` | absent | `{applicationCode, applicationType: "PUBLISHED"\|"DRAFT", panel?, appContext?}` — the Agentic App of mode `app` (not built yet); both codes required when present. |
+| `ui.modeSwitch` | `false` | An `oj-c-buttonset-single` in the header listing the modes that are implemented and configured (today: `Chat`). Picking another mode is a full reset: the chat remounts in a new conversation. |
+| `ui.debug.rawFrames` | `false` | Under each reply a collapsed `Raw frames (N)` panel listing every SSE `data:` payload of that reply verbatim, in arrival order (frames the parser rejects included). |
+
+A 401 answer whose body carries readable text (`detail` / `title` / `message`) shows that text under the re-login banner:
+an endpoint says there what signing in means for it (the debug host's proxy: "Sign in to <instance> in the agent chat
+first.").
 
 ## Component contract
 
@@ -174,6 +189,34 @@ extension is not yet proven on a pod: the dev1 spike confirms it.
   It starts the **mock pod** (`tests/mock-pod/server.mjs`, port 8787: token relay, `/chat` SSE, BOSS
   conversations, messages, attachments) and `MOCK_POD=1 npm run serve`, which proxies the page's
   `/api`, `/fscmRestApi`, `/hcmRestApi` calls to the mock. The mock answers `GET /fscmRestApi/anticsrf` with `test-xsrf`, so the real `fusionShell` path runs offline.
+
+## Debug host (agent builders' debugger, spec §17.1)
+
+A second build flavour of this repo's app shell, for the fusion-ai-agent UI's side panel (iframe, same origin):
+`npm run build:debug-host` (= `ojet build --release --user-options=debug-host`; `scripts/hooks/debug-host.js`):
+
+- Page `debug-host/index.html` instead of `src/index.html`, entry `src/ts/debug-host/root.ts` instead of `src/ts/root.ts`:
+  the rest helper is fixed per build (the dev mock's modules are removed from this output).
+- No query parameters. The page lists the user's pod instances from `GET /api/pod/instances` (no preselect, also with one
+  instance; instances without a pod sign-in, without a known pod user, with several sign-ins or with setup gaps are shown
+  with a notice), takes the workflow code, the app code and `PUBLISHED`/`DRAFT`, and Run mounts the chat with
+  `ui.modeSwitch`, `ui.debug.rawFrames`, `ui.trace.roles` = `["AI_CHAT_DEBUGGER"]` paired with `user.roles`, and
+  `user.userName` = the instance's `podUser` (absent: the chat's needs-input panel). Attachments are off with a notice:
+  there is no reliable read of the pod user's PersonId through the FA endpoint yet.
+- Rest helper `src/ts/debug-host/podProxyRestHelper.ts`: VB's RestHelper chain (hooks, body format) over the engine's
+  same-origin proxy `ANY /api/pod/<instance>/<TARGET>/<pod-path>` with `X-Gnimsys-Pod-Proxy: 1` and same-origin
+  credentials; endpoint map `{FA: "FA", …}`. The chat streams through it with the data pack's VB stream provider, as on a
+  pod. Refused before sending: a path outside the target's prefixes, a header the proxy does not forward. Proxy states
+  (`X-Gnimsys-Pod-Proxy-Error`) get a readable `detail`: `auth-required` → the re-login banner "Sign in to <instance> in
+  the agent chat first."; the others → the call's error text.
+- Served from the build only: JET 19, Redwood and the Core Pack from `node_modules`; Oracle's UX icon font (the version
+  pinned by `oraclejetconfig.json` `fontUrl`) downloaded once per version into `node_modules/.cache/ojux-iconfont/` (its
+  own layer in the image) and copied into `css/ojux/<version>/`; the bundle is `js/bundle.<sha256:16>.js`. The build
+  fails on any remaining remote `href`/`src`.
+- Image `gnimsys/ai-chat-debug` (`debug-host/Dockerfile`, context = repo root; nginx serving `/ai-chat-debug/`, see
+  `debug-host/nginx.conf` and `debug-host/deploy.yml`).
+- e2e: `scripts/e2e.sh npm run e2e:debug-host` — the release build behind a fake of the proxy
+  (`tests/fake-pod-proxy/server.mjs`) in front of the mock pod.
 
 ## Known limits (v1.0)
 

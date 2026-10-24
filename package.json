@@ -29,10 +29,12 @@
   "scripts": {
     "build": "ojet build",
     "build:release": "ojet build --release",
+    "build:debug-host": "ojet build --release --user-options=debug-host",
     "serve": "ojet serve --server-only --server-port=8000 --livereload=false",
     "test": "jest -c test-config/jest.config.cjs",
     "package": "ojet package pack xxx-gnimsys-data && ojet package pack xxx-gnimsys-ai",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:debug-host": "playwright test -c playwright.debug-host.config.ts"
   },
   "overrides": {
     "@types/minimatch": "5.1.2"
