@@ -1,8 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// e2e of the debug host (spec §17.1): the debug-host RELEASE build (what the static image serves) behind a fake of the
-// engine's /api/pod proxy, in front of the mock pod. `npm run e2e:debug-host` (scripts/e2e.sh); the build runs first, so
-// the dev host page's e2e (playwright.config.ts) and this one never share a run (both stage into web/).
+// e2e of the debug host (spec §17.1): the debug-host RELEASE build as delivered in dist/debug-host/ (what agent-ui serves
+// at /ai-chat-debug/) behind a fake of the engine's /api/pod proxy, in front of the mock pod. `npm run e2e:debug-host`
+// (scripts/e2e.sh); the build runs first, so the dev host page's e2e (playwright.config.ts) and this one never share a
+// run (both stage into web/).
 export default defineConfig({
   testDir: "tests/e2e-debug-host",
   retries: 0,

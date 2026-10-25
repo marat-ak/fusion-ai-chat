@@ -1,7 +1,8 @@
 // e2e of the debug host (tests/e2e-debug-host): a small stand-in for the engine's same-origin pod proxy (spec §17.1,
-// engine contract 2026-10-24; bridge design §4.2 conversation form) in front of the mock pod, plus the static debug-host
-// build, on ONE origin as the gateway serves them (the fusion-ai-agent vhost: /ai-chat-debug/ static, /api/pod/* engine).
-//   node tests/fake-pod-proxy/server.mjs     (port 8790; serves ./web, i.e. run after `npm run build:debug-host`)
+// engine contract 2026-10-24; bridge design §4.2 conversation form) in front of the mock pod, plus the delivered static
+// debug-host build, on ONE origin as the gateway serves them (the fusion-ai-agent vhost: /ai-chat-debug/ from agent-ui,
+// /api/pod/* engine).
+//   node tests/fake-pod-proxy/server.mjs     (port 8790; serves dist/debug-host/, i.e. run after `npm run build:debug-host`)
 // Proxy behaviour mirrored from the engine contract: X-Gnimsys-Pod-Proxy: 1 required on every call (403 csrf-refused);
 // GET /api/pod/c/<conversationId>/_info -> {instance, podUser?} of the conversation's bound sign-in, or 401 auth-required;
 // ANY /api/pod/c/<conversationId>/<TARGET>/<pod-path> -> the mock pod with the bound sign-in's Bearer, response piped
@@ -20,7 +21,7 @@ import path from "node:path";
 
 const PORT = 8790;
 const MOCK_POD = { host: "127.0.0.1", port: 8787 };
-const WEB = path.resolve("web");
+const WEB = path.resolve("dist", "debug-host"); // what agent-ui's image copies
 const STATIC = "/ai-chat-debug/";
 const POD_TOKEN = "Bearer fake-pod-token";
 const TARGETS = {

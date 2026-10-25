@@ -271,13 +271,22 @@ A second build flavour of this repo's app shell, for the fusion-ai-agent UI's si
   the proxy does not forward. Proxy states (`X-Gnimsys-Pod-Proxy-Error`) get a readable `detail`: `auth-required` → the
   re-login banner "Sign in to <instance> in the agent chat first."; the others → the call's error text.
 - Served from the build only: JET 19, Redwood and the Core Pack from `node_modules`; Oracle's UX icon font (the version
-  pinned by `oraclejetconfig.json` `fontUrl`) downloaded once per version into `node_modules/.cache/ojux-iconfont/` (its
-  own layer in the image) and copied into `css/ojux/<version>/`; the bundle is `js/bundle.<sha256:16>.js`. The build
-  fails on any remaining remote `href`/`src`.
-- Image `gnimsys/ai-chat-debug` (`debug-host/Dockerfile`, context = repo root; nginx serving `/ai-chat-debug/`, see
-  `debug-host/nginx.conf` and `debug-host/deploy.yml`).
-- e2e: `scripts/e2e.sh npm run e2e:debug-host` — the release build behind a fake of the proxy's conversation form
-  (`tests/fake-pod-proxy/server.mjs`) in front of the mock pod.
+  pinned by `oraclejetconfig.json` `fontUrl`) downloaded once per version into `node_modules/.cache/ojux-iconfont/` (the
+  checkout's `node_modules` volume; only that first download needs internet) and copied into `css/ojux/<version>/`; the
+  bundle is `js/bundle.<sha256:16>.js`. The build fails on any remaining remote `href`/`src`.
+- Delivered as the folder **`dist/debug-host/`** (gitignored; replaced whole by every `build:debug-host`): `index.html`
+  plus its relative assets. This repo runs no service for the page: **agent-ui** copies that folder into its image at
+  build time and serves it at `/ai-chat-debug/` on the fusion-ai-agent vhost (bridge design §10 item 6). Build it without
+  publishing ports (so it runs beside a dev serve):
+  `wsl -d CloudBeaver -u root -e bash -lc 'bash /mnt/c/Marat/OSaaS/ClaudeShared/oservices/fusion-ai-chat/scripts/e2e.sh npm run build:debug-host'`.
+- Serving contract for agent-ui: `/ai-chat-debug` redirects to `/ai-chat-debug/`; the page shell (`/ai-chat-debug/`,
+  `index.html`) is `Cache-Control: no-cache` with `Content-Security-Policy: frame-ancestors 'self'` (only our origin
+  frames it: the agent UI's side panel); the content-hashed bundle `js/bundle.<16 hex>.js` and the version-named
+  directories `js/libs/oj/<version>/`, `css/redwood/<version>/`, `css/theme-redwood/<version>/`, `css/ojux/<version>/`
+  are `public, max-age=31536000, immutable`; every other file `no-cache`; all with `X-Content-Type-Options: nosniff`;
+  no SPA fallback. The page's `/api/pod/*` calls go to the engine on the same origin.
+- e2e: `scripts/e2e.sh npm run e2e:debug-host` — the build, served from `dist/debug-host/`, behind a fake of the proxy's
+  conversation form (`tests/fake-pod-proxy/server.mjs`) in front of the mock pod.
 
 ## Known limits (v1.0)
 

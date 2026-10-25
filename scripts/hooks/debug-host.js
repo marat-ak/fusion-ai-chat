@@ -7,7 +7,9 @@
   - everything served from the build output, no CDN: JET 19, the Redwood theme and the Core Pack come from
     node_modules (path_mapping "use": "local"); Oracle's UX icon font (oj-ux-ico-*), which JET's tooling links from
     Oracle's CDN (oraclejetconfig.json fontUrl), is downloaded into the build at the same pinned version,
-  - the bundle named by its content hash (js/bundle.<sha256:16>.js), so the static server may cache it forever.
+  - the bundle named by its content hash (js/bundle.<sha256:16>.js), so the static server may cache it forever,
+  - the finished build delivered whole at the fixed path dist/debug-host/ (replaced on every build): agent-ui's image
+    copies that folder at build time and serves it at /ai-chat-debug/.
   Any other --user-options value fails the build.
 */
 
@@ -72,7 +74,7 @@ async function download(url, allow404 = false) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-/** Where a downloaded icon font version is kept (node_modules: a named volume in dev/e2e, an image layer in Docker). */
+/** Where a downloaded icon font version is kept (node_modules: the checkout's named Docker volume, see scripts/e2e.sh). */
 const FONT_CACHE = path.resolve('node_modules', '.cache', 'ojux-iconfont');
 
 /**
@@ -140,15 +142,21 @@ async function finish(configObj) {
   if (remote) throw new Error(`debug-host: index.html still loads remote assets: ${remote.join(', ')}`);
   fs.writeFileSync(indexHtml, html);
   console.log(`[debug-host] ${hashed}; dev mock modules removed`);
+  deliver(web);
+}
+
+/** The delivered build: the page's complete static output, at a fixed path for agent-ui's image build to copy. */
+const OUTPUT = path.resolve('dist', 'debug-host');
+
+/** Replaces dist/debug-host/ with the finished staging dir (copied beside it first, so a failed copy leaves no mix). */
+function deliver(web) {
+  const tmp = `${OUTPUT}.part-${process.pid}`;
+  fs.mkdirSync(path.dirname(OUTPUT), { recursive: true });
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.cpSync(web, tmp, { recursive: true });
+  fs.rmSync(OUTPUT, { recursive: true, force: true });
+  fs.renameSync(tmp, OUTPUT);
+  console.log(`[debug-host] delivered to ${path.relative(process.cwd(), OUTPUT)}/`);
 }
 
 module.exports = { flavourOf, stageShell, finish, FLAVOUR };
-
-// `node scripts/hooks/debug-host.js fetch-icon-font`: fill the cache ahead of the build (the image's own layer).
-if (require.main === module) {
-  if (process.argv[2] !== 'fetch-icon-font') {
-    console.error('usage: node scripts/hooks/debug-host.js fetch-icon-font');
-    process.exit(2);
-  }
-  ensureIconFont().catch((e) => { console.error(e.message); process.exit(1); });
-}

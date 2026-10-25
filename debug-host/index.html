@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <!--
   The agent builders' debugger page (spec §17.1): the app shell's page for the debug-host build flavour
-  (`npm run build:debug-host`; scripts/hooks/debug-host.js puts it in place of src/index.html). Served under
-  /ai-chat-debug/ on the fusion-ai-agent vhost and shown in the agent UI's side panel. Every asset URL is relative.
+  (`npm run build:debug-host`; scripts/hooks/debug-host.js puts it in place of src/index.html). The build lands in
+  dist/debug-host/, which agent-ui serves under /ai-chat-debug/ on the fusion-ai-agent vhost; shown in the agent UI's
+  side panel. Every asset URL is relative.
   The agent chat binds the run through the URL: ?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED.
 -->
 <html lang="en-us">
