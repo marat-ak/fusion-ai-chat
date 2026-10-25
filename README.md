@@ -14,9 +14,11 @@ Design: `../docs/superpowers/specs/2026-10-21-fusion-ai-chat-design.md`. Develop
 - A Fusion **App UI extension** page (VB Studio extension served from the pod). The component calls
   `/api/fusion-ai`, `/api/boss`, `/fscmRestApi` and `/hcmRestApi` on the **page's own origin**: same-origin
   only, no cross-origin, no proxy.
-- Auth kind `fusionShell` (the only kind in v1.0): the component fetches an anti-CSRF token from
-  `GET /fscmRestApi/anticsrf` (same-origin, session cookie), then gets a bearer per audience from
-  `/fscmRestApi/tokenrelay` and adds it itself. This works on any same-origin Fusion/VB page: no shell node is needed.
+- Endpoints, not tokens: the component never mints or adds a token. Every pod call goes through the page's VB
+  RestHelper (`rest-helper`) and the `endpoint` map (contract name `FUAI`, `BOSS`, `FA` -> VB endpoint id of a service
+  connection); the service connection owns the request and its token, and its scope carries the pod. The old
+  `fusionShell` modules (anti-CSRF + token relay, `lib/auth/FusionShellAuthFetch.ts`, `lib/auth/tokenRelay.ts`) are no
+  longer called and remain only until their removal (endpoint slice, Task 5).
 - The pod's AI Studio protocol version pinned in the config (`protocol.checkVersion`, `2607100` when built).
   Oracle's API is undocumented and drifts per release: re-test on every pod upgrade.
 
@@ -131,7 +133,8 @@ first.").
 | `person-id` | string | required when `files.enabled` |
 | `context` | object | values for `{{key}}` in `agent.additionalContext` |
 | `conversation-id` | string, writeback | current conversation; setting it opens that conversation |
-| `rest-helper`, `endpoint` | object / object or string | accepted for the future `vb` auth kind, unused in v1.0 |
+| `rest-helper` | object | required: the page's VB RestHelper (`vb/helpers/rest`, `get(endpointId)`); every pod call goes through it |
+| `endpoint` | object | required: the endpoint map, contract name -> VB endpoint id (`FUAI`, `BOSS`, and `FA` when `files.enabled`; see Required inputs) |
 
 ### Role-gated trace panel
 
@@ -143,8 +146,8 @@ while the reply streams. Without `user.roles` (or without a match) nothing is re
 in VB bind `user="[[ $application.user ]]"`.
 
 Events: `ai-chat-conversation-changed` (`detail.conversationId`), `ai-chat-error` (`detail.message`,
-`detail.status?`, `detail.reason?` = `xsrf-unavailable` | `token-undecodable` | `clock-skew` when chat auth is
-unavailable), `ai-chat-run-changed` (`detail.workflowCode`, `detail.version`; see Run selection). Methods:
+`detail.status?` = the HTTP status when the call got one; `401` = an endpoint asks for a re-login),
+`ai-chat-run-changed` (`detail.workflowCode`, `detail.version`; see Run selection). Methods:
 `newConversation()`, `send(text)`, `openConversation(id)`; they throw while the component shows a needs-input/invalid
 panel or no run is chosen yet. `ai-chat-submit` and `ai-chat-action` arrive with the
 widgets in v1.1.
@@ -155,8 +158,8 @@ CSS, and the chat fills it with the feed scrolling inside.
 
 ## Dev loop (VB page on the pod, bundle from your machine)
 
-The VB page stays on the pod (so `fusionShell` auth and every API call are real); only the component's
-code is loaded from your local `ojet serve`.
+The VB page stays on the pod (so its service connections, their tokens and every API call are real); only the
+component's code is loaded from your local `ojet serve`.
 
 1. Serve the component (dev build, CORS `Access-Control-Allow-Origin: *`, bound so Windows reaches it on
    port 8000):
@@ -233,9 +236,11 @@ extension is not yet proven on a pod: the dev1 spike confirms it.
   `wsl -d CloudBeaver -u root -e bash -lc 'bash /mnt/c/Marat/OSaaS/ClaudeShared/oservices/fusion-ai-chat/scripts/dev.sh npm test'`
 - End-to-end (Playwright, Chromium):
   `wsl -d CloudBeaver -u root -e bash -lc 'bash /mnt/c/Marat/OSaaS/ClaudeShared/oservices/fusion-ai-chat/scripts/e2e.sh npm run e2e'`.
-  It starts the **mock pod** (`tests/mock-pod/server.mjs`, port 8787: token relay, `/chat` SSE, BOSS
-  conversations, messages, attachments) and `MOCK_POD=1 npm run serve`, which proxies the page's
-  `/api`, `/fscmRestApi`, `/hcmRestApi` calls to the mock. The mock answers `GET /fscmRestApi/anticsrf` with `test-xsrf`, so the real `fusionShell` path runs offline.
+  It starts the **mock pod** (`tests/mock-pod/server.mjs`, port 8787: `/chat` and `/debug` SSE, BOSS
+  conversations and workflows, messages, attachments; its token-relay and anti-CSRF routes remain only until the
+  `fusionShell` removal) and `MOCK_POD=1 npm run serve`, which proxies the page's `/api`, `/fscmRestApi`, `/hcmRestApi`
+  calls to the mock. The host page passes the mock rest helper (`src/ts/dev/mock-rest-helper.ts`, VB's RestHelper
+  interface) and an endpoint map whose service connections point at the page's origin, so the endpoint path runs offline.
 
 ## Debug host (agent builders' debugger, spec §17.1)
 
@@ -274,8 +279,9 @@ A second build flavour of this repo's app shell, for the fusion-ai-agent UI's si
 ## Known limits (v1.0)
 
 - Same-origin only: works in a Fusion App UI extension, not in a standalone VB app on another origin.
-- Auth kind `fusionShell` only; `vb` (service connections through `rest-helper`/`endpoint`) waits for the
-  dev1 spike. The anti-CSRF token comes from `/fscmRestApi/anticsrf` (a VB App UI extension page has no shell node).
+- Endpoints only: every call goes through `rest-helper` + `endpoint` (VB service connections own the requests and their
+  tokens; the component mints none). The unused `fusionShell` modules (anti-CSRF + token relay) and the
+  `auth.kind: "fusionShell"` config value remain only until their removal (endpoint slice, Task 5).
 - Conversation history (`conversations/v1/{id}/messages`) answered HTTP 500 on dev1: opening an older
   conversation then shows "History unavailable (HTTP n): <error text>" at the top of the feed and the user
   can continue it.

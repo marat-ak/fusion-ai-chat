@@ -7,6 +7,9 @@
 // ANY /api/pod/c/<conversationId>/<TARGET>/<pod-path> -> the mock pod with the bound sign-in's Bearer, response piped
 // unbuffered; an unknown conversation answers 404 unknown-conversation; proxy states carry X-Gnimsys-Pod-Proxy-Error:
 // <state> and a JSON {state, message, ...} body; only the forwarded request headers reach the pod.
+// TARGETS mirrors the narrowed proxy configuration the deployment uses (each target's prefixes = the component's call
+// sites only); a target not listed answers 404 unknown-target, a path outside its target's prefixes 403 path-not-allowed
+// (as in the engine: the path must start with a prefix and be strictly longer than it).
 // Conversations (all of the test user's): u1__dev1 (bound to dev1, pod user test.user), u1__nouser (bound to dev1, pod
 // user unknown), u1__unbound (no pod sign-in: 401 auth-required, _info included), u1__stale (_info answers, but the
 // sign-in is gone by the first call: 401 auth-required), u1__noconf (FUAI not configured: 424 not-configured).
@@ -21,12 +24,9 @@ const WEB = path.resolve("web");
 const STATIC = "/ai-chat-debug/";
 const POD_TOKEN = "Bearer fake-pod-token";
 const TARGETS = {
-  FA: ["/fscmRestApi/", "/hcmRestApi/", "/crmRestApi/", "/applcoreApi/v1/", "/xmlpserver/"],
-  FUAI: ["/api/fusion-ai/"],
-  BOSS: ["/api/boss/"],
-  SAASBATCH: ["/api/saas-batch/"],
-  KM: ["/api/knowledge-management/", "/api/ci/"],
-  SALESCOMMON: ["/api/sales-common/"],
+  FUAI: ["/api/fusion-ai/orchestrator/agent/v2/", "/api/fusion-ai/orchestrator/conversations/v1/"],
+  BOSS: ["/api/boss/data/objects/ora/commonFusionAI/agents/v1/"],
+  FA: ["/fscmRestApi/applcoreApi/v1/", "/hcmRestApi/resources/", "/hcmRestApi/rest/"],
 };
 const FORWARDED = ["content-type", "accept", "accept-language", "if-match", "rest-framework-version", "effective-of"];
 const CONVERSATIONS = {
