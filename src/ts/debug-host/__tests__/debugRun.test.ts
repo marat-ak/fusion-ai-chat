@@ -96,12 +96,21 @@ test("the_config_turns_the_debug_features_on_and_files_off_and_validates", () =>
   const config = runConfig({ workflowCode: "WF_1", version: "PUBLISHED" });
   expect(config).toEqual({
     mode: "chat",
-    agent: { workflowCode: "WF_1", version: "PUBLISHED" },
+    // A PUBLISHED run goes through /debug (status PUBLISHED): the builder gets the node data as for a draft.
+    agent: { workflowCode: "WF_1", version: "PUBLISHED", publishedVia: "debug" },
     auth: { kind: "fusionShell" },
     protocol: { checkVersion: CHECK_VERSION },
     ui: { modeSwitch: true, debug: { rawFrames: true }, trace: { roles: [TRACE_ROLE] } },
     files: { enabled: false },
   });
   const r = validateConfig(config);
-  expect(r.ok && [r.config.agent.version, r.config.ui.modeSwitch, r.config.ui.debug.rawFrames]).toEqual(["PUBLISHED", true, true]);
+  expect(r.ok && [r.config.agent.version, r.config.agent.publishedVia, r.config.ui.modeSwitch, r.config.ui.debug.rawFrames]).toEqual(["PUBLISHED", "debug", true, true]);
+});
+
+test("a_draft_run_config_carries_no_published_via_and_validates", () => {
+  // publishedVia is refused with a bound DRAFT: the draft runs through /debug anyway.
+  const config = runConfig({ workflowCode: "WF_1", version: "DRAFT" });
+  expect(config.agent).toEqual({ workflowCode: "WF_1", version: "DRAFT" });
+  const r = validateConfig(config);
+  expect(r.ok && r.config.agent).toEqual({ workflowCode: "WF_1", version: "DRAFT" });
 });

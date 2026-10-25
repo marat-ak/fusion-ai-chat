@@ -1,5 +1,5 @@
-// Mock Fusion pod for e2e: token relay, AI Studio v2 chat and debug (draft) SSE, BOSS history and workflows (filtered and
-// paged like BOSS: see WORKFLOWS / parseWorkflowFilter), messages, attachments.
+// Mock Fusion pod for e2e: token relay, AI Studio v2 chat and debug (draft, or published with status) SSE, BOSS history
+// and workflows (filtered and paged like BOSS: see WORKFLOWS / parseWorkflowFilter), messages, attachments.
 // Zero dependencies (Node 22 `http`). State is in memory and resets on process start.
 // BOSS PATCH/DELETE on userConversations require `If-Match: "1"` (the rows' etag) and answer 412 without it.
 //   node tests/mock-pod/server.mjs        (PORT env, default 8787; binds 0.0.0.0)
@@ -291,12 +291,16 @@ const routes = [
     },
   },
   {
-    // The draft's test path, as the vendored aistudio CLI's debug runner calls it: the run must say it is an ADMIN debug run.
+    // Studio's test path, as the vendored aistudio CLI's debug runner calls it: the run must say it is an ADMIN debug run;
+    // no `status` runs the draft, `status: "PUBLISHED"` the published copy (any other status is refused).
     method: "POST", path: /^\/api\/fusion-ai\/orchestrator\/agent\/v2\/[^/]+\/debug$/,
     handle: ({ res, body }) => {
       const b = body && typeof body === "object" ? body : {};
       if (b.invocationMode !== "ADMIN" || b.debugParams?.isDebug !== true) {
         return json(res, 400, { detail: "mock pod: /debug needs invocationMode ADMIN and debugParams.isDebug" });
+      }
+      if (b.status !== undefined && b.status !== "PUBLISHED") {
+        return json(res, 400, { detail: "mock pod: /debug status must be absent (draft) or PUBLISHED" });
       }
       return streamSse(res, b.resumeInput ? "chat-resumed.sse" : b.message === "approve me" ? "chat-wait.sse" : "chat-hello.sse");
     },

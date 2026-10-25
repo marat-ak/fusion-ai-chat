@@ -145,6 +145,58 @@ test("binds_workflow_and_version_from_url_and_streams_a_draft_turn_through_the_c
   await page.screenshot({ path: "test-results/debug-host-draft-turn.png" });
 });
 
+test("streams_a_published_turn_and_its_resume_through_debug_with_status_published", async ({ page }) => {
+  // The host sets agent.publishedVia "debug": a PUBLISHED run goes through Studio's /debug with status PUBLISHED (the
+  // vendored CLI's shape), so the builder gets the node data; the page shows the same trace and raw frames as for a draft.
+  await page.setViewportSize({ width: 560, height: 900 });
+  await page.goto(debuggerUrl("u1__dev1", "PUBLISHED"));
+  await expect(page.getByTestId("dbg-bound")).toHaveText("Workflow MOCK_WF · PUBLISHED · dev1");
+  await expectNoInputs(page);
+  await expect(page.getByTestId("gai-starter")).toHaveText(["Show my invoices", "Create a PO"]);
+  await expect(page.getByTestId("gai-run-panel")).toHaveCount(0);
+  // Still the published copy: no Draft badge.
+  await expect(page.getByTestId("gai-draft-badge")).toHaveCount(0);
+
+  await page.getByTestId("gai-composer-input").locator("textarea").fill("hello");
+  await page.getByTestId("gai-composer-send").locator("button").click();
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  await expect(page.getByTestId("gai-trace-toggle")).toHaveText("Trace (3)");
+  const raw = page.getByTestId("gai-raw-toggle");
+  await expect(raw).toHaveText("Raw frames (7)");
+  await raw.click();
+  await expect(page.getByTestId("gai-raw-frame")).toHaveCount(7);
+  await expect(page.getByTestId("gai-raw-frame").first()).toContainText('#1 {"nodeProgressMessage"');
+
+  // A HITL wait and its resume take the same path.
+  await page.getByTestId("gai-composer-input").locator("textarea").fill("approve me");
+  await page.getByTestId("gai-composer-send").locator("button").click();
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?", "Approve the transfer?"]);
+  const approve = page.getByTestId("gai-hitl-approve").locator("button");
+  await expect(approve).toBeEnabled();
+  await approve.click();
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?", "Approve the transfer?", "Approved and done"]);
+  await expect(page.getByTestId("gai-hitl")).toHaveCount(0);
+
+  // Through the conversation base: three /debug turns, no /chat.
+  const calls = await proxyCalls(page);
+  for (const c of calls) expect([c.conversation, c.headers["x-gnimsys-pod-proxy"], c.headers.authorization]).toEqual(["u1__dev1", "1", undefined]);
+  expect(calls.filter((c) => c.path.includes("/MOCK_WF/")).map((c) => [c.method, c.target, c.path])).toEqual(
+    Array(3).fill(["POST", "FUAI", "/api/fusion-ai/orchestrator/agent/v2/MOCK_WF/debug"]),
+  );
+  // The pod got the CLI's published debug shape: run, run, resume (same base + jobId + resumeInput).
+  const run = (await podCalls(page)).filter((c) => c.url.includes("/MOCK_WF/"));
+  expect(run.map((c) => c.url)).toEqual(Array(3).fill("/api/fusion-ai/orchestrator/agent/v2/MOCK_WF/debug"));
+  expect(run[0].headers.authorization).toBe("Bearer fake-pod-token");
+  const base = { workflowCode: "MOCK_WF", invocationMode: "ADMIN", status: "PUBLISHED", debugParams: { isDebug: true, breakPoints: [] } };
+  expect(run[0].body).toMatchObject({ ...base, message: "hello" });
+  expect(run[1].body).toMatchObject({ ...base, message: "approve me" });
+  expect(run[2].body).toMatchObject({ ...base, message: "", jobId: "job-1", resumeInput: { messageInstanceId: "cb-1", userResponse: "APPROVE_ACTION" } });
+  const conversationIds = run.map((c) => (c.body as { conversationId: string }).conversationId);
+  expect(new Set(conversationIds).size).toBe(1);
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "test-results/debug-host-published-turn.png" });
+});
+
 test("needs_input_without_pod_user", async ({ page }) => {
   await page.goto(debuggerUrl("u1__nouser", "DRAFT"));
   await expect(page.getByTestId("dbg-notices")).toContainText("The pod user of dev1 is unknown: the chat needs it as its user name.");
@@ -187,5 +239,6 @@ test("not_configured_turn_shows_the_proxy_reason", async ({ page }) => {
   await page.getByTestId("gai-composer-input").locator("textarea").fill("hello");
   await page.getByTestId("gai-composer-send").locator("button").click();
   await expect(page.getByTestId("gai-error")).toContainText("Instance noconf is not configured for FUAI calls (missing FUAI token key)");
-  expect((await proxyCalls(page)).some((c) => c.path.endsWith("/MOCK_WF/chat"))).toBe(true);
+  // PUBLISHED goes through /debug in the debugger (agent.publishedVia "debug").
+  expect((await proxyCalls(page)).some((c) => c.path.endsWith("/MOCK_WF/debug"))).toBe(true);
 });

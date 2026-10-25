@@ -1,6 +1,6 @@
 /** @jest-environment node */
-// agent.version DRAFT (Studio's `/debug` test path, request shaped like the vendored aistudio CLI's debug runner) and the
-// transport's raw frames (ui.debug.rawFrames).
+// agent.version DRAFT and agent.publishedVia "debug" (Studio's `/debug` test path, request shaped like the vendored aistudio
+// CLI's debug runner) and the transport's raw frames (ui.debug.rawFrames).
 import * as fs from "fs";
 import * as path from "path";
 import { AiStudioTransport } from "../transport/AiStudioTransport";
@@ -87,8 +87,91 @@ test("draft_resume_is_the_cli_resume_shape_without_run_input", async () => {
 test("published_body_carries_no_debug_fields", async () => {
   const { endpoints, calls } = fakeStream(() => streamResponse([]));
   await collect(new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", checkVersion: V }).send({ conversationId: "c-1", text: "hi" }));
-  expect(calls[0].url).toBe(`/api/fusion-ai/orchestrator/agent/v2/${WF}/chat`);
-  expect(JSON.parse(calls[0].init.body as string)).toEqual({ message: "hi", workflowCode: WF, conversationId: "c-1" });
+  // publishedVia "chat" is the same request as no publishedVia (the documented behaviour).
+  await collect(new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", publishedVia: "chat", checkVersion: V }).send({ conversationId: "c-1", text: "hi" }));
+  expect(calls.map((c) => c.url)).toEqual([`/api/fusion-ai/orchestrator/agent/v2/${WF}/chat`, `/api/fusion-ai/orchestrator/agent/v2/${WF}/chat`]);
+  for (const c of calls) expect(JSON.parse(c.init.body as string)).toEqual({ message: "hi", workflowCode: WF, conversationId: "c-1" });
+});
+
+// agent.publishedVia "debug": a PUBLISHED run through Studio's test path, as the vendored aistudio CLI sends it (cT with
+// status PUBLISHED; resume = Wle, the same base + jobId + resumeInput).
+test("published_via_debug_posts_the_cli_published_shape_to_debug_signed_over_the_message", async () => {
+  const { endpoints, calls } = fakeStream(() => streamResponse([]));
+  const t = new AiStudioTransport({
+    endpoints, workflowCode: WF, version: "PUBLISHED", publishedVia: "debug", checkVersion: V, additionalContext: { invoiceId: "42" }, responseLanguage: "fr", now: () => TS,
+  });
+  await collect(t.send({ conversationId: "c-1", text: "hi" }));
+  expect(calls.map((c) => [c.target, c.url, c.init.method])).toEqual([["FUAI", URL_DEBUG, "POST"]]);
+  const h = calls[0].init.headers;
+  expect([h["Content-Type"], h["Accept"]]).toEqual(["application/json", "text/event-stream"]);
+  expect(h[H_CHECK]).toBe((await signedHeaders("hi", V, TS))[H_CHECK]);
+  expect(JSON.parse(calls[0].init.body as string)).toEqual({
+    message: "hi",
+    workflowCode: WF,
+    conversationId: "c-1",
+    invocationMode: "ADMIN",
+    status: "PUBLISHED",
+    parameters: { additional_context: JSON.stringify({ invoiceId: "42" }) },
+    responseLanguage: "fr",
+    debugParams: DEBUG_PARAMS,
+  });
+});
+
+test("published_via_debug_resume_is_the_cli_resume_shape_with_status_published", async () => {
+  const { endpoints, calls } = fakeStream(() => streamResponse([]));
+  const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", publishedVia: "debug", checkVersion: V, additionalContext: { a: 1 }, now: () => TS });
+  await collect(t.send({ conversationId: "c-1", text: "ignored", resume: { jobId: "job-1", token: "cb-1", action: "RFI_ACTION", content: "less" } }));
+  await collect(t.send({ conversationId: "c-1", text: "", resume: { jobId: "job-1", token: "cb-1", action: "APPROVE_ACTION", statusCheckOnly: true } }));
+  expect(calls.map((c) => c.url)).toEqual([URL_DEBUG, URL_DEBUG]);
+  expect(JSON.parse(calls[0].init.body as string)).toEqual({
+    message: "",
+    workflowCode: WF,
+    conversationId: "c-1",
+    invocationMode: "ADMIN",
+    status: "PUBLISHED",
+    debugParams: DEBUG_PARAMS,
+    jobId: "job-1",
+    resumeInput: { messageInstanceId: "cb-1", userResponse: "RFI_ACTION", content: "less" },
+  });
+  expect(JSON.parse(calls[1].init.body as string)).toEqual({
+    message: "",
+    workflowCode: WF,
+    conversationId: "c-1",
+    invocationMode: "ADMIN",
+    status: "PUBLISHED",
+    debugParams: DEBUG_PARAMS,
+    jobId: "job-1",
+    resumeInput: { messageInstanceId: "cb-1", userResponse: "APPROVE_ACTION" },
+    statusCheckOnly: true,
+  });
+  const expected = (await signedHeaders("", V, TS))[H_CHECK];
+  for (const c of calls) expect(c.init.headers[H_CHECK]).toBe(expected);
+});
+
+test("a_draft_run_ignores_published_via", async () => {
+  // A config may carry publishedVia with an unbound version; when the user then chooses DRAFT, the draft runs as always.
+  const { endpoints, calls } = fakeStream(() => streamResponse([]));
+  await collect(new AiStudioTransport({ endpoints, workflowCode: WF, version: "DRAFT", publishedVia: "debug", checkVersion: V }).send({ conversationId: "c-1", text: "hi" }));
+  await collect(new AiStudioTransport({ endpoints, workflowCode: WF, version: "DRAFT", publishedVia: "chat", checkVersion: V }).send({ conversationId: "c-1", text: "hi" }));
+  expect(calls.map((c) => c.url)).toEqual([URL_DEBUG, URL_DEBUG]);
+  for (const c of calls) {
+    expect(JSON.parse(c.init.body as string)).toEqual({ message: "hi", workflowCode: WF, conversationId: "c-1", invocationMode: "ADMIN", debugParams: DEBUG_PARAMS });
+  }
+});
+
+test("published_via_debug_streams_frames_and_raw_frames_as_the_draft", async () => {
+  const text = fixture("chat-hello.sse");
+  const payloads = text.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6));
+  const { endpoints } = fakeStream(() => streamResponse([text]));
+  const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", publishedVia: "debug", checkVersion: V, rawFrames: true });
+  const events = await collect(t.send({ conversationId: "c-1", text: "hello" }));
+  expect(events.filter((e) => e.type === "raw")).toEqual(payloads.map((payload) => ({ type: "raw", payload })));
+  expect(events.filter((e) => e.type === "delta" || e.type === "final" || e.type === "done")).toEqual([
+    { type: "delta", text: "Hel" },
+    { type: "delta", text: "lo!" },
+    { type: "final", text: "Hello! How can I help?", finishReason: "stop" },
+    { type: "done" },
+  ]);
 });
 
 test("draft_streams_the_same_frames_as_chat", async () => {

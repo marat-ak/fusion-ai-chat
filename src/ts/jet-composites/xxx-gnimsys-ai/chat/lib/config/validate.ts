@@ -1,5 +1,5 @@
-import { ARTIFACT_VERSIONS as VERSIONS, CHAT_MODES, IMPLEMENTED_MODES } from "./types";
-import type { ArtifactVersion, ChatConfig, ChatMode, Problem, RunSettings, ValidateResult } from "./types";
+import { ARTIFACT_VERSIONS as VERSIONS, CHAT_MODES, IMPLEMENTED_MODES, PUBLISHED_VIA } from "./types";
+import type { ArtifactVersion, ChatConfig, ChatMode, Problem, PublishedVia, RunSettings, ValidateResult } from "./types";
 export type { ChatConfig, Problem, ValidateResult } from "./types";
 
 const DEFAULT_ACCEPT = ["pdf", "docx", "xlsx", "pptx", "csv", "txt", "md", "html", "json", "xml", "zip", "image/*"];
@@ -95,7 +95,7 @@ export function validateConfig(input: unknown): ValidateResult {
 
   // agent
   // The pod is not configured here: it lives in the scopes of the page's service connections (the endpoint map).
-  const agent = section("agent", ["workflowCode", "version", "triggerType", "additionalContext", "responseLanguage"]);
+  const agent = section("agent", ["workflowCode", "version", "publishedVia", "triggerType", "additionalContext", "responseLanguage"]);
   // The workflow modes (chat, gnimsys) say what the page binds in `agent` (possibly nothing: `{}`); mode `app` talks to an
   // app instead.
   if (input.agent === undefined && input.mode !== "app") need("agent");
@@ -104,6 +104,14 @@ export function validateConfig(input: unknown): ValidateResult {
   // absent version stays distinguishable from a bound PUBLISHED.
   const workflowCode = agent?.workflowCode === "" ? undefined : str(agent, "workflowCode", "agent.workflowCode", false);
   const agentVersion = agent?.version === "" ? undefined : version(agent, "version", "agent.version", false);
+  // publishedVia: absent = a PUBLISHED run uses /chat (the documented behaviour, not a data default). It only means
+  // something for a run that can be PUBLISHED: a bound DRAFT refuses it rather than ignoring it.
+  let publishedVia: PublishedVia | undefined;
+  if (agent?.publishedVia !== undefined) {
+    if (!(PUBLISHED_VIA as readonly unknown[]).includes(agent.publishedVia)) bad("agent.publishedVia", 'must be "chat" or "debug"');
+    else if (agentVersion === "DRAFT") bad("agent.publishedVia", 'only for a run that can be PUBLISHED (agent.version is "DRAFT")');
+    else publishedVia = agent.publishedVia as PublishedVia;
+  }
   let triggerType: "chat" | undefined;
   if (agent?.triggerType !== undefined) {
     if (agent.triggerType !== "chat") bad("agent.triggerType", 'must be "chat"');
@@ -228,6 +236,7 @@ export function validateConfig(input: unknown): ValidateResult {
     agent: {
       ...(workflowCode !== undefined && { workflowCode }),
       ...(agentVersion !== undefined && { version: agentVersion }),
+      ...(publishedVia !== undefined && { publishedVia }),
       ...(triggerType && { triggerType }),
       ...(additionalContext && { additionalContext }),
       ...(responseLanguage !== undefined && { responseLanguage }),

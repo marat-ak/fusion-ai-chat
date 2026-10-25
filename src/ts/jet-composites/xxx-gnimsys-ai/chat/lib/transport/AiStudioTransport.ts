@@ -1,4 +1,4 @@
-import type { ArtifactVersion } from "../config/types";
+import type { ArtifactVersion, PublishedVia } from "../config/types";
 import { EndpointError, endpointBodyText } from "../endpoints/EndpointFetch";
 import type { EndpointFetch } from "../endpoints/EndpointFetch";
 import type { ChatEvent } from "./events";
@@ -10,8 +10,13 @@ import { signedHeaders } from "./signer";
 export interface AiStudioTransportDeps {
   endpoints: EndpointFetch;
   workflowCode: string;
-  /** PUBLISHED = `/chat`; DRAFT = Studio's test path `/debug` (`invocationMode: "ADMIN"` + `debugParams`). */
+  /**
+   * PUBLISHED = `/chat` (or `/debug`, see publishedVia); DRAFT = Studio's test path `/debug` (`invocationMode: "ADMIN"` +
+   * `debugParams`).
+   */
   version: ArtifactVersion;
+  /** PUBLISHED only: `debug` sends the run through `/debug` with `status: "PUBLISHED"`; absent or `chat` = `/chat`. */
+  publishedVia?: PublishedVia;
   checkVersion: string;
   /** Yield every SSE `data:` payload as a `raw` event before its parsed events (debug hosts). */
   rawFrames?: boolean;
@@ -28,30 +33,35 @@ export const STREAM_UNAVAILABLE = "chat streaming not available through this end
 const DEBUG_PARAMS = { isDebug: true, breakPoints: [] as string[] };
 
 /**
- * v1 transport: AI Studio v2 `/chat` SSE (PUBLISHED) or `/debug` SSE (DRAFT) with the signed X-Ora-Ai-Api-V2-* headers
- * through the FUAI endpoint's streaming capability; HITL resume on the same URL.
+ * v1 transport: AI Studio v2 `/chat` SSE (PUBLISHED) or `/debug` SSE (DRAFT, or PUBLISHED with `publishedVia: "debug"`)
+ * with the signed X-Ora-Ai-Api-V2-* headers through the FUAI endpoint's streaming capability; HITL resume on the same URL.
  */
 export class AiStudioTransport implements ChatTransport {
   private readonly deps: AiStudioTransportDeps;
   private readonly url: string;
+  /** The run goes through Studio's test path `/debug`. */
+  private readonly debug: boolean;
 
   constructor(deps: AiStudioTransportDeps) {
     this.deps = deps;
-    this.url = `/api/fusion-ai/orchestrator/agent/v2/${encodeURIComponent(deps.workflowCode)}/${deps.version === "DRAFT" ? "debug" : "chat"}`;
+    this.debug = deps.version === "DRAFT" || deps.publishedVia === "debug";
+    this.url = `/api/fusion-ai/orchestrator/agent/v2/${encodeURIComponent(deps.workflowCode)}/${this.debug ? "debug" : "chat"}`;
   }
 
   /**
-   * PUBLISHED: the Studio chat client's body. DRAFT: the same fields shaped like the CLI's debug runner (cT; resume = Wle):
-   * `invocationMode: "ADMIN"`, no `status` (= the draft copy), `debugParams`; a resume carries no run input.
+   * `/chat`: the Studio chat client's body. `/debug`: the same fields shaped like the CLI's debug runner (cT; resume = Wle):
+   * `invocationMode: "ADMIN"`, `status: "PUBLISHED"` for the published copy (no `status` = the draft copy), `debugParams`;
+   * a resume carries no run input.
    */
   private body(input: SendInput): Record<string, unknown> {
     const { conversationId, text, resume } = input;
     const { workflowCode, additionalContext, responseLanguage } = this.deps;
-    const draft = this.deps.version === "DRAFT";
+    const admin = this.debug ? { invocationMode: "ADMIN", ...(this.deps.version === "PUBLISHED" ? { status: "PUBLISHED" } : {}) } : {};
     if (resume) {
       return {
         message: "", workflowCode, conversationId,
-        ...(draft ? { invocationMode: "ADMIN", debugParams: DEBUG_PARAMS } : {}),
+        ...admin,
+        ...(this.debug ? { debugParams: DEBUG_PARAMS } : {}),
         jobId: resume.jobId,
         resumeInput: { messageInstanceId: resume.token, userResponse: resume.action, ...(resume.content !== undefined ? { content: resume.content } : {}) },
         ...(resume.statusCheckOnly ? { statusCheckOnly: true } : {}),
@@ -59,10 +69,10 @@ export class AiStudioTransport implements ChatTransport {
     }
     return {
       message: text, workflowCode, conversationId,
-      ...(draft ? { invocationMode: "ADMIN" } : {}),
+      ...admin,
       ...(additionalContext !== undefined ? { parameters: { additional_context: JSON.stringify(additionalContext) } } : {}),
       ...(responseLanguage !== undefined ? { responseLanguage } : {}),
-      ...(draft ? { debugParams: DEBUG_PARAMS } : {}),
+      ...(this.debug ? { debugParams: DEBUG_PARAMS } : {}),
     };
   }
 

@@ -112,10 +112,12 @@ export function useChatController(config: RunConfig, props: ChatControllerProps,
   const transport = useMemo(() => {
     const ac = config.agent.additionalContext;
     const lang = config.agent.responseLanguage;
+    const via = config.agent.publishedVia;
     return new AiStudioTransport({
       endpoints,
       workflowCode: config.agent.workflowCode,
       version: config.agent.version,
+      ...(via !== undefined && { publishedVia: via }),
       checkVersion: config.protocol.checkVersion,
       rawFrames: config.ui.debug.rawFrames,
       ...(ac !== undefined && { additionalContext: substitute(ac, context ?? {}) }),

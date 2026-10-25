@@ -6,6 +6,12 @@ export const IMPLEMENTED_MODES: readonly ChatMode[] = ["chat"];
 /** Which copy of a workflow (or app) runs: the published one (`/chat`) or the draft (Studio's `/debug` test path). */
 export type ArtifactVersion = "PUBLISHED" | "DRAFT";
 export const ARTIFACT_VERSIONS: readonly ArtifactVersion[] = ["PUBLISHED", "DRAFT"];
+/**
+ * The endpoint a PUBLISHED run uses: `chat` = the Studio chat client's `/chat`; `debug` = Studio's test path `/debug` with
+ * `status: "PUBLISHED"` (an ADMIN invocation whose stream carries node data — debug hosts only, not end-user pages).
+ */
+export type PublishedVia = "chat" | "debug";
+export const PUBLISHED_VIA: readonly PublishedVia[] = ["chat", "debug"];
 
 /**
  * Who may choose what the page did not bind (design §5.1): a user holding one of `allAgentsRoles` picks the agent, one
@@ -21,9 +27,13 @@ export interface ChatConfig {
   mode: "chat";
   /**
    * `workflowCode` / `version` absent = not bound by the page: who may choose them is `ui.runSettings` (design §5.1); the
-   * run is resolved in the component, never defaulted here.
+   * run is resolved in the component, never defaulted here. `publishedVia` absent = a PUBLISHED run uses `/chat` (the
+   * documented behaviour); present only where a run can be PUBLISHED (refused with a bound DRAFT).
    */
-  agent: { workflowCode?: string; version?: ArtifactVersion; triggerType?: "chat"; additionalContext?: Record<string, unknown>; responseLanguage?: string | "auto" };
+  agent: {
+    workflowCode?: string; version?: ArtifactVersion; publishedVia?: PublishedVia; triggerType?: "chat";
+    additionalContext?: Record<string, unknown>; responseLanguage?: string | "auto";
+  };
   /** The Agentic App of mode `app` (spec §8, not built): carried so a mode switch can offer it once it is built. */
   app?: { applicationCode: string; applicationType: ArtifactVersion; panel?: string; appContext?: string };
   auth: { kind: "fusionShell" };

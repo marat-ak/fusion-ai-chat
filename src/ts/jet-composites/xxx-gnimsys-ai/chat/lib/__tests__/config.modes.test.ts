@@ -1,4 +1,5 @@
-// Config keys of the debugger features (spec §5, §17): mode, agent.version, app, ui.modeSwitch, ui.debug.rawFrames.
+// Config keys of the debugger features (spec §5, §17): mode, agent.version, agent.publishedVia, app, ui.modeSwitch,
+// ui.debug.rawFrames.
 import { validateConfig } from "../config/validate";
 import { availableModes, MODE_LABELS } from "../config/modes";
 import { withRun } from "../config/types";
@@ -41,6 +42,37 @@ describe("agent.version", () => {
       expect(validateConfig({ ...min, agent: { workflowCode: "WF_1", version } }))
         .toEqual({ ok: false, kind: "invalid", problems: [{ path: "agent.version", message: 'must be "PUBLISHED" or "DRAFT"' }] });
     }
+  });
+});
+
+describe("agent.publishedVia", () => {
+  // Absent stays absent: a PUBLISHED run then uses /chat, the documented behaviour (the transport's, not a validator default).
+  test("absent_stays_absent", () => expect("publishedVia" in ok(min).agent).toBe(false));
+  test("kept_with_a_bound_published_run", () => {
+    for (const publishedVia of ["chat", "debug"]) {
+      expect(ok({ ...min, agent: { workflowCode: "WF_1", version: "PUBLISHED", publishedVia } }).agent).toEqual({ workflowCode: "WF_1", version: "PUBLISHED", publishedVia });
+    }
+  });
+  test("kept_while_the_version_is_unbound", () => {
+    // The run may still resolve to PUBLISHED (chosen, or the default run of a user without the draft role).
+    expect(ok({ ...min, agent: { workflowCode: "WF_1", publishedVia: "debug" } }).agent).toEqual({ workflowCode: "WF_1", publishedVia: "debug" });
+    expect(ok({ ...min, agent: { workflowCode: "", version: "", publishedVia: "debug" } }).agent).toEqual({ publishedVia: "debug" });
+  });
+  test("refused_with_a_bound_draft", () => {
+    for (const publishedVia of ["chat", "debug"]) {
+      expect(validateConfig({ ...min, agent: { workflowCode: "WF_1", version: "DRAFT", publishedVia } })).toEqual({
+        ok: false, kind: "invalid", problems: [{ path: "agent.publishedVia", message: 'only for a run that can be PUBLISHED (agent.version is "DRAFT")' }],
+      });
+    }
+  });
+  test("other_values_are_invalid", () => {
+    for (const publishedVia of ["DEBUG", "", "status", 1, true, null]) {
+      expect(validateConfig({ ...min, agent: { workflowCode: "WF_1", version: "PUBLISHED", publishedVia } }))
+        .toEqual({ ok: false, kind: "invalid", problems: [{ path: "agent.publishedVia", message: 'must be "chat" or "debug"' }] });
+    }
+  });
+  test("carried_into_the_run_config", () => {
+    expect(withRun(ok({ ...min, agent: { publishedVia: "debug" } }), RUN).agent).toEqual({ workflowCode: "WF_1", version: "PUBLISHED", publishedVia: "debug" });
   });
 });
 

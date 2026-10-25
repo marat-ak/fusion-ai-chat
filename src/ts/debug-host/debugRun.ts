@@ -56,11 +56,15 @@ export function bindingFromUrl(search: string): UrlBindingResult {
   return { ok: true, binding: { pod: pod as string, workflowCode: (workflow as string).trim(), version: version as RunVersion } };
 }
 
-/** The chat's config for the bound run: debug features on, attachments off (no reliable PersonId read, see the page notice). */
+/**
+ * The chat's config for the bound run: debug features on, attachments off (no reliable PersonId read, see the page notice).
+ * A PUBLISHED run goes through Studio's `/debug` too (`agent.publishedVia: "debug"`, `status: "PUBLISHED"`), so agent
+ * builders get the node data for it as for a draft; the key is only set for PUBLISHED (a DRAFT run refuses it).
+ */
 export function runConfig(binding: { workflowCode: string; version: RunVersion }): Record<string, unknown> {
   return {
     mode: "chat",
-    agent: { workflowCode: binding.workflowCode, version: binding.version },
+    agent: { workflowCode: binding.workflowCode, version: binding.version, ...(binding.version === "PUBLISHED" && { publishedVia: "debug" }) },
     // The component still requires auth.kind until the endpoint slice removes it; every call here goes through the
     // proxy rest helper, never through fusionShell.
     auth: { kind: "fusionShell" },

@@ -20,10 +20,16 @@
           "$comment": "PUBLISHED runs the published workflow (/chat); DRAFT runs the draft through Studio's test path (/debug, invocationMode ADMIN). Absent or empty = not bound (no default: see agent).",
           "enum": ["PUBLISHED", "DRAFT", ""]
         },
+        "publishedVia": {
+          "$comment": "Which endpoint a PUBLISHED run uses. chat = /agent/v2/<wf>/chat (the Studio chat client). debug = /agent/v2/<wf>/debug with invocationMode ADMIN, status PUBLISHED and debugParams (the vendored aistudio CLI's shape for a published run; resume = the same base + jobId + resumeInput), so the stream carries node data — for debug hosts (agent builders); VB end-user pages keep /chat (an ADMIN invocation is not for end users). Absent = chat: the documented behaviour of a PUBLISHED run before this key existed, not a data default. Only for a run that can be PUBLISHED: refused when version is DRAFT; a DRAFT run (bound or chosen) always uses /debug without status.",
+          "enum": ["chat", "debug"]
+        },
         "triggerType": { "const": "chat" },
         "additionalContext": { "type": "object" },
         "responseLanguage": { "type": "string" }
-      }
+      },
+      "if": { "required": ["version"], "properties": { "version": { "const": "DRAFT" } } },
+      "then": { "not": { "required": ["publishedVia"] } }
     },
     "app": {
       "$comment": "The Agentic App of mode app (spec §8, not built yet): carried so a mode switch can offer it once it is built.",
