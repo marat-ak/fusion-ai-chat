@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { bindingFromUrl, CHECK_VERSION, runConfig, runUser, startRun, TRACE_ROLE } from "../debugRun";
+import { bindingFromUrl, CHECK_VERSION, HCM_REST_BASE, MAX_FILE_MB, runConfig, runUser, startRun } from "../debugRun";
 import { POD_PROXY_ENDPOINTS, POD_PROXY_ERROR_HEADER } from "../podProxyRestHelper";
 import { validateConfig } from "../../jet-composites/xxx-gnimsys-ai/chat/lib/config/validate";
 
@@ -25,7 +25,7 @@ test("binds_workflow_and_version_from_url", async () => {
   if (o.kind !== "run") throw new Error(`expected a run, got ${o.kind}`);
   expect([o.binding, o.instance, o.podUser]).toEqual([{ pod: POD, workflowCode: "MOCK_WF", version: "DRAFT" }, "dev1", "test.user"]);
   expect(o.chat.config).toEqual(runConfig({ workflowCode: "MOCK_WF", version: "DRAFT" }));
-  expect(o.chat.user).toEqual({ userName: "test.user", roles: [TRACE_ROLE] });
+  expect(o.chat.user).toEqual({ userName: "test.user", roles: [] });
   expect(o.chat.endpoint).toEqual(POD_PROXY_ENDPOINTS);
   expect([o.chat.restHelper.pod, o.chat.restHelper.label, o.chat.restHelper.baseUrl("FUAI")]).toEqual([POD, "dev1", `${O}${POD}FUAI`]);
   const r = validateConfig(o.chat.config);
@@ -73,12 +73,12 @@ test("repeated_and_unknown_parameters_are_refused", () => {
 });
 
 test("the_user_is_the_pod_user_or_nobody", async () => {
-  expect(runUser("jane.doe")).toEqual({ userName: "jane.doe", roles: [TRACE_ROLE] });
-  expect(runUser(undefined)).toEqual({ roles: [TRACE_ROLE] });
+  expect(runUser("jane.doe")).toEqual({ userName: "jane.doe", roles: [] });
+  expect(runUser(undefined)).toEqual({ roles: [] });
   const o = await startRun({ search: URL_OK, origin: O, fetchImpl: fakeFetch(() => json({ instance: "dev1" })).fetchImpl });
   if (o.kind !== "run") throw new Error(`expected a run, got ${o.kind}`);
   // No pod user: the chat gets no userName (its needs-input panel), never another name.
-  expect(["podUser" in o, o.chat.user]).toEqual([false, { roles: [TRACE_ROLE] }]);
+  expect(["podUser" in o, o.chat.user]).toEqual([false, { roles: [] }]);
 });
 
 test("info_auth_required_and_failures_are_their_own_outcomes", async () => {
@@ -92,19 +92,23 @@ test("info_auth_required_and_failures_are_their_own_outcomes", async () => {
   });
 });
 
-test("the_config_turns_the_debug_features_on_and_files_off_and_validates", () => {
+test("the_config_turns_the_mode_switch_and_files_without_person_id_on_and_validates", () => {
   const config = runConfig({ workflowCode: "WF_1", version: "PUBLISHED" });
   expect(config).toEqual({
     mode: "chat",
     // A PUBLISHED run goes through /debug (status PUBLISHED): the builder gets the node data as for a draft.
     agent: { workflowCode: "WF_1", version: "PUBLISHED", publishedVia: "debug" },
     auth: { kind: "fusionShell" },
-    protocol: { checkVersion: CHECK_VERSION },
-    ui: { modeSwitch: true, debug: { rawFrames: true }, trace: { roles: [TRACE_ROLE] } },
-    files: { enabled: false },
+    // Attachments on, PersonId omitted (bridge design §13 decision 3); no trace config: the Run Inspector shows the run.
+    protocol: { checkVersion: CHECK_VERSION, hcmRestBase: HCM_REST_BASE },
+    ui: { modeSwitch: true },
+    files: { enabled: true, maxSizeMB: MAX_FILE_MB },
   });
   const r = validateConfig(config);
-  expect(r.ok && [r.config.agent.version, r.config.agent.publishedVia, r.config.ui.modeSwitch, r.config.ui.debug.rawFrames]).toEqual(["PUBLISHED", "debug", true, true]);
+  expect(r.ok && [r.config.agent.version, r.config.agent.publishedVia, r.config.ui.modeSwitch, r.config.files.enabled, r.config.files.maxSizeMB, r.config.ui.trace])
+    .toEqual(["PUBLISHED", "debug", true, true, 50, undefined]);
+  // 50 MB per file stays under the pod proxy's 64 MiB request bound, multipart overhead included.
+  expect(MAX_FILE_MB * 1024 * 1024).toBeLessThan(64 * 1024 * 1024 - 1024 * 1024);
 });
 
 test("a_draft_run_config_carries_no_published_via_and_validates", () => {

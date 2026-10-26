@@ -55,7 +55,6 @@ Required inputs (never defaulted):
 | `protocol.checkVersion` | config | AI Studio `X-Ora-Ai-Api-V2-*` check version |
 | `protocol.hcmRestBase` | config | only when `files.enabled`: the `hcmRestApi` base for `hcmAiStudioConversations` |
 | `user.userName` | element property `user` | owner filter of the user's conversation list |
-| `person-id` | element attribute | only when `files.enabled`: Oracle `PersonId` (dev1 rows show `"-1"`) |
 
 Optional texts: `ui.greeting` is the agent's greeting bubble on an empty conversation (the starter questions sit
 inside it; default: the component's localized "How can I help you?"); `ui.placeholder` is the composer placeholder
@@ -73,7 +72,7 @@ value shows an **invalid** panel. Nothing is fetched until the config passes. `{
 | `agent.publishedVia` | absent = `"chat"` | The endpoint of a PUBLISHED run. `"chat"` = `/agent/v2/<wf>/chat`. `"debug"` = Studio's test path `/agent/v2/<wf>/debug` with `invocationMode: "ADMIN"`, `status: "PUBLISHED"` and `debugParams: {isDebug: true, breakPoints: []}` (a resume = the same base + `jobId` + `resumeInput`) — the vendored aistudio CLI's request for a published run; the stream then carries node data (per-node input/output). For debug hosts: the debug host sets it for PUBLISHED. VB end-user pages leave it out (`/chat`): an ADMIN invocation is not for end users. Absent = `/chat`, the documented behaviour of a PUBLISHED run (not a data default). Only for a run that can be PUBLISHED: refused (invalid) with `agent.version: "DRAFT"`; a DRAFT the user chooses runs as always (`/debug`, no `status`). **[open]** live pod: a PUBLISHED `/debug` run returns node frames. |
 | `app` | absent | `{applicationCode, applicationType: "PUBLISHED"\|"DRAFT", panel?, appContext?}` — the Agentic App of mode `app` (not built yet); both codes required when present. |
 | `ui.modeSwitch` | `false` | An `oj-c-buttonset-single` in the header listing the modes that are implemented and configured (today: `Chat`). Picking another mode is a full reset: the chat remounts in a new conversation. |
-| `ui.debug.rawFrames` | `false` | Under each reply a collapsed `Raw frames (N)` panel listing every SSE `data:` payload of that reply verbatim, in arrival order (frames the parser rejects included). |
+| `run-observer` (element property, not config) | absent | Debug hosts only: an object with `breakPoints()` and `turn(start)` (`lib/debug/RunObserver.ts`). With it the chat hands over every turn's request as sent, every SSE `data:` payload verbatim with its arrival time, and the turn's end, and each `/debug` send carries `breakPoints()` as `debugParams.breakPoints` (Studio's breakpoints: the run stops before those nodes); a `/chat` run with breakpoints is refused before anything is sent. Without it nothing is captured and runs carry `breakPoints: []`. The debug host's Run Inspector is built on it; VB end-user pages leave it unset. It replaces the former `ui.debug.rawFrames` panel: `ui.debug` is now an unknown key. |
 
 ### Run selection (bridge design §5.1)
 
@@ -131,7 +130,8 @@ first.").
 |---|---|---|
 | `config` | object or JSON string | required |
 | `user` | object (`$application.user`) | required: `userName` (string, owner filter of the conversation list); `roles` (string[], optional) used by `ui.trace` and `ui.runSettings` |
-| `person-id` | string | required when `files.enabled` |
+| `person-id` | string | optional: Oracle `PersonId` sent in the attachments' conversation row; absent = the row is created without `PersonId` (as Studio's own clients do on `/debug`); a pod refusing such a row fails the upload with "the conversation row was sent without PersonId" in its error; an empty string is invalid |
+| `run-observer` | object | debug hosts only, see Debugger keys |
 | `context` | object | values for `{{key}}` in `agent.additionalContext` |
 | `conversation-id` | string, writeback | current conversation; setting it opens that conversation |
 | `rest-helper` | object | required: the page's VB RestHelper (`vb/helpers/rest`, `get(endpointId)`); every pod call goes through it |
@@ -196,8 +196,7 @@ component's code is loaded from your local `ojet serve`.
 
    ```html
    <xxx-gnimsys-ai-chat config="[[ $page.variables.chatConfig ]]"
-                        user="[[ $application.user ]]"
-                        person-id="-1"></xxx-gnimsys-ai-chat>
+                        user="[[ $application.user ]]"></xxx-gnimsys-ai-chat>
    ```
 
 Steps 2–4 follow the dashboard extension's working local alias; for this pack they are first exercised on
@@ -258,12 +257,15 @@ A second build flavour of this repo's app shell, for the fusion-ai-agent UI's si
 - With a complete binding the page reads `GET <pod>_info` (`{instance, podUser?}`) and mounts the chat with
   `agent.workflowCode` / `agent.version` from the URL (PUBLISHED with `agent.publishedVia: "debug"`: the published run
   goes through `/debug` with `status: "PUBLISHED"`, so its stream carries node data as a draft's does; VB end-user pages
-  keep `/chat`), `ui.modeSwitch`, `ui.debug.rawFrames`, `ui.trace.roles` = `["AI_CHAT_DEBUGGER"]` paired with
-  `user.roles`, and `user.userName` = `podUser` (absent: the chat's needs-input
-  panel, never the Keycloak name). `_info` answering `401 auth-required` (no pod sign-in on the conversation) shows "Sign
+  keep `/chat`), `ui.modeSwitch`, files on (`files.enabled`, 50 MB per file — within the proxy's 64 MiB
+  `maxRequestBytes` — `protocol.hcmRestBase` `/hcmRestApi/rest/latest/en/11.13.18.05:9`, **no `person-id`**: the
+  conversation row goes without `PersonId`, as Studio's own `/debug` clients send none), the page's run observer
+  (`run-observer`, the Run Inspector's record), `user.userName` = `podUser` (absent: the chat's needs-input panel, never
+  the Keycloak name) and no roles. `_info` answering `401 auth-required` (no pod sign-in on the conversation) shows "Sign
   in to the pod through the agent chat, then ask the agent to open the debugger again."; any other failure shows its
-  reason. Attachments are off with a notice: there is no reliable read of the pod user's PersonId through the FA endpoint
-  yet.
+  reason.
+- Two tabs: **Chat** (the component) and **Run** (the Run Inspector, below). The chat's own trace panel (`ui.trace`) is
+  not used here.
 - Rest helper `src/ts/debug-host/podProxyRestHelper.ts`: VB's RestHelper chain (hooks, body format) over the engine's
   same-origin proxy `ANY <pod><TARGET>/<pod-path>` (the conversation's bound instance and pod sign-in) with
   `X-Gnimsys-Pod-Proxy: 1` and same-origin credentials; endpoint map `{FA: "FA", …}`. The chat streams through it with
@@ -287,6 +289,56 @@ A second build flavour of this repo's app shell, for the fusion-ai-agent UI's si
   no SPA fallback. The page's `/api/pod/*` calls go to the engine on the same origin.
 - e2e: `scripts/e2e.sh npm run e2e:debug-host` — the build, served from `dist/debug-host/`, behind a fake of the proxy's
   conversation form (`tests/fake-pod-proxy/server.mjs`) in front of the mock pod.
+
+### Run Inspector (bridge design §13; debug host only, never in the VB pack)
+
+`src/ts/debug-host/run/` (pure, unit-tested) and `src/ts/debug-host/inspector/` (Preact, rendered into `#dbg-run`
+outside Knockout: `data-oj-binding-provider="none"`, which classic JET components there need).
+
+- **Record** (`run/runStore.ts`): the chat's run observer — per turn the request as sent, every raw frame with its arrival
+  time, the end; the BOSS `version` of the workflow row read right after each turn (the saved draft the run most likely
+  executed). In memory, client-only.
+- **Run model** (`run/frames.ts`): Oracle's frame model — `NODE_EXECUTED` (instant node) or a `NODE_START`…`NODE_END`
+  pair; steps numbered in completion order (`NODE_EXECUTED` | `NODE_END`, the rule `fai_workflow_run` uses, so the user
+  and the builder agent mean the same "step 12"); `CHILD_NODE_*` read as plain types; durations exact for pairs, an upper
+  bound for single frames; JSON inside JSON strings decoded (`run/decode.ts`, three levels); Oracle's 10 000-character cut
+  (`.....`) marked as cut, not malformed; `$variables` diffs between steps (`run/diff.ts`).
+- **Graph**: the run's workflow definition from BOSS `…/$en/workflows?$fields=workflowCode,status,version,specification&
+  $filter=workflowCode='<code>' and status='<version>'` (the CLI's read; `specification` as a JSON string or an object),
+  through the conversation's proxy (BOSS target); drawn with classic **`oj-diagram`** at **Studio's own canvas
+  positions** (`diagram.x/y`; a LOOP keeps its box around its body; an END without a position is not drawn, as in
+  Studio), edges routed orthogonally, the run's nodes coloured by state (done / cut / error / waiting / stopped before a
+  breakpoint / not run) with their step numbers, the taken edges strong. **No layout of our own**: without a readable
+  definition, or with a node lacking Studio x/y, the Steps view only, with a notice naming why. A definition saved after a
+  run (another BOSS version) is named on that run.
+- **UI**: turn selector (every turn of the page), Graph | Steps, a stepper (first / previous / next / last / play, ←/→),
+  the selected step in tabs — Overview (timings, branch taken, cut / console / timeout), Input, Output, Vars Δ, Context,
+  Calls (function/LLM calls: status, time, tokens, model), Compare (the same node in another turn), Raw (the frames
+  verbatim) — JSON shown with classic `oj-tree-view` (decoded strings and cuts marked, copy value / path), a search
+  through every step's data, the turn's metrics, the breakpoint verdict, Export.
+- **Breakpoints**: set by the agent (panel message below), shown and removable in the Run tab and named in a banner above
+  the chat; sent as `debugParams.breakPoints` of the next `/debug` runs. A stop is labelled **verified** only when the
+  output equals the last executed node's output and a not-executed breakpoint node is a direct graph successor of the
+  last executed node (`run/breakpoints.ts`, `fai_workflow_run`'s rule); otherwise "unverified" with the reason.
+- **Export** (`run/exporter.ts`): button or panel message → one JSON file (`debug-<workflow>-<version>-<time>.json`,
+  Blob download): `{kind: "gnimsys-ai-chat-debug-export", formatVersion: 1, exportedAt, binding {pod, instance, podUser,
+  workflowCode, version}, breakpoints, masked, conversations: [{conversationId, turns: [{seq, sentAt, endedAt, endpoint,
+  path, request, error?, outcome, jobId, traceIds, steps, definitionVersion, frames: [{at, payload}]}]}]}`. Credential
+  values are masked as `[redacted]` — the pod proxy recording's key list (`callbackToken`, `messageInstanceId`, auth
+  headers, token and secret names), in requests and frames, inside JSON strings too. Needs `allow-downloads` in the agent
+  UI's panel sandbox.
+- **Panel messages** (`run/panelMessages.ts`, bridge design §13.1): `window` `message` events from **this origin** and
+  **the parent window** only, envelope `{gnimsys: "side-panel-message", id, message}`; `{type: "export"}`,
+  `{type: "reset", export: "true"|"false"}` (export first when "true", then `newConversation()` and an empty record;
+  the breakpoints stay), `{type: "breakpoints", nodes: "" | "CODE[,CODE…]"}`. Anything else of ours is refused with its
+  reason in the page's banner; other messages are ignored.
+- **Golden fixtures**: `tests/mock-pod/fixtures/debug-wizard-workflow.json` and `debug-wizard-turn1.sse` / `turn2.sse` —
+  a real 72-node DRAFT workflow (with a LOOP, 30 error paths, Studio positions) and two real `/debug` turns of it (17 and
+  24 steps, cut values, BO and LLM calls), **sanitized**: structure, timings, node types, positions and Oracle's cuts kept;
+  every value, key below the frame structure, node code, name and case label replaced (no token, host, user or customer
+  data). The mock pod serves them as `WIZARD_WF` (and `NOXY_WF` without positions, both hidden rows), answers message
+  "start" with turn 1 and anything else with turn 2, stops a run before its breakpoints as Oracle does, and
+  `/__mock/arm?wizardVersion=<n>` simulates a saved draft.
 
 ## Known limits (v1.0)
 

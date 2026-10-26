@@ -27,6 +27,15 @@ function apiRequests(page: Page): string[] {
   return seen;
 }
 
+/** The Run tab holds the reply's run: two steps (START, and CHAT_LLM that never ends in this fixture), the raw frames. */
+async function expectRunTab(page: Page): Promise<void> {
+  await expect(page.getByTestId("dbg-tabs")).toContainText("Run (1)");
+  await page.getByTestId("dbg-tabs").getByRole("tab", { name: /^Run/ }).click();
+  await expect(page.getByTestId("dbg-step")).toHaveCount(2);
+  await page.getByTestId("dbg-detail-tabs").getByRole("tab", { name: "Raw" }).click();
+  await expect(page.getByTestId("dbg-raw-frame").first()).toContainText('{"nodeProgressMessage"');
+}
+
 /** No picker, no input, no Run: the page binds from its URL only. */
 async function expectNoInputs(page: Page): Promise<void> {
   for (const id of ["dbg-instance", "dbg-version", "dbg-workflow", "dbg-app", "dbg-run", "dbg-refresh"]) await expect(page.getByTestId(id)).toHaveCount(0);
@@ -111,17 +120,10 @@ test("binds_workflow_and_version_from_url_and_streams_a_draft_turn_through_the_c
   const seen = await page.evaluate(() => (window as unknown as { __seen: string[] }).__seen);
   expect(seen.some((t) => t === "Hel" || t === "Hello!")).toBe(true);
 
-  // Trace (the host pairs ui.trace.roles with the user's roles) and the raw frames of the reply.
-  await expect(page.getByTestId("gai-trace-toggle")).toHaveText("Trace (3)");
-  const raw = page.getByTestId("gai-raw-toggle");
-  await expect(raw).toHaveText("Raw frames (7)");
-  await raw.click();
-  const frames = page.getByTestId("gai-raw-frame");
-  await expect(frames).toHaveCount(7);
-  await frames.last().scrollIntoViewIfNeeded();
-  await expect(frames.last()).toBeVisible();
-  await expect(frames.first()).toContainText('#1 {"nodeProgressMessage"');
-  await expect(frames.last()).toContainText('"finishReason":"stop"');
+  // The run is in the Run tab: the Run Inspector replaces the chat's trace and raw-frame panels in the debugger.
+  await expect(page.getByTestId("gai-trace-toggle")).toHaveCount(0);
+  await expect(page.getByTestId("gai-raw-toggle")).toHaveCount(0);
+  await expectRunTab(page);
 
   // Every call went to the conversation base with the CSRF header and no credentials of its own: first the binding
   // (_info), then the chat's calls; the run is the URL's workflow and version (DRAFT -> /debug).
@@ -160,12 +162,8 @@ test("streams_a_published_turn_and_its_resume_through_debug_with_status_publishe
   await page.getByTestId("gai-composer-input").locator("textarea").fill("hello");
   await page.getByTestId("gai-composer-send").locator("button").click();
   await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
-  await expect(page.getByTestId("gai-trace-toggle")).toHaveText("Trace (3)");
-  const raw = page.getByTestId("gai-raw-toggle");
-  await expect(raw).toHaveText("Raw frames (7)");
-  await raw.click();
-  await expect(page.getByTestId("gai-raw-frame")).toHaveCount(7);
-  await expect(page.getByTestId("gai-raw-frame").first()).toContainText('#1 {"nodeProgressMessage"');
+  await expectRunTab(page);
+  await page.getByTestId("dbg-tabs").getByRole("tab", { name: "Chat" }).click();
 
   // A HITL wait and its resume take the same path.
   await page.getByTestId("gai-composer-input").locator("textarea").fill("approve me");

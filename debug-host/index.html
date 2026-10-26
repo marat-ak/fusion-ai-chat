@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <!--
-  The agent builders' debugger page (spec §17.1): the app shell's page for the debug-host build flavour
+  The agent builders' debugger page (spec §17.1; bridge design §13): the app shell's page for the debug-host build flavour
   (`npm run build:debug-host`; scripts/hooks/debug-host.js puts it in place of src/index.html). The build lands in
   dist/debug-host/, which agent-ui serves under /ai-chat-debug/ on the fusion-ai-agent vhost; shown in the agent UI's
   side panel. Every asset URL is relative.
   The agent chat binds the run through the URL: ?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED.
+  Two tabs: Chat (the component) and Run (the Run Inspector, rendered by Preact into #dbg-run, outside Knockout).
 -->
 <html lang="en-us">
   <head>
@@ -22,13 +23,69 @@
     <!-- endinjector:font -->
 
     <style>
-      /* The page fills the side panel's frame and the chat takes the height the form leaves: no utility class sets a
-         viewport height or a flex basis with min-height 0. */
+      /* Only what JET/Redwood utilities cannot express, each with its reason; colours and spacing as Redwood tokens. */
+
+      /* The page fills the side panel's frame; the active pane takes the height the header leaves (no utility sets a
+         viewport height or a flex basis with min-height 0). */
       html, body { height: 100%; margin: 0; }
       #globalBody { height: 100%; }
-      .dbg-chat { flex: 1 1 auto; min-height: 0; }
+      .dbg-pane { flex: 1 1 auto; min-height: 0; }
+      /* oj-flex sets display, which would override the hidden attribute of the inactive pane. */
+      .dbg-pane[hidden] { display: none; }
       /* The chat fills its area (the component's default is 560px; its README: set your own height on the tag). */
       .dbg-chat xxx-gnimsys-ai-chat { height: 100%; }
+
+      /* Run Inspector: header rows wrap with a gap (no gap utility); the body splits navigator / detail, side by side from
+         JET's lg breakpoint (1024px) up, stacked below; each part scrolls on its own. */
+      #dbg-run { display: flex; flex-direction: column; }
+      .dbg-inspector { flex: 1 1 auto; min-height: 0; }
+      .dbg-gap { gap: var(--oj-core-spacing-2x); }
+      .dbg-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--oj-core-border-color-enabled); }
+      .dbg-body__nav { flex: 0 0 45%; min-height: 220px; overflow: auto; border-bottom: 1px solid var(--oj-core-border-color-enabled); }
+      .dbg-body__detail { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 var(--oj-core-spacing-2x); }
+      @media (min-width: 1024px) {
+        .dbg-body { flex-direction: row; }
+        .dbg-body__nav { flex: 0 0 55%; border-bottom: none; border-right: 1px solid var(--oj-core-border-color-enabled); }
+      }
+      .dbg-graph, .dbg-steps { width: 100%; height: 100%; }
+      .dbg-turn { min-width: 16rem; max-width: 100%; }
+      .dbg-search { flex: 1 1 12rem; min-width: 10rem; }
+      .dbg-hits__list, .dbg-table { max-height: 30vh; }
+      /* oj-c-badge's own stylesheet fixes it at 50px wide (Core Pack 19): the marks size to their label. */
+      .dbg-badge { width: auto; min-height: 0; }
+      .dbg-step__bar { width: 6rem; }
+      .dbg-fact__label { flex: 0 0 8rem; }
+      .dbg-fact__value { min-width: 0; overflow-wrap: anywhere; }
+      /* A raw frame verbatim (JET has no code block): wraps, scrolls when long. */
+      .dbg-pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; margin: 0;
+        padding: var(--oj-core-spacing-2x); background: var(--oj-core-bg-color-hover); border-radius: var(--oj-core-border-radius-md); }
+
+      /* Graph cards (oj-diagram draws them through our SVG renderer): the run's state as Redwood status colours. */
+      .dbg-node__box { fill: var(--oj-core-bg-color-content); stroke: var(--oj-core-border-color-enabled); stroke-width: 2px; }
+      .dbg-node--done .dbg-node__box { fill: var(--oj-core-success-secondary-1); stroke: var(--oj-core-success-2); }
+      .dbg-node--cut .dbg-node__box { fill: var(--oj-core-warning-secondary-1); stroke: var(--oj-core-warning-2); }
+      .dbg-node--error .dbg-node__box { fill: var(--oj-core-danger-secondary-1); stroke: var(--oj-core-danger-2); }
+      .dbg-node--waiting .dbg-node__box, .dbg-node--running .dbg-node__box { fill: var(--oj-core-info-secondary-1); stroke: var(--oj-core-info-2); }
+      .dbg-node--stopped-before .dbg-node__box { stroke: var(--oj-core-danger-2); stroke-width: 4px; stroke-dasharray: 10 6; }
+      .dbg-node--not-run { opacity: 0.45; }
+      .dbg-node--selected .dbg-node__box { stroke: var(--oj-core-focus-border-color); stroke-width: 4px; }
+      .dbg-node__frame { fill: none; stroke: var(--oj-core-border-color-enabled); stroke-dasharray: 6 4; stroke-width: 2px; }
+      .dbg-node__code { font: 600 15px var(--oj-html-font-family, sans-serif); fill: var(--oj-core-text-color-primary); }
+      .dbg-node__type, .dbg-node__steps { font: 13px var(--oj-html-font-family, sans-serif); fill: var(--oj-core-text-color-secondary); }
+      .dbg-node__breakpoint { fill: var(--oj-core-danger-2); }
+      .dbg-link--idle { stroke: var(--oj-core-border-color-enabled); }
+      .dbg-link--taken { stroke: var(--oj-core-success-2); stroke-width: 3px; }
+      .dbg-link--error { stroke-dasharray: 6 4; }
+
+      /* JSON tree rows (oj-tree-view draws them through our renderer). */
+      .dbg-json__key { font-weight: 600; }
+      .dbg-json__value--string, .dbg-json__value--cut { color: var(--oj-core-text-color-success); overflow-wrap: anywhere; }
+      .dbg-json__value--number, .dbg-json__value--boolean, .dbg-json__value--null { color: var(--oj-core-text-color-brand); }
+      .dbg-json__value--object, .dbg-json__value--array { color: var(--oj-core-text-color-secondary); }
+      .dbg-json__mark { margin-inline-start: var(--oj-core-spacing-2x); font-size: 0.75rem; color: var(--oj-core-text-color-secondary); }
+      .dbg-json__mark--cut { color: var(--oj-core-text-color-warning); }
+      .dbg-json__row--hit { background: var(--oj-core-warning-secondary-1); }
+      .dbg-json__path { overflow-wrap: anywhere; }
     </style>
   </head>
   <body class="oj-web-applayout-body">
@@ -46,13 +103,23 @@
       </oj-bind-if>
       <oj-bind-if test="[[hasNotices]]">
         <oj-c-message-banner data-testid="dbg-notices" class="oj-sm-margin-4x-horizontal oj-sm-margin-2x-bottom" type="section"
-          data="[[notices]]"></oj-c-message-banner>
+          data="[[notices]]" on-oj-close="[[closeNotice]]"></oj-c-message-banner>
       </oj-bind-if>
-      <div class="dbg-chat oj-flex oj-sm-flex-direction-column oj-sm-padding-4x-horizontal oj-sm-padding-2x-bottom" data-testid="dbg-chat">
+      <oj-bind-if test="[[chat]]">
+        <oj-c-tab-bar data-testid="dbg-tabs" class="oj-sm-margin-4x-horizontal" aria-label="Debugger" layout="condense" edge="top"
+          data="[[tabs]]" selection="{{tab}}"></oj-c-tab-bar>
+      </oj-bind-if>
+      <div class="dbg-pane dbg-chat oj-flex oj-sm-flex-direction-column oj-sm-padding-4x-horizontal oj-sm-padding-2x-bottom" data-testid="dbg-chat"
+        :hidden="[[tab() !== 'chat']]">
         <oj-bind-if test="[[chat]]">
           <xxx-gnimsys-ai-chat config="[[chat().config]]" user="[[chat().user]]" rest-helper="[[chat().restHelper]]"
-            endpoint="[[chat().endpoint]]"></xxx-gnimsys-ai-chat>
+            endpoint="[[chat().endpoint]]" run-observer="[[runStore]]"></xxx-gnimsys-ai-chat>
         </oj-bind-if>
+      </div>
+      <!-- The Run Inspector: Preact renders it into #dbg-run (root.ts); Knockout and its binding provider stay out of it. -->
+      <div class="dbg-pane oj-flex oj-sm-flex-direction-column oj-sm-padding-4x-horizontal oj-sm-padding-2x-bottom" data-testid="dbg-run-pane"
+        :hidden="[[tab() !== 'run']]">
+        <div id="dbg-run" class="dbg-pane" data-oj-binding-provider="none"></div>
       </div>
     </div>
 

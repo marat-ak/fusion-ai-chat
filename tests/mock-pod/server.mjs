@@ -14,6 +14,7 @@
 //   GET /__mock/arm?chat=<status>       -> the next /chat answers <status> (4xx/5xx) once, JSON {detail}
 //   GET /__mock/arm?sseGap=<ms>         -> the next SSE stream writes its frames <ms> (0..1000) apart instead of 20 ms;
 //                                          0 = every frame and the end of the stream at once
+//   GET /__mock/arm?wizardVersion=<n>   -> until reset, the WIZARD_WF DRAFT row reports version <n> (a saved draft)
 //                                          (the parameters may be combined in one call)
 //   GET /fscmRestApi/anticsrf           -> { "xsrftoken": "test-xsrf" } (open; the relay requires it as x-xsrf-token)
 //   GET /fscmRestApi/tokenrelay?$mock=expired -> the next relay answers login HTML once (this call is logged)
@@ -70,6 +71,36 @@ async function streamSse(res, fixtureName) {
   res.end();
 }
 
+/**
+ * A /debug turn of the golden workflows: message "start" = turn 1, anything else = turn 2; the final frame carries the
+ * request's conversationId. With debugParams.breakPoints the run stops as Oracle's does (Studio HAR 2026-10-25): the
+ * frames end before the first breakpoint node's first frame and the turn ends `stop` with the last executed node's output
+ * as its output (no TEXT deltas after the stop).
+ */
+async function streamDebugTurn(res, b) {
+  const frames = fixture(DEBUG_TURNS[b.message === "start" ? 0 : 1]).split("\n").filter((l) => l.startsWith("data:"))
+    .map((l) => JSON.parse(l.slice(5)));
+  const finalFrame = frames[frames.length - 1];
+  const breakPoints = Array.isArray(b.debugParams?.breakPoints) ? b.debugParams.breakPoints : [];
+  let out = frames.slice(0, -1);
+  let final = { ...finalFrame, conversationId: b.conversationId };
+  const stopAt = breakPoints.length === 0 ? -1 : out.findIndex((f) => breakPoints.includes(f.nodeProgressMessage?.nodeCode));
+  if (stopAt >= 0) {
+    out = out.slice(0, stopAt).filter((f) => f.nodeProgressMessage !== undefined);
+    const last = [...out].reverse().find((f) => f.nodeProgressMessage.type !== "NODE_START");
+    final = { ...final, message: { finishReason: "stop", output: last?.nodeProgressMessage.nodeOutput ?? "", followUpQuestions: [] } };
+  }
+  const gap = state.sseGapNext ?? 5;
+  state.sseGapNext = null;
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  res.flushHeaders();
+  for (const f of [...out, final]) {
+    res.write("data: " + JSON.stringify(f) + "\n\n");
+    if (gap > 0) await sleep(gap);
+  }
+  res.end();
+}
+
 function parseBody(contentType, buf) {
   if (buf.length === 0) return null;
   const text = buf.toString("utf8");
@@ -97,14 +128,33 @@ function relayToken(scope) {
 const rowOut = (r) => ({ ...r, $context: { etag: ETAG } });
 const findRow = (id) => state.conversations.find((r) => r.id === id);
 
+// The debugger's golden run (fixtures/debug-wizard-*: a real 72-node DRAFT workflow and two real /debug turns of it,
+// sanitized — structure, timings, Studio x/y and Oracle's cuts kept, every value, name and code replaced). WIZARD_WF is that
+// workflow; NOXY_WF the same without Studio positions. Both rows are hidden (hiddenFlag), so the agent lists of the run
+// selection tests do not change; the debugger binds them through its URL.
+const WIZARD = JSON.parse(fixture("debug-wizard-workflow.json"));
+const NOXY = (() => {
+  const spec = JSON.parse(WIZARD.specification);
+  const strip = (nodes) => nodes.map(({ diagram: _d, ...n }) => (n.metadata?.dataPipeline
+    ? { ...n, metadata: { ...n.metadata, dataPipeline: { ...n.metadata.dataPipeline, pipelineNodes: strip(n.metadata.dataPipeline.pipelineNodes) } } }
+    : n));
+  spec.dataPipeline.pipelineNodes = strip(spec.dataPipeline.pipelineNodes);
+  return { ...WIZARD, workflowCode: "NOXY_WF", name: "No Layout Agent", specification: JSON.stringify(spec) };
+})();
+const DEBUG_TURNS = ["debug-wizard-turn1.sse", "debug-wizard-turn2.sse"];
+const DEBUG_WORKFLOWS = new Set(["WIZARD_WF", "NOXY_WF"]);
+
 // BOSS workflows: MOCK_WF (PUBLISHED + DRAFT), a template, a hidden row, a customization row (sourceWorkflowCode set),
-// INVOICE_WF (PUBLISHED), DRAFT_ONLY_WF (DRAFT), then 30 PUBLISHED rows so the agent list has a second page.
+// INVOICE_WF (PUBLISHED), DRAFT_ONLY_WF (DRAFT), then 30 PUBLISHED rows so the agent list has a second page; then the
+// debugger's hidden WIZARD_WF / NOXY_WF DRAFT rows (WIZARD_WF's version is state: /__mock/arm?wizardVersion bumps it).
 const WORKFLOWS = [
   ...JSON.parse(fixture("workflows.json")),
   ...Array.from({ length: 30 }, (_, i) => {
     const n = String(i + 1).padStart(2, "0");
     return { workflowCode: `PAGED_WF_${n}`, name: `Paged Agent ${n}`, status: "PUBLISHED", sourceWorkflowCode: null, isTemplate: false, hiddenFlag: false };
   }),
+  { ...WIZARD, hiddenFlag: true },
+  { ...NOXY, hiddenFlag: true },
 ];
 
 // WORKFLOW_FILTER: the BOSS $filter subset the chat sends: comparisons `field = 'v'` / `field = null` / `field ~= 'v'`
@@ -208,6 +258,7 @@ const routes = [
       state.anticsrfStatusNext = null;
       state.chatStatusNext = null;
       state.sseGapNext = null;
+      WORKFLOWS.find((r) => r.workflowCode === "WIZARD_WF").version = WIZARD.version;
       return json(res, 204);
     },
   },
@@ -215,8 +266,10 @@ const routes = [
     method: "GET", path: /^\/__mock\/arm$/, open: true,
     handle: ({ res, url }) => {
       const p = url.searchParams;
-      const usage = "arm: workflows=<4xx|5xx>, workflowsStall=1, listDelay=<0..30000 ms>, attachUpload=<4xx|5xx>, anticsrf=<4xx|5xx>, chat=<4xx|5xx> and/or sseGap=<0..1000 ms> required";
-      if (!["workflows", "workflowsStall", "listDelay", "attachUpload", "anticsrf", "chat", "sseGap"].some((k) => p.has(k))) return json(res, 400, { detail: usage });
+      const usage = "arm: workflows=<4xx|5xx>, workflowsStall=1, listDelay=<0..30000 ms>, attachUpload=<4xx|5xx>, anticsrf=<4xx|5xx>, chat=<4xx|5xx>, sseGap=<0..1000 ms> and/or wizardVersion=<int> required";
+      if (!["workflows", "workflowsStall", "listDelay", "attachUpload", "anticsrf", "chat", "sseGap", "wizardVersion"].some((k) => p.has(k))) return json(res, 400, { detail: usage });
+      const wizardVersion = Number(p.get("wizardVersion"));
+      if (p.has("wizardVersion") && !Number.isInteger(wizardVersion)) return json(res, 400, { detail: usage });
       const status = Number(p.get("workflows"));
       const delay = Number(p.get("listDelay"));
       if (p.has("workflows") && (!Number.isInteger(status) || status < 400 || status > 599)) return json(res, 400, { detail: usage });
@@ -237,6 +290,7 @@ const routes = [
       if (p.has("anticsrf")) state.anticsrfStatusNext = armed.anticsrf = anti;
       if (p.has("chat")) state.chatStatusNext = armed.chat = chat;
       if (p.has("sseGap")) state.sseGapNext = armed.sseGap = sseGap;
+      if (p.has("wizardVersion")) WORKFLOWS.find((r) => r.workflowCode === "WIZARD_WF").version = armed.wizardVersion = wizardVersion;
       return json(res, 200, { armed });
     },
   },
@@ -294,7 +348,7 @@ const routes = [
     // Studio's test path, as the vendored aistudio CLI's debug runner calls it: the run must say it is an ADMIN debug run;
     // no `status` runs the draft, `status: "PUBLISHED"` the published copy (any other status is refused).
     method: "POST", path: /^\/api\/fusion-ai\/orchestrator\/agent\/v2\/[^/]+\/debug$/,
-    handle: ({ res, body }) => {
+    handle: ({ res, body, url }) => {
       const b = body && typeof body === "object" ? body : {};
       if (b.invocationMode !== "ADMIN" || b.debugParams?.isDebug !== true) {
         return json(res, 400, { detail: "mock pod: /debug needs invocationMode ADMIN and debugParams.isDebug" });
@@ -302,6 +356,8 @@ const routes = [
       if (b.status !== undefined && b.status !== "PUBLISHED") {
         return json(res, 400, { detail: "mock pod: /debug status must be absent (draft) or PUBLISHED" });
       }
+      const wf = decodeURIComponent(url.pathname.split("/")[6]);
+      if (DEBUG_WORKFLOWS.has(wf)) return streamDebugTurn(res, b);
       return streamSse(res, b.resumeInput ? "chat-resumed.sse" : b.message === "approve me" ? "chat-wait.sse" : "chat-hello.sse");
     },
   },

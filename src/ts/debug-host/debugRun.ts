@@ -9,8 +9,16 @@ import type { PodInfo } from "./podProxyRestHelper";
 
 /** The AI Studio protocol version this debugger build is tested with (the vendored aistudio CLI pins the same value). */
 export const CHECK_VERSION = "2607100";
-/** The trace gate: the page grants its user this role and the config asks for it, so the node trace is always visible. */
-export const TRACE_ROLE = "AI_CHAT_DEBUGGER";
+/**
+ * The attachments' HCM REST base: the form Oracle's own chat client falls back to (and VB pages use), under the proxy's FA
+ * prefix `/hcmRestApi/rest/`.
+ */
+export const HCM_REST_BASE = "/hcmRestApi/rest/latest/en/11.13.18.05:9";
+/**
+ * The debugger's per-file limit (MB): Oracle's own (50), within the pod proxy's request bound (64 MiB, setup
+ * `POD_PROXY.maxRequestBytes`), multipart overhead included.
+ */
+export const MAX_FILE_MB = 50;
 
 export type RunVersion = "PUBLISHED" | "DRAFT";
 const VERSIONS: readonly RunVersion[] = ["DRAFT", "PUBLISHED"];
@@ -57,7 +65,9 @@ export function bindingFromUrl(search: string): UrlBindingResult {
 }
 
 /**
- * The chat's config for the bound run: debug features on, attachments off (no reliable PersonId read, see the page notice).
+ * The chat's config for the bound run: the mode switch on, attachments on without a PersonId (bridge design §13, decision
+ * 3: Studio's own `/debug` clients send none; a pod refusing such a conversation row shows the upload's error). The node
+ * trace and the raw frames are the Run Inspector's (the page passes its run observer), not the chat's.
  * A PUBLISHED run goes through Studio's `/debug` too (`agent.publishedVia: "debug"`, `status: "PUBLISHED"`), so agent
  * builders get the node data for it as for a draft; the key is only set for PUBLISHED (a DRAFT run refuses it).
  */
@@ -68,18 +78,18 @@ export function runConfig(binding: { workflowCode: string; version: RunVersion }
     // The component still requires auth.kind until the endpoint slice removes it; every call here goes through the
     // proxy rest helper, never through fusionShell.
     auth: { kind: "fusionShell" },
-    protocol: { checkVersion: CHECK_VERSION },
-    ui: { modeSwitch: true, debug: { rawFrames: true }, trace: { roles: [TRACE_ROLE] } },
-    files: { enabled: false },
+    protocol: { checkVersion: CHECK_VERSION, hcmRestBase: HCM_REST_BASE },
+    ui: { modeSwitch: true },
+    files: { enabled: true, maxSizeMB: MAX_FILE_MB },
   };
 }
 
 /**
  * The chat's `user`: the pod user the conversation's proxy reports (never the Keycloak name). Without one, `userName`
- * stays unset and the chat shows its needs-input panel for it.
+ * stays unset and the chat shows its needs-input panel for it. No roles: the page binds the run (nothing to choose).
  */
 export function runUser(podUser: string | undefined): { userName?: string; roles: string[] } {
-  return { ...(podUser !== undefined && { userName: podUser }), roles: [TRACE_ROLE] };
+  return { ...(podUser !== undefined && { userName: podUser }), roles: [] };
 }
 
 /** The props of the bound run's <xxx-gnimsys-ai-chat>. */
