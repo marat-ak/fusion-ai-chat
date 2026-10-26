@@ -18,13 +18,16 @@ import { OracleAttachmentService } from "../lib/files/OracleAttachmentService";
 import type { Rejection, UploadedAttachment } from "../lib/files/AttachmentService";
 import { initialState, newConversationId, reduce } from "../lib/state/conversation";
 import type { ChatState } from "../lib/state/conversation";
+import type { RunObserver, RunTurnSink } from "../lib/debug/RunObserver";
 
 export type { ChatErrorDetail } from "../lib/errors";
 
 export interface ChatControllerProps {
   userName: string;
-  /** Required when `config.files.enabled` (the component gates this as needs-input before the controller runs). */
+  /** Oracle PersonId for the attachments' conversation row; optional (absent = the row is created without it). */
   personId?: string;
+  /** Debug hosts: receives every turn's request and raw frames, and gives the breakpoints of each `/debug` send. */
+  runObserver?: RunObserver;
   /** Page values for `{{key}}` substitution in `agent.additionalContext`. */
   context?: Record<string, unknown>;
   /** Host-provided conversation to start in (the shell opens it, loading its history); a new id is minted when absent. */
@@ -98,7 +101,7 @@ interface ListState { items: ConversationSummary[]; hasMore: boolean; loading: b
 /** Single owner of the chat services and the conversation reducer. Call only with a validated config. */
 export function useChatController(config: RunConfig, props: ChatControllerProps, deps: ChatControllerDeps): ChatController {
   const { restHelper, endpoints: endpointMap } = deps;
-  const { userName, personId, context } = props;
+  const { userName, personId, context, runObserver } = props;
   const listEnabled = config.ui.conversations;
 
   // One endpoint layer per rest helper and endpoint map, keyed on the map's content (a page may rebuild an equal map).
@@ -119,11 +122,11 @@ export function useChatController(config: RunConfig, props: ChatControllerProps,
       version: config.agent.version,
       ...(via !== undefined && { publishedVia: via }),
       checkVersion: config.protocol.checkVersion,
-      rawFrames: config.ui.debug.rawFrames,
+      ...(runObserver !== undefined && { capture: true, breakPoints: () => runObserver.breakPoints() }),
       ...(ac !== undefined && { additionalContext: substitute(ac, context ?? {}) }),
       ...(lang !== undefined && { responseLanguage: lang }),
     });
-  }, [config, endpoints, context]);
+  }, [config, endpoints, context, runObserver]);
 
   // Built here so the controller stays the single owner of services.
   const history = useMemo(
@@ -133,10 +136,11 @@ export function useChatController(config: RunConfig, props: ChatControllerProps,
   const fileService = useMemo(() => {
     if (!config.files.enabled) return null;
     const hcmRestBase = config.protocol.hcmRestBase;
-    if (!personId || !hcmRestBase) throw new Error("files.enabled requires person-id and protocol.hcmRestBase");
+    if (!hcmRestBase) throw new Error("files.enabled requires protocol.hcmRestBase");
     const { maxFiles, maxSizeMB, accept } = config.files;
     return new OracleAttachmentService({
-      endpoints, workflowCode: config.agent.workflowCode, personId, hcmRestBase, limits: { maxFiles, maxSizeMB, accept },
+      endpoints, workflowCode: config.agent.workflowCode, ...(personId !== undefined && { personId }), hcmRestBase,
+      limits: { maxFiles, maxSizeMB, accept },
     });
   }, [config, endpoints, personId]);
 
@@ -329,30 +333,48 @@ export function useChatController(config: RunConfig, props: ChatControllerProps,
     inflight.current = ctrl;
     setInFlight(true);
     let failed = false;
+    // The run observer's sink of this turn (capture on): the request opens it, raw frames go to it, the end closes it.
+    let sink: RunTurnSink | null = null;
+    let turnError: { message: string; status?: number } | undefined;
     try {
       for await (const event of transport.send(input, ctrl.signal)) {
         if (ctrl.signal.aborted) break;
+        if (event.type === "request") {
+          sink = runObserver?.turn({ conversationId: input.conversationId, endpoint: event.endpoint, path: event.path, body: event.body, at: event.at }) ?? null;
+          continue;
+        }
+        if (event.type === "raw") {
+          sink?.frame(event.payload, event.at);
+          continue;
+        }
         dispatch({ type: "event", event });
         if (event.type === "error") {
           failed = true;
+          turnError ??= { message: event.message, ...(event.status !== undefined && { status: event.status }) };
           report({ message: event.message, ...(event.status !== undefined && { status: event.status }) });
         }
         if (event.type === "final" && event.finishReason === "error") failed = true;
       }
     } catch (e) {
       failed = true;
+      turnError ??= { message: messageOf(e), ...(statusOf(e) !== undefined && { status: statusOf(e) as number }) };
       if (!ctrl.signal.aborted) fail(e, true);
     } finally {
       if (inflight.current === ctrl) {
         inflight.current = null;
         setInFlight(false);
       }
+      const ended = sink as RunTurnSink | null;
+      if (ended !== null) {
+        const error = turnError ?? (ctrl.signal.aborted ? { message: "the chat moved on before the reply ended" } : undefined);
+        ended.end({ at: Date.now(), ...(error !== undefined && { error }) });
+      }
     }
     // Until the name lookup has answered, every reply that completes without error triggers it (new/open clear the
     // pending id, so an aborted turn never matches); a failed reply leaves it pending for the next one.
     if (failed || ctrl.signal.aborted || namePending.current !== input.conversationId) return;
     lookUpName(input.conversationId);
-  }, [transport, report, fail, lookUpName]);
+  }, [transport, report, fail, lookUpName, runObserver]);
 
   const ready = (): boolean =>
     !inflight.current && !trayRef.current.uploading && !historyLoading.current && stateRef.current.authState === "ok";

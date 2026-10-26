@@ -1,9 +1,9 @@
 /** @jest-environment node */
 // agent.version DRAFT and agent.publishedVia "debug" (Studio's `/debug` test path, request shaped like the vendored aistudio
-// CLI's debug runner) and the transport's raw frames (ui.debug.rawFrames).
+// CLI's debug runner), the run capture (request + raw frames for a debug host's run observer) and breakpoints.
 import * as fs from "fs";
 import * as path from "path";
-import { AiStudioTransport } from "../transport/AiStudioTransport";
+import { AiStudioTransport, BREAKPOINTS_NEED_DEBUG } from "../transport/AiStudioTransport";
 import type { ChatEvent } from "../transport/events";
 import type { EndpointFetch, EndpointName, StreamInit } from "../endpoints/EndpointFetch";
 import { frameToEvents } from "../transport/sseParser";
@@ -163,9 +163,9 @@ test("published_via_debug_streams_frames_and_raw_frames_as_the_draft", async () 
   const text = fixture("chat-hello.sse");
   const payloads = text.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6));
   const { endpoints } = fakeStream(() => streamResponse([text]));
-  const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", publishedVia: "debug", checkVersion: V, rawFrames: true });
+  const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", publishedVia: "debug", checkVersion: V, capture: true, clock: () => 42 });
   const events = await collect(t.send({ conversationId: "c-1", text: "hello" }));
-  expect(events.filter((e) => e.type === "raw")).toEqual(payloads.map((payload) => ({ type: "raw", payload })));
+  expect(events.filter((e) => e.type === "raw")).toEqual(payloads.map((payload) => ({ type: "raw", payload, at: 42 })));
   expect(events.filter((e) => e.type === "delta" || e.type === "final" || e.type === "done")).toEqual([
     { type: "delta", text: "Hel" },
     { type: "delta", text: "lo!" },
@@ -186,27 +186,80 @@ test("draft_streams_the_same_frames_as_chat", async () => {
   ]);
 });
 
-test("raw_frames_yield_every_data_payload_verbatim_before_its_events", async () => {
+test("capture_yields_the_request_first_then_every_data_payload_verbatim_before_its_events", async () => {
   const text = fixture("chat-hello.sse");
   const payloads = text.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6));
   // Cut mid-frame so a payload spans two chunks; a non-JSON frame is listed too (and still reported as a bad frame).
   const withBad = "data: {nope\n\n" + text;
   const at = withBad.indexOf('"Hel"') + 2;
-  const { endpoints } = fakeStream(() => streamResponse([withBad.slice(0, at), withBad.slice(at)]));
-  const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "DRAFT", checkVersion: V, rawFrames: true });
+  const { endpoints, calls } = fakeStream(() => streamResponse([withBad.slice(0, at), withBad.slice(at)]));
+  let tick = 100;
+  const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "DRAFT", checkVersion: V, capture: true, clock: () => tick++ });
   const events = await collect(t.send({ conversationId: "c-1", text: "hello" }));
-  expect(events.filter((e) => e.type === "raw")).toEqual(["{nope", ...payloads].map((payload) => ({ type: "raw", payload })));
+  // The request as sent, before the call.
+  expect(events[0]).toEqual({ type: "request", endpoint: "debug", path: URL_DEBUG, body: JSON.parse(calls[0].init.body as string), at: 100 });
+  expect(events.filter((e) => e.type === "raw")).toEqual(["{nope", ...payloads].map((payload, i) => ({ type: "raw", payload, at: 101 + i })));
   // Each raw frame comes right before the events parsed from it.
   const iFinalRaw = events.findIndex((e) => e.type === "raw" && e.payload.includes('"finishReason"'));
   expect(events[iFinalRaw + 1]).toEqual({ type: "final", text: "Hello! How can I help?", finishReason: "stop" });
-  expect(events[1]).toMatchObject({ type: "error" });
+  expect(events[2]).toMatchObject({ type: "error" });
   expect(events.at(-1)).toEqual({ type: "done" });
 });
 
-test("raw_frames_off_yields_no_raw_events", async () => {
+test("capture_off_yields_no_request_or_raw_events", async () => {
   const { endpoints } = fakeStream(() => streamResponse([fixture("chat-hello.sse")]));
   const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", checkVersion: V });
-  expect((await collect(t.send({ conversationId: "c-1", text: "hello" }))).some((e) => e.type === "raw")).toBe(false);
+  expect((await collect(t.send({ conversationId: "c-1", text: "hello" }))).some((e) => e.type === "raw" || e.type === "request")).toBe(false);
+});
+
+test("capture_of_a_chat_run_names_the_chat_endpoint", async () => {
+  const { endpoints } = fakeStream(() => streamResponse([]));
+  const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", checkVersion: V, capture: true, clock: () => 7 });
+  const events = await collect(t.send({ conversationId: "c-1", text: "hi" }));
+  expect(events[0]).toEqual({
+    type: "request", endpoint: "chat", path: `/api/fusion-ai/orchestrator/agent/v2/${WF}/chat`, at: 7,
+    body: { message: "hi", workflowCode: WF, conversationId: "c-1" },
+  });
+});
+
+test("breakpoints_are_read_at_every_send_into_debug_params_of_runs_and_resumes", async () => {
+  const { endpoints, calls } = fakeStream(() => streamResponse([]));
+  let points = ["NODE_A", "NODE_B"];
+  const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "DRAFT", checkVersion: V, breakPoints: () => points });
+  await collect(t.send({ conversationId: "c-1", text: "hi" }));
+  points = [];
+  await collect(t.send({ conversationId: "c-1", text: "again" }));
+  points = ["NODE_C"];
+  await collect(t.send({ conversationId: "c-1", text: "", resume: { jobId: "j-1", token: "cb", action: "APPROVE_ACTION" } }));
+  const bodies = calls.map((c) => JSON.parse(c.init.body as string));
+  expect(bodies.map((b) => b.debugParams)).toEqual([
+    { isDebug: true, breakPoints: ["NODE_A", "NODE_B"] },
+    { isDebug: true, breakPoints: [] },
+    { isDebug: true, breakPoints: ["NODE_C"] },
+  ]);
+  // A published run through /debug carries them as well.
+  const p = new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", publishedVia: "debug", checkVersion: V, breakPoints: () => ["X_1"] });
+  await collect(p.send({ conversationId: "c-2", text: "hi" }));
+  expect(JSON.parse(calls[3].init.body as string)).toMatchObject({ status: "PUBLISHED", debugParams: { isDebug: true, breakPoints: ["X_1"] } });
+});
+
+test("breakpoints_on_a_chat_run_are_refused_before_anything_is_sent", async () => {
+  const { endpoints, calls } = fakeStream(() => streamResponse([]));
+  const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", checkVersion: V, capture: true, breakPoints: () => ["NODE_A"] });
+  const events = await collect(t.send({ conversationId: "c-1", text: "hi" }));
+  expect(events).toEqual([{ type: "error", message: BREAKPOINTS_NEED_DEBUG }, { type: "done" }]);
+  expect(calls).toEqual([]);
+  // No breakpoints: the chat run goes as always.
+  const ok = new AiStudioTransport({ endpoints, workflowCode: WF, version: "PUBLISHED", checkVersion: V, breakPoints: () => [] });
+  await collect(ok.send({ conversationId: "c-1", text: "hi" }));
+  expect(calls.length).toBe(1);
+});
+
+test("breakpoints_must_be_node_codes", async () => {
+  const { endpoints, calls } = fakeStream(() => streamResponse([]));
+  const t = new AiStudioTransport({ endpoints, workflowCode: WF, version: "DRAFT", checkVersion: V, breakPoints: () => ["ok", "not a code"] });
+  await expect(collect(t.send({ conversationId: "c-1", text: "hi" }))).rejects.toThrow("breakPoints must be node codes");
+  expect(calls).toEqual([]);
 });
 
 test("string_content_is_a_delta", () => {

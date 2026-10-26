@@ -25,6 +25,7 @@ import { Greeting, StartersUnavailable } from "./Starters";
 import { AuthBanner } from "./StatePanel";
 import { useChatController } from "./useChatController";
 import type { ChatErrorDetail } from "./useChatController";
+import type { RunObserver } from "../lib/debug/RunObserver";
 
 /** Public methods of `<xxx-gnimsys-ai-chat>`. */
 export type ChatHandle = {
@@ -120,6 +121,8 @@ export interface ChatShellProps {
   strings: ChatStrings;
   userName: string;
   personId?: string;
+  /** Debug hosts: the run observer (capture + breakpoints). */
+  runObserver?: RunObserver;
   /** Roles of the signed-in user; with `config.ui.trace` they decide whether the trace panel shows. */
   userRoles: string[];
   context?: Record<string, unknown>;
@@ -147,6 +150,7 @@ export function ChatShell(props: ChatShellProps) {
     {
       userName: props.userName,
       ...(props.personId !== undefined && { personId: props.personId }),
+      ...(props.runObserver !== undefined && { runObserver: props.runObserver }),
       ...(props.context !== undefined && { context: props.context }),
       ...(props.conversationId !== undefined && props.conversationId !== "" && { conversationId: props.conversationId }),
       onError: props.onError,
@@ -248,7 +252,7 @@ export function ChatShell(props: ChatShellProps) {
         <AuthBanner class="oj-sm-margin-2x" state={state.authState} {...(state.authReason !== undefined && { reason: state.authReason })} {...(state.authStatus !== undefined && { status: state.authStatus })}
           {...(state.authDetail !== undefined && { detail: state.authDetail })} />
       )}
-      <Feed turns={state.turns} showTrace={traceGateOpen(config.ui.trace, props.userRoles)} showRawFrames={config.ui.debug.rawFrames} busy={busy && authOk}
+      <Feed turns={state.turns} showTrace={traceGateOpen(config.ui.trace, props.userRoles)} busy={busy && authOk}
         renderer={renderer} historyStatus={state.historyStatus}
         {...(state.historyError !== undefined && { historyError: state.historyError })}
         {...(state.progressText !== undefined && { progressText: state.progressText })}>

@@ -9,6 +9,7 @@ import { availableModes } from "./lib/config/modes";
 import { withRun } from "./lib/config/types";
 import type { ChatMode, Run } from "./lib/config/types";
 import { errorDetail } from "./lib/errors";
+import type { RunObserver } from "./lib/debug/RunObserver";
 import { choosesAgent } from "./lib/run/plan";
 import { ChatShell } from "./ui/ChatShell";
 import type { ChatHandle } from "./ui/ChatShell";
@@ -28,8 +29,17 @@ type Props = Readonly<{
    * agent or a draft the page did not bind.
    */
   user?: { userName?: string; roles?: string[]; [k: string]: unknown };
-  /** Oracle PersonId of the user. Required when config.files.enabled is true. */
+  /**
+   * Oracle PersonId of the user, sent in the attachments' conversation row. Optional: without it the row is created
+   * without PersonId (as Studio's own clients do); a pod that refuses such a row fails the upload with that reason.
+   */
   personId?: string;
+  /**
+   * Debug hosts only (the agent builders' debugger): an object with `breakPoints()` (the node codes the next Studio
+   * `/debug` runs stop before) and `turn(start)` (receives each turn's request and returns a sink for its raw SSE frames
+   * and its end). Without it nothing is captured and runs carry no breakpoints. VB end-user pages leave it unset.
+   */
+  runObserver?: object;
   /** Page values substituted into {{key}} placeholders of config.agent.additionalContext. */
   context?: Record<string, unknown>;
   /** Id of the current conversation (in/out). Setting it switches the chat to that conversation. */
@@ -86,8 +96,10 @@ type Props = Readonly<{
  * }
  */
 function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
-  const { config, user, personId, restHelper, endpoint } = props;
-  const check = useMemo(() => checkInputs(config, user, personId, restHelper, endpoint), [config, user, personId, restHelper, endpoint]);
+  const { config, user, personId, restHelper, endpoint, runObserver } = props;
+  const check = useMemo(
+    () => checkInputs(config, user, personId, restHelper, endpoint, runObserver), [config, user, personId, restHelper, endpoint, runObserver],
+  );
 
   // Methods delegate to the mounted shell; with a needs-input/invalid config, or before a run is chosen, there is none and
   // they throw.
@@ -161,6 +173,8 @@ function ChatImpl(props: Props, ref: Ref<ChatHandle>) {
             strings={componentStrings.chat}
             userName={(user as { userName: string } /* checkInputs: userName non-empty */).userName}
             {...(personId !== undefined && { personId })}
+            // checkInputs: a RunObserver when set.
+            {...(runObserver !== undefined && runObserver !== null && { runObserver: runObserver as RunObserver })}
             userRoles={user?.roles ?? []}
             {...(props.context !== undefined && { context: props.context })}
             // The host's conversation belongs to the first run in the config's mode: a run change or a mode switch starts a

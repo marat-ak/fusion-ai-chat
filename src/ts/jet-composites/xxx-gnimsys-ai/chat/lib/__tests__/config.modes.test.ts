@@ -1,5 +1,4 @@
-// Config keys of the debugger features (spec §5, §17): mode, agent.version, agent.publishedVia, app, ui.modeSwitch,
-// ui.debug.rawFrames.
+// Config keys of the debugger features (spec §5, §17): mode, agent.version, agent.publishedVia, app, ui.modeSwitch.
 import { validateConfig } from "../config/validate";
 import { availableModes, MODE_LABELS } from "../config/modes";
 import { withRun } from "../config/types";
@@ -98,23 +97,18 @@ describe("app", () => {
   });
 });
 
-describe("ui.modeSwitch and ui.debug", () => {
+describe("ui.modeSwitch", () => {
   test("off_by_default", () => {
-    const c = ok(min);
-    expect([c.ui.modeSwitch, c.ui.debug]).toEqual([false, { rawFrames: false }]);
+    expect(ok(min).ui.modeSwitch).toBe(false);
   });
   test("on_when_set", () => {
-    const c = ok({ ...min, ui: { modeSwitch: true, debug: { rawFrames: true } } });
-    expect([c.ui.modeSwitch, c.ui.debug]).toEqual([true, { rawFrames: true }]);
+    expect(ok({ ...min, ui: { modeSwitch: true } }).ui.modeSwitch).toBe(true);
   });
-  test("wrong_types_and_unknown_debug_keys_are_invalid", () => {
-    const r = validateConfig({ ...min, ui: { modeSwitch: "yes", debug: { rawFrames: 1, frames: true } } });
-    expect(!r.ok && r.problems).toEqual([
-      { path: "ui.modeSwitch", message: "must be a boolean" },
-      { path: "ui.debug.frames", message: "unknown key" },
-      { path: "ui.debug.rawFrames", message: "must be a boolean" },
-    ]);
-    expect(validateConfig({ ...min, ui: { debug: true } })).toEqual({ ok: false, kind: "invalid", problems: [{ path: "ui.debug", message: "must be an object" }] });
+  test("wrong_type_is_invalid_and_the_removed_ui_debug_is_an_unknown_key", () => {
+    const r = validateConfig({ ...min, ui: { modeSwitch: "yes" } });
+    expect(!r.ok && r.problems).toEqual([{ path: "ui.modeSwitch", message: "must be a boolean" }]);
+    // The raw frames panel (ui.debug.rawFrames) is gone: debug hosts capture runs through the run-observer property.
+    expect(validateConfig({ ...min, ui: { debug: { rawFrames: true } } })).toEqual({ ok: false, kind: "invalid", problems: [{ path: "ui.debug", message: "unknown key" }] });
   });
 });
 

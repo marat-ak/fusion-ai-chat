@@ -1,6 +1,7 @@
 import { parseConfigProp, validateConfig } from "./validate";
 import type { Problem, ValidateResult } from "./types";
 import { ENDPOINT_NAMES } from "../endpoints/EndpointFetch";
+import { isRunObserver } from "../debug/RunObserver";
 import type { EndpointName } from "../endpoints/EndpointFetch";
 
 export type ChatUser = { userName?: string; roles?: string[]; [k: string]: unknown };
@@ -23,6 +24,7 @@ export function checkInputs(
   personId: string | undefined,
   restHelper: unknown,
   endpoint: unknown,
+  runObserver?: unknown,
 ): ValidateResult {
   const parsed = parseConfigProp(configProp);
   const result = validateConfig(parsed);
@@ -35,7 +37,13 @@ export function checkInputs(
   }
   const files = isObj(parsed) ? parsed.files : undefined;
   const filesEnabled = isObj(files) && files.enabled === true;
-  if (filesEnabled && !personId) missing.push({ path: "person-id", message: "required when files.enabled" });
+  // Optional (Studio's own clients send none on /debug): absent = the conversation row is created without PersonId.
+  if (personId !== undefined && (typeof personId !== "string" || personId === "")) {
+    invalid.push({ path: "person-id", message: "must be a non-empty string when given" });
+  }
+  if (runObserver !== undefined && runObserver !== null && !isRunObserver(runObserver)) {
+    invalid.push({ path: "run-observer", message: "must be an object with breakPoints() and turn() (debug hosts)" });
+  }
 
   // Every call goes through the page's rest helper and endpoint map (VB service connections own the requests).
   if (restHelper === undefined || restHelper === null) missing.push({ path: "rest-helper", message: "required" });

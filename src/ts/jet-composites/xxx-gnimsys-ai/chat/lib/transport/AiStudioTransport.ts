@@ -18,19 +18,31 @@ export interface AiStudioTransportDeps {
   /** PUBLISHED only: `debug` sends the run through `/debug` with `status: "PUBLISHED"`; absent or `chat` = `/chat`. */
   publishedVia?: PublishedVia;
   checkVersion: string;
-  /** Yield every SSE `data:` payload as a `raw` event before its parsed events (debug hosts). */
-  rawFrames?: boolean;
+  /**
+   * Run capture (debug hosts): yield the turn's request as a `request` event before the call, and every SSE `data:`
+   * payload as a `raw` event (with its arrival time) before its parsed events.
+   */
+  capture?: boolean;
+  /**
+   * The node codes the run stops before (`debugParams.breakPoints`, Studio's breakpoints), read at every send (a resume
+   * too, as the CLI's resume passes them on). Only a `/debug` run can carry them: a `/chat` run with breakpoints is refused.
+   */
+  breakPoints?: () => string[];
   additionalContext?: Record<string, unknown>;
   responseLanguage?: string;
   /** Signing clock in epoch seconds; signedHeaders' own clock when absent. */
   now?: () => number;
+  /** Capture clock in epoch milliseconds; Date.now when absent. */
+  clock?: () => number;
 }
 
 /** The turn's error when the page's rest helper cannot hand back a streaming response (nothing is sent; no buffering). */
 export const STREAM_UNAVAILABLE = "chat streaming not available through this endpoint";
 
-/** The draft run's debug block, as the vendored Oracle aistudio CLI's own debug runner sends it (no breakpoints). */
-const DEBUG_PARAMS = { isDebug: true, breakPoints: [] as string[] };
+/** The turn's error when breakpoints are set for a `/chat` run (only Studio's `/debug` takes debugParams). */
+export const BREAKPOINTS_NEED_DEBUG = "breakpoints need the debug endpoint: this run uses /chat, which has no debugParams";
+
+const NODE_CODE = /^[A-Za-z0-9_]+$/;
 
 /**
  * v1 transport: AI Studio v2 `/chat` SSE (PUBLISHED) or `/debug` SSE (DRAFT, or PUBLISHED with `publishedVia: "debug"`)
@@ -53,15 +65,17 @@ export class AiStudioTransport implements ChatTransport {
    * `invocationMode: "ADMIN"`, `status: "PUBLISHED"` for the published copy (no `status` = the draft copy), `debugParams`;
    * a resume carries no run input.
    */
-  private body(input: SendInput): Record<string, unknown> {
+  private body(input: SendInput, breakPoints: string[]): Record<string, unknown> {
     const { conversationId, text, resume } = input;
     const { workflowCode, additionalContext, responseLanguage } = this.deps;
     const admin = this.debug ? { invocationMode: "ADMIN", ...(this.deps.version === "PUBLISHED" ? { status: "PUBLISHED" } : {}) } : {};
+    // The CLI's debug runner block (cT): breakPoints = the codes the run stops before, [] without.
+    const debugParams = { isDebug: true, breakPoints };
     if (resume) {
       return {
         message: "", workflowCode, conversationId,
         ...admin,
-        ...(this.debug ? { debugParams: DEBUG_PARAMS } : {}),
+        ...(this.debug ? { debugParams } : {}),
         jobId: resume.jobId,
         resumeInput: { messageInstanceId: resume.token, userResponse: resume.action, ...(resume.content !== undefined ? { content: resume.content } : {}) },
         ...(resume.statusCheckOnly ? { statusCheckOnly: true } : {}),
@@ -72,8 +86,17 @@ export class AiStudioTransport implements ChatTransport {
       ...admin,
       ...(additionalContext !== undefined ? { parameters: { additional_context: JSON.stringify(additionalContext) } } : {}),
       ...(responseLanguage !== undefined ? { responseLanguage } : {}),
-      ...(this.debug ? { debugParams: DEBUG_PARAMS } : {}),
+      ...(this.debug ? { debugParams } : {}),
     };
+  }
+
+  /** The breakpoints of this send: a fresh copy of node codes; anything else is the caller's error. */
+  private breakPointsNow(): string[] {
+    const list = this.deps.breakPoints?.() ?? [];
+    if (!Array.isArray(list) || list.some((c) => typeof c !== "string" || !NODE_CODE.test(c))) {
+      throw new Error("breakPoints must be node codes ([A-Za-z0-9_]+)");
+    }
+    return [...list];
   }
 
   private static payloadEvents(payload: string): ChatEvent[] {
@@ -83,12 +106,21 @@ export class AiStudioTransport implements ChatTransport {
 
   async *send(input: SendInput, signal?: AbortSignal): AsyncGenerator<ChatEvent, void, undefined> {
     const message = input.resume ? "" : input.text;
+    const clock = this.deps.clock ?? Date.now;
+    const breakPoints = this.breakPointsNow();
+    if (!this.debug && breakPoints.length > 0) {
+      yield { type: "error", message: BREAKPOINTS_NEED_DEBUG };
+      yield { type: "done" };
+      return;
+    }
     const headers = {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
       ...(await signedHeaders(message, this.deps.checkVersion, this.deps.now?.())),
     };
-    const body = JSON.stringify(this.body(input));
+    const json = this.body(input, breakPoints);
+    const body = JSON.stringify(json);
+    if (this.deps.capture) yield { type: "request", endpoint: this.debug ? "debug" : "chat", path: this.url, body: json, at: clock() };
 
     let res: Response;
     try {
@@ -145,12 +177,12 @@ export class AiStudioTransport implements ChatTransport {
         if (signal?.aborted) { yield { type: "done" }; return; }
         if (r.done) break;
         for (const p of splitter.push(decoder.decode(r.value, { stream: true }))) {
-          if (this.deps.rawFrames) yield { type: "raw", payload: p };
+          if (this.deps.capture) yield { type: "raw", payload: p, at: clock() };
           for (const ev of AiStudioTransport.payloadEvents(p)) yield ev;
         }
       }
       for (const p of [...splitter.push(decoder.decode()), ...splitter.flush()]) {
-        if (this.deps.rawFrames) yield { type: "raw", payload: p };
+        if (this.deps.capture) yield { type: "raw", payload: p, at: clock() };
         for (const ev of AiStudioTransport.payloadEvents(p)) yield ev;
       }
       yield { type: "done" };

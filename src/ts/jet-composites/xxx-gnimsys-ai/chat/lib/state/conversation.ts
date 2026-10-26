@@ -3,7 +3,7 @@ import type { HistoryMessage } from "../history/HistoryStore";
 import type { UploadedAttachment } from "../files/AttachmentService";
 import type { AuthReason } from "../auth/AuthFetch";
 
-export interface Turn { id: string; role: "user" | "assistant"; text: string; streaming?: boolean; error?: { message: string; status?: number; code?: string }; attachments?: UploadedAttachment[]; trace?: TraceEntry[]; raw?: string[] }
+export interface Turn { id: string; role: "user" | "assistant"; text: string; streaming?: boolean; error?: { message: string; status?: number; code?: string }; attachments?: UploadedAttachment[]; trace?: TraceEntry[] }
 export interface WaitInfo { kind: "HUMAN" | "WAIT"; token: string; jobId: string; approval: boolean; feedback: boolean; requestChangeMessage?: string; waitMinutes?: number }
 export interface ChatState {
   conversationId: string;
@@ -89,12 +89,10 @@ function reduceEvent(s: ChatState, e: ChatEvent): ChatState {
       const text = e.text === "" ? state.turns[idx].text : e.text;
       return { ...patchTurn(state, idx, { text, streaming: false }), progressText: undefined };
     }
-    case "raw": {
-      // The reply in progress is the last turn (its frames keep coming after a `final` or `wait` ended its text).
-      const lastIdx = s.turns.length - 1;
-      const { state, idx } = s.turns[lastIdx]?.role === "assistant" ? { state: s, idx: lastIdx } : ensureStreaming(s);
-      return patchTurn(state, idx, { raw: [...(state.turns[idx].raw ?? []), e.payload] });
-    }
+    case "request":
+    case "raw":
+      // Run capture belongs to the host's run observer (the controller hands it over); the conversation keeps none.
+      return s;
     case "followups":
       return { ...s, followups: [...e.questions] };
     case "job":

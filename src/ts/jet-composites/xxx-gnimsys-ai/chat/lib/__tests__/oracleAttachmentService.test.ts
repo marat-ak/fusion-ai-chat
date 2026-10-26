@@ -1,4 +1,4 @@
-import { OracleAttachmentService, AttachmentError } from "../files/OracleAttachmentService";
+import { OracleAttachmentService, AttachmentError, NO_PERSON_ID_NOTE } from "../files/OracleAttachmentService";
 import type { EndpointFetch } from "../endpoints/EndpointFetch";
 import { fakeEndpoints, vb } from "./helpers.endpoints";
 
@@ -60,6 +60,18 @@ test("ensureConversation_failure_throws_AttachmentError", async () => {
   const e = await svc(endpoints).ensureConversation("c1").catch((x) => x);
   expect(e).toBeInstanceOf(AttachmentError);
   expect([e.step, e.status, e.body]).toEqual(["conversation", 403, "nope"]);
+});
+
+test("without_person_id_the_row_has_no_PersonId_and_a_refusal_says_so", async () => {
+  const { endpoints, calls } = fakeEndpoints([vb({}, 201), vb({ detail: "PersonId is required" }, 400)]);
+  const s = new OracleAttachmentService({ endpoints, workflowCode: "WF_1", hcmRestBase: HCM, limits });
+  await s.ensureConversation("c1");
+  // Exactly Studio's shape without a person: no PersonId key at all (no sentinel value).
+  expect(JSON.parse(calls[0].body as string)).toEqual({ ConversationId: "c1", ObjectCode: "WF_1", ObjectType: "AGENT_TEAM" });
+  const e = await s.ensureConversation("c2").catch((x) => x);
+  expect(e).toBeInstanceOf(AttachmentError);
+  expect([e.step, e.status]).toEqual(["conversation", 400]);
+  expect(e.message).toBe(`attachment conversation HTTP 400: ${NO_PERSON_ID_NOTE}; {"detail":"PersonId is required"}`);
 });
 
 test("upload_calls_tracker_then_multipart_with_tracker_and_user", async () => {

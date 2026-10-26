@@ -22,8 +22,21 @@ test("invalid_when_roles_not_string_array", () => {
   expect(paths(r)).toEqual(["user.roles"]);
   expect(paths(checkInputs(cfg, { userName: "u", roles: [1] as unknown as string[] }, undefined, RH, EP))).toEqual(["user.roles"]);
 });
-test("person_id_still_required_with_files", () => {
-  expect(paths(checkInputs(filesCfg, { userName: "u" }, undefined, RH, { ...EP, FA: "scFA" }))).toEqual(["person-id"]);
+test("person_id_is_optional_with_files_but_never_empty", () => {
+  // Without person-id the conversation row goes without PersonId (Studio's own clients send none on /debug).
+  expect(checkInputs(filesCfg, { userName: "u" }, undefined, RH, { ...EP, FA: "scFA" }).ok).toBe(true);
+  expect(checkInputs(filesCfg, { userName: "u" }, "300", RH, { ...EP, FA: "scFA" }).ok).toBe(true);
+  const r = checkInputs(filesCfg, { userName: "u" }, "", RH, { ...EP, FA: "scFA" });
+  expect(r).toEqual({ ok: false, kind: "invalid", problems: [{ path: "person-id", message: "must be a non-empty string when given" }] });
+  // Files still need the FA endpoint.
+  expect(paths(checkInputs(filesCfg, { userName: "u" }, undefined, RH, EP))).toEqual(["endpoint.FA"]);
+});
+test("run_observer_must_have_both_methods", () => {
+  const observer = { breakPoints: () => [], turn: () => ({ frame: () => undefined, end: () => undefined }) };
+  expect(checkInputs(cfg, { userName: "u" }, undefined, RH, EP, observer).ok).toBe(true);
+  expect(checkInputs(cfg, { userName: "u" }, undefined, RH, EP, null).ok).toBe(true);
+  const r = checkInputs(cfg, { userName: "u" }, undefined, RH, EP, { turn: () => undefined });
+  expect(r).toEqual({ ok: false, kind: "invalid", problems: [{ path: "run-observer", message: "must be an object with breakPoints() and turn() (debug hosts)" }] });
 });
 
 describe("rest-helper and endpoint map", () => {

@@ -19,6 +19,11 @@ export type ChatEvent =
   | { type: "wait"; kind: "HUMAN" | "WAIT"; token: string; message: string; approval: boolean; feedback: boolean; requestChangeMessage?: string; waitMinutes?: number }
   | { type: "job"; jobId: string }
   | { type: "error"; message: string; status?: number; code?: string }
-  /** One SSE `data:` payload exactly as received (only with the transport's `rawFrames` on). */
-  | { type: "raw"; payload: string }
+  /**
+   * Run capture (the transport's `capture` on; debug hosts): the turn's request as sent, before the call — `path` the pod
+   * path, `body` the JSON body, `at` epoch ms.
+   */
+  | { type: "request"; endpoint: "chat" | "debug"; path: string; body: Record<string, unknown>; at: number }
+  /** Run capture: one SSE `data:` payload exactly as received, `at` its arrival (epoch ms). */
+  | { type: "raw"; payload: string; at: number }
   | { type: "done" };

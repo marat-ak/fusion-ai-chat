@@ -20,17 +20,24 @@ export class AttachmentError extends Error {
 
 type Step = AttachmentError["step"];
 
-/** Attachment calls go through the FA endpoint; an HTTP failure is an AttachmentError naming the step. */
+/** What the conversation-row error adds when the row was created without a PersonId (the page gave no `person-id`). */
+export const NO_PERSON_ID_NOTE = "the conversation row was sent without PersonId (no person-id given)";
+
+/**
+ * Attachment calls go through the FA endpoint; an HTTP failure is an AttachmentError naming the step. `personId` is
+ * optional: without it the conversation row is created without `PersonId` (as Studio's own clients do on `/debug`); a pod
+ * that refuses that row fails the "conversation" step, and the error says the PersonId was omitted.
+ */
 export class OracleAttachmentService implements AttachmentService {
   private endpoints: EndpointFetch;
   private workflowCode: string;
-  private personId: string;
+  private personId: string | undefined;
   private hcmRestBase: string;
   private limits: AttachmentLimits;
   private now: () => number;
   private known: Map<string, Promise<void>> = new Map();
 
-  constructor(deps: { endpoints: EndpointFetch; workflowCode: string; personId: string; hcmRestBase: string; limits: AttachmentLimits; now?: () => number }) {
+  constructor(deps: { endpoints: EndpointFetch; workflowCode: string; personId?: string; hcmRestBase: string; limits: AttachmentLimits; now?: () => number }) {
     this.endpoints = deps.endpoints;
     this.workflowCode = deps.workflowCode;
     this.personId = deps.personId;
@@ -79,11 +86,24 @@ export class OracleAttachmentService implements AttachmentService {
   }
 
   private async create(conversationId: string): Promise<void> {
-    await this.call("conversation", `${this.hcmRestBase}/hcmAiStudioConversations`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ConversationId: conversationId, PersonId: this.personId, ObjectCode: this.workflowCode, ObjectType: "AGENT_TEAM" }),
-    });
+    const row = {
+      ConversationId: conversationId,
+      ...(this.personId !== undefined && { PersonId: this.personId }),
+      ObjectCode: this.workflowCode,
+      ObjectType: "AGENT_TEAM",
+    };
+    try {
+      await this.call("conversation", `${this.hcmRestBase}/hcmAiStudioConversations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(row),
+      });
+    } catch (e) {
+      if (e instanceof AttachmentError && this.personId === undefined) {
+        throw new AttachmentError("conversation", e.status, `${NO_PERSON_ID_NOTE}${e.body ? "; " + e.body : ""}`, e.fusionErrorCode);
+      }
+      throw e;
+    }
   }
 
   async upload(file: File): Promise<UploadedAttachment> {

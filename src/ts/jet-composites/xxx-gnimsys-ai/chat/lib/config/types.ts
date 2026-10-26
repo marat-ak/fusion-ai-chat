@@ -44,8 +44,6 @@ export interface ChatConfig {
     trace?: { roles: string[] };
     /** Debug hosts: the header's mode switch (spec §2). */
     modeSwitch: boolean;
-    /** Debug hosts: `rawFrames` lists each reply's raw SSE frames under it. */
-    debug: { rawFrames: boolean };
     /** Absent = nobody may choose an unbound agent or version. */
     runSettings?: RunSettings;
   };

@@ -87,17 +87,6 @@
           "type": "boolean",
           "default": false
         },
-        "debug": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "rawFrames": {
-              "$comment": "Debug hosts: every reply's raw SSE data payloads in a collapsible panel under it.",
-              "type": "boolean",
-              "default": false
-            }
-          }
-        },
         "runSettings": {
           "$comment": "Who may choose what agent does not bind, matched against user.roles: allAgentsRoles = pick any agent the user can read (BOSS workflows), draftRoles = run drafts (/debug). Roles gate choosing only, never a bound run. Absent = nobody chooses; an empty list = nobody.",
           "type": "object",

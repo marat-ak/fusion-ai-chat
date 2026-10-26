@@ -152,7 +152,7 @@ export function validateConfig(input: unknown): ValidateResult {
   if (hcmRestBase !== undefined && !hcmRestBase.startsWith("/hcmRestApi/")) bad("protocol.hcmRestBase", 'must start with "/hcmRestApi/"');
 
   // ui
-  const ui = section("ui", ["title", "greeting", "placeholder", "starterQuestions", "conversations", "viewer", "trace", "modeSwitch", "debug", "runSettings"]);
+  const ui = section("ui", ["title", "greeting", "placeholder", "starterQuestions", "conversations", "viewer", "trace", "modeSwitch", "runSettings"]);
   const title = str(ui, "title", "ui.title", false);
   const greeting = str(ui, "greeting", "ui.greeting", false);
   const placeholder = str(ui, "placeholder", "ui.placeholder", false);
@@ -180,14 +180,6 @@ export function validateConfig(input: unknown): ValidateResult {
   }
 
   const modeSwitch = bool(ui, "modeSwitch", "ui.modeSwitch", false);
-  let rawFrames = false;
-  if (ui?.debug !== undefined) {
-    if (!isObj(ui.debug)) bad("ui.debug", "must be an object");
-    else {
-      for (const k of Object.keys(ui.debug)) if (k !== "rawFrames") bad(join("ui.debug", k), "unknown key");
-      rawFrames = bool(ui.debug, "rawFrames", "ui.debug.rawFrames", false);
-    }
-  }
 
   // ui.runSettings: absent = nobody may choose; present = both role lists required (an empty list = nobody), no default
   // role names.
@@ -260,7 +252,6 @@ export function validateConfig(input: unknown): ValidateResult {
       viewer,
       ...(trace !== undefined && { trace }),
       modeSwitch,
-      debug: { rawFrames },
       ...(runSettings !== undefined && { runSettings }),
     },
     files: { enabled: filesEnabled, maxFiles, maxSizeMB, accept },
