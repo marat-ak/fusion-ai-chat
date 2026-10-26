@@ -16,6 +16,10 @@
 //                                          0 = every frame and the end of the stream at once
 //   GET /__mock/arm?wizardVersion=<n>   -> until reset, the WIZARD_WF DRAFT row reports version <n> (a saved draft)
 //                                          (the parameters may be combined in one call)
+//   /chat by message: "approve me" / "wait for me" / "fail" / "unsafe html" / "long list" (see the route), "pick subinventory"
+//   (a gnimsys-ui form: 24-option select + hidden + Approve/Back), "pick from datasource" (a select searched and paged
+//   through GET /fscmRestApi/resources/11.13.18.05/subinventories, 300 rows), "choose next step" (radio + checkbox +
+//   hidden + confirm button, then an invalid block); anything else -> chat-hello.sse.
 //   GET /fscmRestApi/anticsrf           -> { "xsrftoken": "test-xsrf" } (open; the relay requires it as x-xsrf-token)
 //   GET /fscmRestApi/tokenrelay?$mock=expired -> the next relay answers login HTML once (this call is logged)
 import http from "node:http";
@@ -142,6 +146,18 @@ const NOXY = (() => {
   return { ...WIZARD, workflowCode: "NOXY_WF", name: "No Layout Agent", specification: JSON.stringify(spec) };
 })();
 const DEBUG_TURNS = ["debug-wizard-turn1.sse", "debug-wizard-turn2.sse"];
+
+// The widget datasource rows: 300 subinventories 12001..12300, descriptions cycling through 24 names ("Raw Materials 2"
+// = code 12002, "Raw Materials 26" = 12026, …), so a typed prefix narrows the list and a page of 25 never holds it all.
+const SUBINV_NAMES = [
+  "Main Store", "Raw Materials", "Finished Goods", "Quarantine", "Returns", "Spare Parts", "Consignment", "Packaging",
+  "Staging In", "Staging Out", "Line 1 Floor Stock", "Line 2 Floor Stock", "Line 3 Floor Stock", "Tooling", "Maintenance", "Samples",
+  "Demo Units", "Service Van 1", "Service Van 2", "Rework", "Scrap", "Bonded", "Export Hold", "Overflow",
+];
+const SUBINVENTORIES = Array.from({ length: 300 }, (_, i) => ({
+  SubinventoryCode: String(12001 + i),
+  Description: `${SUBINV_NAMES[i % SUBINV_NAMES.length]} ${i + 1}`,
+}));
 const DEBUG_WORKFLOWS = new Set(["WIZARD_WF", "NOXY_WF"]);
 
 // BOSS workflows: MOCK_WF (PUBLISHED + DRAFT), a template, a hidden row, a customization row (sourceWorkflowCode set),
@@ -340,8 +356,42 @@ const routes = [
         : b.message === "fail" ? "chat-error.sse"
         : b.message === "unsafe html" ? "chat-unsafe.sse"
         : b.message === "long list" ? "chat-long-list.sse"
+        : b.message === "pick subinventory" ? "chat-widget-subinv.sse"
+        : b.message === "pick from datasource" ? "chat-widget-datasource.sse"
+        : b.message === "choose next step" ? "chat-widget-choice.sse"
         : "chat-hello.sse";
       return streamSse(res, pick);
+    },
+  },
+  {
+    // The widget datasource (chat-widget-datasource.sse and the overlay e2e): a Fusion REST collection of SUBINVENTORIES
+    // (300 rows), filtered by `q` as the endpoint data provider writes it (`Description LIKE '<prefix>%'`, case-insensitive,
+    // or `SubinventoryCode IN ('k1','k2')`), paged by `limit`/`offset` (no limit = every match), `hasMore`, and
+    // `totalResults` when asked for. `fields` is ignored (whole rows come back).
+    method: "GET", path: /^\/fscmRestApi\/resources\/11\.13\.18\.05\/subinventories$/,
+    handle: ({ res, url }) => {
+      const q = url.searchParams.get("q");
+      let match = () => true;
+      if (q !== null) {
+        const like = /^Description LIKE '(.*)%'$/.exec(q);
+        const within = /^SubinventoryCode IN \((.*)\)$/.exec(q);
+        if (like) {
+          const prefix = like[1].replace(/''/g, "'").toLowerCase();
+          match = (r) => r.Description.toLowerCase().startsWith(prefix);
+        } else if (within) {
+          const keys = new Set(within[1].split(",").map((k) => k.trim().replace(/^'|'$/g, "").replace(/''/g, "'")));
+          match = (r) => keys.has(r.SubinventoryCode);
+        } else {
+          return json(res, 400, { detail: `mock pod: unsupported subinventories q: ${q}` });
+        }
+      }
+      const hits = SUBINVENTORIES.filter(match);
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+      const limit = url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : hits.length;
+      const items = hits.slice(offset, offset + limit);
+      const body = { items, hasMore: offset + items.length < hits.length, offset, limit, count: items.length };
+      if (url.searchParams.get("totalResults") === "true") body.totalResults = hits.length;
+      return json(res, 200, body);
     },
   },
   {

@@ -7,11 +7,23 @@ import { Banner } from "./Banner";
 import { AGENT_INDENT, Bubble } from "./Bubble";
 import { TracePanel } from "./TracePanel";
 import type { MarkdownRenderer } from "./Bubble";
+import type { WidgetContext } from "./Content";
+import { submitsIn } from "../lib/widgets/submit";
+import type { Submit } from "../lib/widgets/submit";
 
 const SECONDARY = "oj-typography-body-sm oj-text-color-secondary oj-sm-margin-2x-bottom";
 
+/** The widget submits carried by the user turns after turn `i` (contract §3: they make that turn's blocks read-only). */
+function submitsAfter(turns: Turn[], i: number): Submit[] {
+  const out: Submit[] = [];
+  for (let j = i + 1; j < turns.length; j++) if (turns[j].role === "user") out.push(...submitsIn(turns[j].text));
+  return out;
+}
+
 export function Feed(props: {
   turns: Turn[];
+  /** The gnimsys-ui blocks' context (datasource policy, fetch, submit); absent = blocks render as raw text. */
+  widgets?: WidgetContext;
   /** A turn is in flight: show the progress line under the streaming bubble. */
   busy: boolean;
   progressText?: string;
@@ -40,10 +52,13 @@ export function Feed(props: {
         <Banner testId="gai-history-unavailable" severity="warning" class="oj-sm-margin-2x-bottom"
           summary={`History unavailable${err?.status ? ` (HTTP ${err.status})` : ""}${err?.text ? `: ${err.text}` : ""}`} />
       )}
-      {props.turns.map((t) => (
+      {props.turns.map((t, i) => (
         <Fragment key={t.id}>
           {/* An assistant turn that has not produced text (nor failed) yet is represented by the progress line alone. */}
-          {t.role === "assistant" && t.streaming && t.text === "" && !t.error ? null : <Bubble turn={t} renderer={props.renderer} />}
+          {t.role === "assistant" && t.streaming && t.text === "" && !t.error ? null : (
+            <Bubble turn={t} renderer={props.renderer} {...(props.widgets !== undefined && { widgets: props.widgets })}
+              {...(t.role === "assistant" && { submitted: submitsAfter(props.turns, i) })} />
+          )}
           {props.showTrace && t.role === "assistant" && t.trace !== undefined && t.trace.length > 0 && <TracePanel entries={t.trace} />}
         </Fragment>
       ))}

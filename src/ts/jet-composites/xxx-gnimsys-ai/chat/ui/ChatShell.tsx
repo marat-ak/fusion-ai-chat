@@ -253,6 +253,7 @@ export function ChatShell(props: ChatShellProps) {
           {...(state.authDetail !== undefined && { detail: state.authDetail })} />
       )}
       <Feed turns={state.turns} showTrace={traceGateOpen(config.ui.trace, props.userRoles)} busy={busy && authOk}
+        widgets={{ policy: config.datasources, overlays: config.widgets, endpoints: ctl.endpoints, canSend, settled, onSubmit: ctl.send }}
         renderer={renderer} historyStatus={state.historyStatus}
         {...(state.historyError !== undefined && { historyError: state.historyError })}
         {...(state.progressText !== undefined && { progressText: state.progressText })}>

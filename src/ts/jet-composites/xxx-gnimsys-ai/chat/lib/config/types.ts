@@ -1,3 +1,6 @@
+import type { WidgetOverlay } from "../widgets/block";
+export type { WidgetOverlay } from "../widgets/block";
+
 /** The component's modes (spec §2). */
 export type ChatMode = "chat" | "app" | "gnimsys";
 export const CHAT_MODES: readonly ChatMode[] = ["chat", "app", "gnimsys"];
@@ -48,8 +51,10 @@ export interface ChatConfig {
     runSettings?: RunSettings;
   };
   files: { enabled: boolean; maxFiles: number; maxSizeMB: number; accept: string[] };
-  datasources: { allowInline: boolean; allowPrefixes: string[] };
-  widgets: Record<string, unknown>; // consumed in v1.1
+  /** D7 + the datasource selects' page size (rows per server page, default 25). */
+  datasources: { allowInline: boolean; allowPrefixes: string[]; pageSize: number };
+  /** The gnimsys-ui overlay `widgets[widgetId].fields[fieldId]`: a datasource that wins over the block's own (D7). */
+  widgets: Record<string, WidgetOverlay>;
   submit: { envelope: "gnimsysSubmit" };
   history: { kind: "oracle" };
 }

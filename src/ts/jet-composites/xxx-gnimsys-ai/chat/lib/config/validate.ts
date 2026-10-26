@@ -1,5 +1,8 @@
 import { ARTIFACT_VERSIONS as VERSIONS, CHAT_MODES, IMPLEMENTED_MODES, PUBLISHED_VIA } from "./types";
-import type { ArtifactVersion, ChatConfig, ChatMode, Problem, PublishedVia, RunSettings, ValidateResult } from "./types";
+import type { ArtifactVersion, ChatConfig, ChatMode, Problem, PublishedVia, RunSettings, ValidateResult, WidgetOverlay } from "./types";
+import { ID_RE } from "../widgets/block";
+import { validateDataSource, validateSourceFields } from "../widgets/datasource";
+import type { DataSourceOptions } from "../widgets/datasource";
 export type { ChatConfig, Problem, ValidateResult } from "./types";
 
 const DEFAULT_ACCEPT = ["pdf", "docx", "xlsx", "pptx", "csv", "txt", "md", "html", "json", "xml", "zip", "image/*"];
@@ -203,15 +206,37 @@ export function validateConfig(input: unknown): ValidateResult {
   }
 
   // datasources
-  const ds = section("datasources", ["allowInline", "allowPrefixes"]);
+  const ds = section("datasources", ["allowInline", "allowPrefixes", "pageSize"]);
   const allowInline = bool(ds, "allowInline", "datasources.allowInline", false);
   const allowPrefixes = strList(ds, "allowPrefixes", "datasources.allowPrefixes", []);
+  // pageSize: rows per page of a datasource select (the endpoint data provider's limit); 25 = the contract's default.
+  const pageSize = posNum(ds, "pageSize", "datasources.pageSize", 25);
+  if (ds?.pageSize !== undefined && !Number.isInteger(ds.pageSize)) bad("datasources.pageSize", "must be an integer");
 
-  // widgets (contents validated in v1.1)
-  let widgets: Record<string, unknown> = {};
+  // widgets: the gnimsys-ui overlay widgets[widgetId].fields[fieldId] = { dataSource, valueField, labelField } (D7)
+  const widgets: Record<string, WidgetOverlay> = {};
   if (input.widgets !== undefined) {
     if (!isObj(input.widgets)) bad("widgets", "must be an object");
-    else widgets = input.widgets;
+    else {
+      for (const [wid, w] of Object.entries(input.widgets)) {
+        const wp = `widgets.${wid}`;
+        if (!ID_RE.test(wid)) bad(wp, "widget id must match [A-Za-z0-9_-]{1,64}");
+        if (!isObj(w)) { bad(wp, "must be an object"); continue; }
+        for (const k of Object.keys(w)) if (k !== "fields") bad(join(wp, k), "unknown key");
+        if (!isObj(w.fields)) { bad(`${wp}.fields`, "must be an object"); continue; }
+        const fields: Record<string, DataSourceOptions> = {};
+        for (const [fid, f] of Object.entries(w.fields)) {
+          const fp = `${wp}.fields.${fid}`;
+          if (!ID_RE.test(fid)) bad(fp, "field id must match [A-Za-z0-9_-]{1,64}");
+          if (!isObj(f)) { bad(fp, "must be an object"); continue; }
+          for (const k of Object.keys(f)) if (!["dataSource", "valueField", "labelField", "searchTemplate"].includes(k)) bad(join(fp, k), "unknown key");
+          const ds = validateDataSource(f.dataSource, `${fp}.dataSource`, invalid);
+          const names = validateSourceFields(f, fp, invalid);
+          if (ds !== undefined && names !== undefined) fields[fid] = { dataSource: ds, ...names };
+        }
+        widgets[wid] = { fields };
+      }
+    }
   }
 
   // submit / history
@@ -255,7 +280,7 @@ export function validateConfig(input: unknown): ValidateResult {
       ...(runSettings !== undefined && { runSettings }),
     },
     files: { enabled: filesEnabled, maxFiles, maxSizeMB, accept },
-    datasources: { allowInline, allowPrefixes },
+    datasources: { allowInline, allowPrefixes, pageSize },
     widgets,
     submit: { envelope: "gnimsysSubmit" },
     history: { kind: "oracle" },

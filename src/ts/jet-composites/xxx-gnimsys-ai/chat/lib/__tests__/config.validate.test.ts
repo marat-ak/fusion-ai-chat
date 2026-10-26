@@ -64,7 +64,7 @@ test("optional defaults are applied", () => {
   expect(cfg.ui.starterQuestions).toBe("fromWorkflow");
   expect(cfg.ui.conversations).toBe(true);
   expect(cfg.ui.viewer).toBe(false);
-  expect(cfg.datasources).toEqual({ allowInline: false, allowPrefixes: [] });
+  expect(cfg.datasources).toEqual({ allowInline: false, allowPrefixes: [], pageSize: 25 });
   expect(cfg.submit.envelope).toBe("gnimsysSubmit");
   expect(cfg.history.kind).toBe("oracle");
 });

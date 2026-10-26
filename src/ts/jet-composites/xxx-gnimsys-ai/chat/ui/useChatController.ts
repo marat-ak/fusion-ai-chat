@@ -76,6 +76,8 @@ export interface ConversationList {
 
 export interface ChatController {
   state: ChatState;
+  /** The page's endpoints (every pod call); the widgets load their datasources through it. */
+  endpoints: EndpointFetch;
   /** Fetched on mount when `ui.starterQuestions === "fromWorkflow"`; null until loaded or when the fetch failed. */
   workflowInfo: WorkflowInfo | null;
   /** Set when the workflow lookup failed for a reason other than auth (auth failures show the auth banner). */
@@ -548,5 +550,5 @@ export function useChatController(config: RunConfig, props: ChatControllerProps,
     [fileService, tray, addFiles, removeFile],
   );
 
-  return { state, workflowInfo, workflowError, conversations, inFlight, attachments, send, sendStarter, resume, newConversation, openConversation };
+  return { state, endpoints, workflowInfo, workflowError, conversations, inFlight, attachments, send, sendStarter, resume, newConversation, openConversation };
 }

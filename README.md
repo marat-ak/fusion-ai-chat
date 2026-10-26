@@ -26,8 +26,8 @@ Design: `../docs/superpowers/specs/2026-10-21-fusion-ai-chat-design.md`. Develop
 
 Published contract: [`chat/schemas/config-v1.schema.json`](src/ts/jet-composites/xxx-gnimsys-ai/chat/schemas/config-v1.schema.json)
 (also inside the package). The schema sketch in the design spec §5.4 shows the planned full shape; in v1.0
-`auth.kind` accepts only `"fusionShell"`, and `widgets`/`datasources` are accepted but have no effect yet
-(v1.1). A v1.0 config:
+`auth.kind` accepts only `"fusionShell"`; `datasources` and `widgets` govern the `gnimsys-ui` blocks (see Widgets).
+A v1.0 config:
 
 ```json
 {
@@ -340,6 +340,154 @@ outside Knockout: `data-oj-binding-provider="none"`, which classic JET component
   "start" with turn 1 and anything else with turn 2, stops a run before its breakpoints as Oracle does, and
   `/__mock/arm?wizardVersion=<n>` simulates a saved draft.
 
+## Widgets (`gnimsys-ui` block v1, rev 2)
+
+Published contract: [`chat/schemas/gnimsys-ui-v1.schema.json`](src/ts/jet-composites/xxx-gnimsys-ai/chat/schemas/gnimsys-ui-v1.schema.json)
+(`$id` `https://gnimsys.com/schemas/ai-chat/gnimsys-ui-v1.json`, JSON Schema 2020-12; design
+`docs/superpowers/specs/2026-10-26-gnimsys-ui-block-v1-design.md`, rev 2). A workflow turn that needs a selection or a
+decision puts a fenced block in its reply; the component takes the blocks out before the markdown renders, validates
+each one against the contract and mounts a form in its place (`oj-c-form-layout` with `oj-c-select-single` /
+`oj-c-select-multiple` / `oj-c-radioset` / `oj-c-checkboxset` — the rich sets when an option carries a `description` —
+and `oj-c-button`s). Several blocks per reply are fine; the markdown around them renders as usual; Oracle's follow-up
+chips are unrelated and stay. An invalid block (bad JSON, schema violation, unknown `v`/`kind`/`type`, duplicate ids, a
+`select` with both or neither option source, buttons without or with equal `data`) is shown as an error box with the
+reason and the raw text, never dropped. While a reply streams, a block is rendered only once its closing fence has
+arrived (until then its text shows as plain text); its controls mount once the turn has ended.
+
+### Block examples
+
+A select with inline options (the KRN "destination subinventory" turn — `tests/mock-pod/fixtures/chat-widget-subinv.sse`
+carries the 24-option version):
+
+````markdown
+```gnimsys-ui
+{ "v": 1, "kind": "form", "id": "destSubinv", "title": "Select the destination subinventory",
+  "fields": [
+    { "id": "subinv", "type": "select", "label": "Destination subinventory", "required": true,
+      "options": [ { "value": "12200", "label": "12200 — Main Store" }, { "value": "12205", "label": "12205 — Raw Materials" } ] },
+    { "id": "txnRef", "type": "hidden", "value": "KRN-TXN-1" } ],
+  "buttons": [ { "id": "approve", "label": "Approve", "data": { "decision": "APPROVE" } },
+               { "id": "back", "label": "Back", "validate": false, "data": { "decision": "BACK" } } ] }
+```
+````
+
+A select whose options come from a Fusion REST datasource (the dashboard datasource shape; `valueField` / `labelField`
+name the row fields; `{{query}}` inside the url's `q` parameter is the server search the dropdown's text goes into;
+`searchTemplate` = `minChars` (default 1) and `debounceMs` (default 250)):
+
+````markdown
+```gnimsys-ui
+{ "v": 1, "kind": "form", "id": "pickSubinv", "title": "Pick a subinventory",
+  "fields": [ { "id": "subinv", "type": "select", "label": "Subinventory", "required": true,
+    "dataSource": { "type": "rest", "target": "FA", "method": "GET",
+                    "url": "/fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'&fields=SubinventoryCode,Description" },
+    "valueField": "SubinventoryCode", "labelField": "Description", "searchTemplate": { "minChars": 2 } } ],
+  "buttons": [ { "id": "ok", "label": "OK", "data": { "decision": "OK" } }, { "id": "back", "label": "Back", "validate": false, "data": { "decision": "BACK" } } ] }
+```
+````
+
+A radio choice (option `description` renders under the label, like the engine's AskBox), a multi-select:
+
+````markdown
+```gnimsys-ui
+{ "v": 1, "kind": "form", "id": "nextStep",
+  "fields": [ { "id": "step", "type": "radio", "label": "Next step", "required": true,
+    "options": [ { "value": "submit", "label": "Submit", "description": "Post the transaction now" },
+                 { "value": "modify", "label": "Modify", "description": "Change quantities first" } ] },
+    { "id": "orgs", "type": "select", "multi": true, "label": "Organizations", "options": [ { "value": "13100", "label": "Head Office" } ] } ],
+  "buttons": [ { "id": "go", "label": "Go", "data": { "decision": "GO" } } ] }
+```
+````
+
+A checkbox list + hidden turn state + three buttons (one with an inline confirmation):
+
+````markdown
+```gnimsys-ui
+{ "v": 1, "kind": "form", "id": "flags", "title": "Options",
+  "fields": [ { "id": "flags", "type": "checkbox", "label": "Flags", "value": ["urgent"],
+                "options": [ { "value": "urgent", "label": "Urgent" }, { "value": "notify", "label": "Notify supervisor" } ] },
+              { "id": "txnRef", "type": "hidden", "value": "ABC-1" } ],
+  "buttons": [ { "id": "approve", "label": "Approve", "confirm": "Post the transaction?", "data": { "decision": "APPROVE" } },
+               { "id": "reject", "label": "Reject", "data": { "decision": "REJECT" } },
+               { "id": "cancel", "label": "Cancel", "validate": false, "variant": "borderless", "data": { "decision": "CANCEL" } } ] }
+```
+````
+
+Rules: `v` is `1`, `kind` is `form` (a choice is a form with one `radio` / `checkbox` field; `table` is reserved); ids
+match `[A-Za-z0-9_-]{1,64}` and are unique within the block; `fields` has at least one entry; `buttons` has at least
+one entry, each with a non-empty `data` object (scalars or arrays of scalars) that is unique within the block; the
+first button is `callToAction` and the others `outlined` unless `variant` says otherwise; `validate` (default `true`)
+makes a button refuse to submit while a `required` field is empty, `validate: false` (Back, Cancel) submits whatever is
+there; `confirm` asks "<confirm> — OK / Cancel" inline first. Every button submits the same values plus its own `data`
+— there is no non-submitting button.
+
+### The submit envelope
+
+One click = ONE user message: the readable line (`<button label> — <title>`, the label alone without a title), a
+newline, then the envelope with EVERY field (hidden included) under its id — option values, never labels; `null` for an
+unset single value, `[]` for an unset multi value — and the clicked button's `data` merged on top (button keys win):
+
+```
+Approve — Select the destination subinventory
+<gnimsysSubmit id="destSubinv">{"subinv":"12200","txnRef":"KRN-TXN-1","decision":"APPROVE"}</gnimsysSubmit>
+```
+
+The workflow parses `$context.$system.$inputMessage` with `<gnimsysSubmit id="([^"]+)">(.*?)</gnimsysSubmit>`
+(single-line; the JSON has no newlines), `JSON.parse`s group 2 and routes on the button's data key (a SWITCH on
+`decision`). After the click the block is read-only (its values shown, buttons disabled, the button whose `data` the
+submit carries marked); the user's bubble shows the readable line. A reply re-rendered from history shows its block
+read-only when a later user turn of the conversation carries an envelope with the same `id`, live otherwise.
+
+### Datasources, the endpoint data provider and the config overlay
+
+A datasource select runs on the data pack's **endpoint data provider**
+(`src/ts/jet-composites/xxx-gnimsys-data/rest/endpoint-data-provider.js`, a JET `RESTDataProvider` whose fetches go
+through the ported `Endpoint` layer, i.e. the page's `rest-helper` / `endpoint` map). The server filters and pages;
+thousands of rows are fine:
+
+- **fetchFirst / fetchByOffset**: the dropdown's text replaces `{{query}}` in the url's `q` parameter (a single quote
+  doubles, Fusion `q` style), and the Endpoint appends `q`, `limit` (= config `datasources.pageSize`, default 25) and
+  `offset`. For the example url above and the text `Ra`:
+  `/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description&q=Description+LIKE+%27Ra%25%27&limit=25&offset=0`.
+  Text shorter than `minChars` answers an empty list without a request; a request waits `debounceMs` and is dropped
+  when newer text arrives meanwhile. A url without `{{query}}` is still paged (its own `q`, if any, stays) with no
+  server search — for small lists only. Do not put `limit` / `offset` in the url.
+- **fetchByKeys** (the selected value's label, the chips of a multi-select, the read-only block): the url with its
+  WHOLE `q` parameter removed, plus `q=<valueField> IN ('k1','k2')` and `limit` = the number of keys:
+  `/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description&q=SubinventoryCode+IN+%28%2712002%27%29&limit=1`.
+  A `{{query}}` anywhere else in the url is substituted in place for pages and blanked for keys.
+- **Response**: rows = the body when it is an array, else `body.items`, else the array at
+  `dataTransform: { "type": "map", "expression": "<dotted.path>" }`; `hasMore` = `body.hasMore` when present, else "a
+  full page came back"; `totalResults` is passed through. `GET` only; `dataTransform.type: "lodash"` is accepted by the
+  schema (the dashboard shape) but never evaluated by the chat (it is code): such a field, like a `POST` datasource,
+  shows as unavailable.
+
+An inline `dataSource` (one the agent wrote) is loaded only when the config's `datasources.allowInline` is `true` AND
+its `url` starts with one of `datasources.allowPrefixes`; otherwise the field shows "datasource not allowed" and the
+block submits only through its `validate: false` buttons. `target` is the endpoint name; the endpoint's own path
+prefixes apply too.
+
+The config overlay `widgets[widgetId].fields[fieldId]` gives a select field a datasource (+ `searchTemplate`) that wins
+over the block's own options or datasource (a customer-owned source is not subject to `allowInline`):
+
+```json
+"datasources": { "allowInline": false, "pageSize": 25 },
+"widgets": {
+  "destSubinv": {
+    "fields": {
+      "subinv": {
+        "dataSource": { "type": "rest", "target": "FA", "method": "GET", "url": "/fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'" },
+        "valueField": "SubinventoryCode", "labelField": "Description", "searchTemplate": { "minChars": 2 }
+      }
+    }
+  }
+}
+```
+
+Mock pod fixtures for the e2e (`tests/e2e/widgets.spec.ts`): message `pick subinventory` (the KRN block, 24 options,
+Approve / Back), `pick from datasource` (an inline datasource searched and paged through the mock's 300-row
+`/subinventories`), `choose next step` (radio + checkbox + hidden + confirm button, followed by an invalid block).
+
 ## Known limits (v1.0)
 
 - Same-origin only: works in a Fusion App UI extension, not in a standalone VB app on another origin.
@@ -349,6 +497,7 @@ outside Knockout: `data-oj-binding-provider="none"`, which classic JET component
 - Conversation history (`conversations/v1/{id}/messages`) answered HTTP 500 on dev1: opening an older
   conversation then shows "History unavailable (HTTP n): <error text>" at the top of the feed and the user
   can continue it.
-- Widgets (`gnimsys-ui` form/table/choice, `ai-chat-submit`, `ai-chat-action`) are v1.1.
+- Widgets: the `gnimsys-ui` v1 `form` block only (see Widgets); `table`, `dependsOn` (cascading selects), text/number/date
+  fields and the `ai-chat-submit` / `ai-chat-action` events are not built.
 - No cancel API: a running reply cannot be stopped; leaving the conversation only closes the local stream.
 - Attachments: when a send fails, the files stay pending and are uploaded again on the next send.

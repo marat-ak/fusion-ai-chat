@@ -1,0 +1,488 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gnimsys.com/schemas/ai-chat/gnimsys-ui-v1.json",
+  "title": "gnimsys-ui block v1",
+  "description": "The JSON inside a fenced ```gnimsys-ui block of an AI Agent Studio reply, rendered by xxx-gnimsys-ai-chat as a form (contract 2026-10-26 rev 2). Every button submits the block's values plus its own data as ONE user message: '<button label> — <title>' (the label alone without a title), a newline, then <gnimsysSubmit id=\"<id>\">{\"<fieldId>\": <value>, ..., <button data>}</gnimsysSubmit> with every field (hidden included), option values never labels, null for an unset single value and [] for an unset multi value, and the clicked button's data merged on top (button keys win). The workflow parses it with /<gnimsysSubmit id=\"([^\"]+)\">(.*?)</gnimsysSubmit>/, JSON.parse of group 2, and routes on the button data (e.g. decision).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "kind",
+    "id",
+    "fields",
+    "buttons"
+  ],
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Wire version."
+    },
+    "kind": {
+      "const": "form",
+      "description": "This version renders forms only; a choice is a form with one radio or checkbox field."
+    },
+    "id": {
+      "$ref": "#/$defs/id",
+      "description": "Widget id, unique within the message; echoed as the envelope's id."
+    },
+    "title": {
+      "type": "string",
+      "description": "Heading above the fields; also the readable line's tail."
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/field"
+      },
+      "$comment": "Field ids must be unique within the block (checked by the component; not expressible here)."
+    },
+    "buttons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/button"
+      },
+      "description": "At least one button; button ids and data are unique within the block (checked by the component)."
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "scalar": {
+      "type": [
+        "string",
+        "number"
+      ]
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "label"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/scalar",
+          "description": "What the submit carries; unique within the field."
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "describedOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "label"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/scalar"
+        },
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "description": "Rendered under the label (the engine's AskBox pattern)."
+        }
+      }
+    },
+    "dataSource": {
+      "description": "The dashboard REST datasource shape, served by a JET DataProvider (xxx-gnimsys-data/rest/endpoint-data-provider) through the page's endpoints: fetchFirst substitutes the dropdown's typed text into the url's {{query}} placeholder (inside its q parameter; single quotes doubled) and appends limit (config datasources.pageSize, default 25) and offset; fetchByKeys sends q=<valueField> IN ('k1','k2') on the url with its whole q parameter removed. Response rows = the body when it is an array, else body.items, else the array at dataTransform.expression (map); hasMore / totalResults are read from the body. GET only. Inline (in a block) only when the config's datasources.allowInline is true and url starts with one of datasources.allowPrefixes; the config overlay widgets[widgetId].fields[fieldId] wins over it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "target",
+        "method",
+        "url"
+      ],
+      "properties": {
+        "type": {
+          "const": "rest"
+        },
+        "target": {
+          "enum": [
+            "FA",
+            "FUAI",
+            "BOSS",
+            "SAASBATCH",
+            "KM",
+            "SALESCOMMON"
+          ],
+          "description": "The endpoint (service connection) that makes the call."
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "Pod path; {{query}} inside its q parameter is the server search, e.g. /fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'&fields=SubinventoryCode,Description. Do not put limit/offset in it (the provider appends them)."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "body": {
+          "description": "Sent as given (a string) or as JSON (an object), on methods with a body."
+        },
+        "dataTransform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "expression"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "lodash",
+                "map"
+              ],
+              "description": "map: expression is the dotted path to the row array (default without a transform: the body when it is an array, else its items). lodash: the dashboard's expression form; the chat does not evaluate expressions and shows the field as unavailable."
+            },
+            "expression": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "fieldBase": {
+      "type": "object",
+      "required": [
+        "id",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id",
+          "description": "Key in the submit JSON."
+        },
+        "label": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enforced by buttons whose validate is not false."
+        },
+        "help": {
+          "type": "string",
+          "description": "Short help text under the field."
+        }
+      }
+    },
+    "field": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/selectField"
+        },
+        {
+          "$ref": "#/$defs/radioField"
+        },
+        {
+          "$ref": "#/$defs/checkboxField"
+        },
+        {
+          "$ref": "#/$defs/hiddenField"
+        }
+      ]
+    },
+    "selectField": {
+      "description": "oj-c-select-single, or oj-c-select-multiple when multi. Options inline OR from a datasource (dataSource + valueField + labelField), never both or neither.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/fieldBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": true,
+            "label": true,
+            "required": true,
+            "help": true,
+            "type": {
+              "const": "select"
+            },
+            "multi": {
+              "type": "boolean",
+              "default": false
+            },
+            "value": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/scalar"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/scalar"
+                  }
+                }
+              ],
+              "description": "Scalar (single) or array (multi)."
+            },
+            "options": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/option"
+              }
+            },
+            "dataSource": {
+              "$ref": "#/$defs/dataSource"
+            },
+            "valueField": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Row field that becomes the option value (the DataProvider key)."
+            },
+            "labelField": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Row field that becomes the option label (what the dropdown shows and the server search filters by)."
+            },
+            "searchTemplate": {
+              "$ref": "#/$defs/searchTemplate"
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "options"
+              ],
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "dataSource"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "valueField"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "labelField"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "searchTemplate"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "required": [
+                "dataSource",
+                "valueField",
+                "labelField"
+              ],
+              "not": {
+                "required": [
+                  "options"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "radioField": {
+      "description": "oj-c-radioset: one value; options inline only.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/fieldBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "options"
+          ],
+          "properties": {
+            "id": true,
+            "label": true,
+            "required": true,
+            "help": true,
+            "type": {
+              "const": "radio"
+            },
+            "value": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/scalar"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "options": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/describedOption"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "checkboxField": {
+      "description": "oj-c-checkboxset: an array value; options inline only.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/fieldBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "options"
+          ],
+          "properties": {
+            "id": true,
+            "label": true,
+            "required": true,
+            "help": true,
+            "type": {
+              "const": "checkbox"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/scalar"
+              }
+            },
+            "options": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/describedOption"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "hiddenField": {
+      "description": "Not rendered; its value is echoed in the submit (turn state the workflow wants back).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "hidden"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "button": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "data"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id",
+          "description": "Unique within the block; used by the chat for the read-only clicked mark only."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/scalar"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/scalar"
+                }
+              }
+            ]
+          },
+          "description": "Merged into the submit JSON (button keys win over field ids): how the workflow learns which button was clicked, e.g. { \"decision\": \"APPROVE\" }. Unique within the block."
+        },
+        "variant": {
+          "enum": [
+            "callToAction",
+            "outlined",
+            "borderless"
+          ],
+          "description": "Default: the first button callToAction, the others outlined."
+        },
+        "validate": {
+          "type": "boolean",
+          "default": true,
+          "description": "false = submit whatever is there (Back / Cancel), required fields not enforced."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Asks '<confirm> — OK / Cancel' inline before submitting."
+        }
+      }
+    },
+    "searchTemplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed-text search of a datasource select: minChars (default 1) before a request is made, debounceMs (default 250) between the last keystroke and the request.",
+      "properties": {
+        "minChars": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1
+        },
+        "debounceMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 250
+        }
+      }
+    }
+  }
+}

@@ -23,6 +23,11 @@ function fileOf(id: string): string {
   return path.join(PACK_DIR, id.slice(PACK_ID.length + 1) + ".js");
 }
 
+/** Registers a stand-in for a module outside the pack (a JET module such as ojs/ojrestdataprovider). */
+export function stubAmd(id: string, value: unknown): void {
+  cache.set(id, value);
+}
+
 export function loadAmd(id: string, parentId: string | null = null): unknown {
   const full = resolveId(id, parentId);
   if (cache.has(full)) return cache.get(full);

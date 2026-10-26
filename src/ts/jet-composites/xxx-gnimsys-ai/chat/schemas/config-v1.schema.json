@@ -118,10 +118,37 @@
       "additionalProperties": false,
       "properties": {
         "allowInline": { "type": "boolean", "default": false },
-        "allowPrefixes": { "type": "array", "items": { "type": "string" }, "default": [] }
+        "allowPrefixes": { "type": "array", "items": { "type": "string" }, "default": [] },
+        "pageSize": { "$comment": "Rows per server page of a datasource-backed select (the endpoint data provider's limit).", "type": "integer", "minimum": 1, "default": 25 }
       }
     },
-    "widgets": { "type": "object" },
+    "widgets": {
+      "$comment": "The gnimsys-ui overlay (D7): widgets[widgetId].fields[fieldId] gives a select field of that block a datasource (the dashboard REST shape, see gnimsys-ui-v1.schema.json #/$defs/dataSource) that wins over the block's own options or datasource. A config datasource is the customer's own: datasources.allowInline / allowPrefixes gate only the datasources an agent carries inline.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fields"],
+        "properties": {
+          "fields": {
+            "type": "object",
+            "propertyNames": { "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["dataSource", "valueField", "labelField"],
+              "properties": {
+                "dataSource": { "$ref": "https://gnimsys.com/schemas/ai-chat/gnimsys-ui-v1.json#/$defs/dataSource" },
+                "valueField": { "type": "string", "minLength": 1 },
+                "labelField": { "type": "string", "minLength": 1 },
+                "searchTemplate": { "$ref": "https://gnimsys.com/schemas/ai-chat/gnimsys-ui-v1.json#/$defs/searchTemplate" }
+              }
+            }
+          }
+        }
+      }
+    },
     "submit": {
       "type": "object",
       "additionalProperties": false,

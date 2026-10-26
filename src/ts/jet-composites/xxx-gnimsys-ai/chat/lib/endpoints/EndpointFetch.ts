@@ -176,6 +176,15 @@ export class EndpointFetch {
     if (!this.helper.getMetadata().endpoints.includes(target)) refuse(`${target} is not in the endpoint map`);
   }
 
+  /**
+   * A configured Endpoint of the page's helper for repeated calls on one url (the widgets' datasource provider pages
+   * through it): the url is checked like any request; the Endpoint's own rejections are the caller's to read.
+   */
+  endpoint(target: EndpointName, url: string, headers?: Record<string, string>): Endpoint {
+    this.check(target, url);
+    return this.helper.createEndpoint({ target, url, headers: { ...(headers ?? {}) } });
+  }
+
   async request(target: EndpointName, url: string, init: EndpointInit = {}): Promise<EndpointResponse> {
     this.check(target, url);
     const method = init.method ?? "GET";

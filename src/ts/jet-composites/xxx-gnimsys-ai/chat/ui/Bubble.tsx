@@ -3,6 +3,10 @@ import "oj-c/badge";
 import type { ComponentChildren } from "preact";
 import { useMemo } from "preact/hooks";
 import type { Turn } from "../lib/state/conversation";
+import { withoutEnvelopes } from "../lib/widgets/submit";
+import type { Submit } from "../lib/widgets/submit";
+import { AssistantContent } from "./Content";
+import type { WidgetContext } from "./Content";
 
 export interface MarkdownRenderer { render(md: string): string }
 
@@ -41,20 +45,21 @@ function UserRow(props: { children: ComponentChildren }) {
   return <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-justify-content-flex-end oj-sm-margin-4x-bottom">{props.children}</div>;
 }
 
-/** User turns are plain text; assistant turns are markdown sanitized by the renderer (plain text until it has loaded). */
-export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null }) {
+/**
+ * User turns are plain text (a widget submit shows its readable line; the envelope stays in the sent message); assistant
+ * turns are markdown sanitized by the renderer (plain text until it has loaded) with their gnimsys-ui blocks rendered by
+ * WidgetHost (`widgets`; `submitted` = the submits of the user turns after this one, which make its blocks read-only).
+ */
+export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null; widgets?: WidgetContext; submitted?: Submit[] }) {
   const { turn, renderer } = props;
-  const html = useMemo(
-    () => (turn.role === "assistant" && !turn.error && renderer ? renderer.render(turn.text) : null),
-    [turn.role, turn.error, turn.text, renderer],
-  );
+  const submitted = useMemo(() => props.submitted ?? [], [props.submitted]);
 
   if (turn.role === "user") {
     const files = turn.attachments ?? [];
     return (
       <UserRow>
         <div class={USER} data-testid="gai-bubble-user">
-          {turn.text}
+          {withoutEnvelopes(turn.text)}
           {files.length > 0 && (
             <div role="list" class="oj-flex oj-helper-white-space-normal oj-sm-margin-1x-top">
               {files.map((a, i) => (
@@ -85,9 +90,9 @@ export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null })
   }
   return (
     <AgentRow>
-      {html !== null
-        ? <div class={`${ASSISTANT} oj-bg-neutral-0 gai-md`} data-testid="gai-bubble-assistant" dangerouslySetInnerHTML={{ __html: html }} />
-        : <div class={`${ASSISTANT} oj-bg-neutral-0 oj-helper-white-space-pre-wrap`} data-testid="gai-bubble-assistant">{turn.text}</div>}
+      <div class={`${ASSISTANT} oj-bg-neutral-0`} data-testid="gai-bubble-assistant">
+        <AssistantContent text={turn.text} renderer={renderer} {...(props.widgets !== undefined && { ctx: props.widgets })} submitted={submitted} />
+      </div>
     </AgentRow>
   );
 }
