@@ -65,9 +65,9 @@ export function bindingFromUrl(search: string): UrlBindingResult {
 }
 
 /**
- * The chat's config for the bound run: the mode switch on, attachments on without a PersonId (bridge design §13, decision
- * 3: Studio's own `/debug` clients send none; a pod refusing such a conversation row shows the upload's error). The node
- * trace and the raw frames are the Run Inspector's (the page passes its run observer), not the chat's.
+ * The chat's config for the bound run: the mode switch on, attachments on (their conversation row carries
+ * DEBUG_PERSON_ID, below). The node trace and the raw frames are the Run Inspector's (the page passes its run observer),
+ * not the chat's.
  * A PUBLISHED run goes through Studio's `/debug` too (`agent.publishedVia: "debug"`, `status: "PUBLISHED"`), so agent
  * builders get the node data for it as for a draft; the key is only set for PUBLISHED (a DRAFT run refuses it).
  */
@@ -92,10 +92,19 @@ export function runUser(podUser: string | undefined): { userName?: string; roles
   return { ...(podUser !== undefined && { userName: podUser }), roles: [] };
 }
 
+/**
+ * The PersonId of the attachments' conversation row (the chat's `person-id`): "-1", as Oracle's own chat client sends
+ * without a user id (`userId ?? "-1"`). The pod refuses the row without PersonId (HTTP 400, o:errorCode 27014). A trial
+ * (bridge design §13.2): whether a file uploaded under a "-1" row reaches the run (`$system.$ucmIdList` in the step's
+ * Context) is unverified.
+ */
+export const DEBUG_PERSON_ID = "-1";
+
 /** The props of the bound run's <xxx-gnimsys-ai-chat>. */
 export interface ChatRun {
   config: Record<string, unknown>;
   user: { userName?: string; roles: string[] };
+  personId: string;
   restHelper: PodProxyRestHelper;
   endpoint: Record<string, string>;
 }
@@ -128,6 +137,7 @@ export async function startRun(options: { search: string; origin: string; fetchI
   const chat: ChatRun = {
     config: runConfig(binding),
     user: runUser(info.podUser),
+    personId: DEBUG_PERSON_ID,
     restHelper: new PodProxyRestHelper({ pod: binding.pod, label: info.instance, origin, ...(fetchImpl !== undefined && { fetchImpl }) }),
     endpoint: { ...POD_PROXY_ENDPOINTS },
   };

@@ -26,6 +26,8 @@ test("binds_workflow_and_version_from_url", async () => {
   expect([o.binding, o.instance, o.podUser]).toEqual([{ pod: POD, workflowCode: "MOCK_WF", version: "DRAFT" }, "dev1", "test.user"]);
   expect(o.chat.config).toEqual(runConfig({ workflowCode: "MOCK_WF", version: "DRAFT" }));
   expect(o.chat.user).toEqual({ userName: "test.user", roles: [] });
+  // The attachments' conversation row carries PersonId "-1" (bridge design §13.2: the pod refuses a row without one).
+  expect(o.chat.personId).toBe("-1");
   expect(o.chat.endpoint).toEqual(POD_PROXY_ENDPOINTS);
   expect([o.chat.restHelper.pod, o.chat.restHelper.label, o.chat.restHelper.baseUrl("FUAI")]).toEqual([POD, "dev1", `${O}${POD}FUAI`]);
   const r = validateConfig(o.chat.config);
@@ -92,14 +94,14 @@ test("info_auth_required_and_failures_are_their_own_outcomes", async () => {
   });
 });
 
-test("the_config_turns_the_mode_switch_and_files_without_person_id_on_and_validates", () => {
+test("the_config_turns_the_mode_switch_and_files_on_and_validates", () => {
   const config = runConfig({ workflowCode: "WF_1", version: "PUBLISHED" });
   expect(config).toEqual({
     mode: "chat",
     // A PUBLISHED run goes through /debug (status PUBLISHED): the builder gets the node data as for a draft.
     agent: { workflowCode: "WF_1", version: "PUBLISHED", publishedVia: "debug" },
     auth: { kind: "fusionShell" },
-    // Attachments on, PersonId omitted (bridge design §13 decision 3); no trace config: the Run Inspector shows the run.
+    // Attachments on (their PersonId is the chat's person-id, see startRun); no trace config: the Run Inspector shows the run.
     protocol: { checkVersion: CHECK_VERSION, hcmRestBase: HCM_REST_BASE },
     ui: { modeSwitch: true },
     files: { enabled: true, maxSizeMB: MAX_FILE_MB },

@@ -258,8 +258,10 @@ A second build flavour of this repo's app shell, for the fusion-ai-agent UI's si
   `agent.workflowCode` / `agent.version` from the URL (PUBLISHED with `agent.publishedVia: "debug"`: the published run
   goes through `/debug` with `status: "PUBLISHED"`, so its stream carries node data as a draft's does; VB end-user pages
   keep `/chat`), `ui.modeSwitch`, files on (`files.enabled`, 50 MB per file — within the proxy's 64 MiB
-  `maxRequestBytes` — `protocol.hcmRestBase` `/hcmRestApi/rest/latest/en/11.13.18.05:9`, **no `person-id`**: the
-  conversation row goes without `PersonId`, as Studio's own `/debug` clients send none), the page's run observer
+  `maxRequestBytes` — `protocol.hcmRestBase` `/hcmRestApi/rest/latest/en/11.13.18.05:9`, **`person-id="-1"`** (`DEBUG_PERSON_ID`): the
+  pod refuses the conversation row without `PersonId` (HTTP 400, o:errorCode 27014), and `"-1"` is what Oracle's own
+  chat client sends without a user id — a trial (bridge design §13.2): whether a file under a `"-1"` row reaches the
+  run (`$system.$ucmIdList` in the step's Context) is unverified), the page's run observer
   (`run-observer`, the Run Inspector's record), `user.userName` = `podUser` (absent: the chat's needs-input panel, never
   the Keycloak name) and no roles. `_info` answering `401 auth-required` (no pod sign-in on the conversation) shows "Sign
   in to the pod through the agent chat, then ask the agent to open the debugger again."; any other failure shows its

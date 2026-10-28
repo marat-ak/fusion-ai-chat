@@ -60,7 +60,15 @@ async function pickNode(s: Scope, code: string): Promise<void> {
   await input.click();
   await input.fill(code);
   // The dropdown's rows (the field's own chips carry the option role too).
-  await s.locator('div[role="option"]').filter({ hasText: new RegExp(`^${code} [—(]`) }).click();
+  const row = s.locator('div[role="option"]').filter({ hasText: new RegExp(`^${code} [—(]`) });
+  // Core Pack 19 now and then opens no dropdown at all for a row that a data change added (the agent's unknown code;
+  // about 1 run in 8): closing and searching again shows it, as a user would.
+  if (!(await row.waitFor({ timeout: 3000 }).then(() => true, () => false))) {
+    await input.press("Escape");
+    await input.click();
+    await input.fill(code);
+  }
+  await row.click();
   await input.press("Escape");
   await expect(s.locator('div[role="option"]')).toHaveCount(0); // the dropdown is closed before anything else is clicked
 }
@@ -215,7 +223,7 @@ test("a_row_without_a_specification_gets_the_steps_view_with_the_reason", async 
   await expect(page.getByTestId("dbg-step").nth(1)).toContainText("no end");
 });
 
-test("files_upload_without_person_id_through_the_proxy", async ({ page }) => {
+test("files_upload_with_person_id_minus_one_through_the_proxy", async ({ page }) => {
   await page.goto(debuggerUrl());
   await expect(page.getByTestId("gai-attach").locator("button")).toBeEnabled();
   await page.getByTestId("gai-attach-input").setInputFiles({ name: "orders.csv", mimeType: "text/csv", buffer: Buffer.from("a,b\n1,2\n") });
@@ -225,8 +233,8 @@ test("files_upload_without_person_id_through_the_proxy", async ({ page }) => {
   const pod = await podCalls(page);
   const row = pod.find((c) => c.url === `${HCM_REST_BASE}/hcmAiStudioConversations`);
   const conversationId = ((await debugCalls(page))[0].body as { conversationId: string }).conversationId;
-  // Studio's own shape without a person: no PersonId at all (no sentinel).
-  expect(row?.body).toEqual({ ConversationId: conversationId, ObjectCode: "WIZARD_WF", ObjectType: "AGENT_TEAM" });
+  // PersonId "-1", as Oracle's own chat client sends without a user id (the pod refuses a row without PersonId).
+  expect(row?.body).toEqual({ ConversationId: conversationId, ObjectCode: "WIZARD_WF", ObjectType: "AGENT_TEAM", PersonId: "-1" });
   expect(pod.filter((c) => c.method === "POST" && !c.url.endsWith("/debug")).map((c) => c.url)).toEqual([
     `${HCM_REST_BASE}/hcmAiStudioConversations`, "/fscmRestApi/applcoreApi/v1/attachDocTracker/", "/fscmRestApi/applcoreApi/v1/attachUpload", `${HCM_REST_BASE}/`,
   ]);

@@ -126,7 +126,7 @@
       <div class="dbg-pane dbg-chat oj-flex oj-sm-flex-direction-column oj-sm-padding-4x-horizontal oj-sm-padding-2x-bottom" data-testid="dbg-chat"
         :hidden="[[tab() !== 'chat']]">
         <oj-bind-if test="[[chat]]">
-          <xxx-gnimsys-ai-chat config="[[chat().config]]" user="[[chat().user]]" rest-helper="[[chat().restHelper]]"
+          <xxx-gnimsys-ai-chat config="[[chat().config]]" user="[[chat().user]]" person-id="[[chat().personId]]" rest-helper="[[chat().restHelper]]"
             endpoint="[[chat().endpoint]]" run-observer="[[runStore]]"></xxx-gnimsys-ai-chat>
         </oj-bind-if>
       </div>
