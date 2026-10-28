@@ -316,10 +316,30 @@ outside Knockout: `data-oj-binding-provider="none"`, which classic JET component
   Calls (function/LLM calls: status, time, tokens, model), Compare (the same node in another turn), Raw (the frames
   verbatim) — JSON shown with classic `oj-tree-view` (decoded strings and cuts marked, copy value / path), a search
   through every step's data, the turn's metrics, the breakpoint verdict, Export.
-- **Breakpoints**: set by the agent (panel message below), shown and removable in the Run tab and named in a banner above
-  the chat; sent as `debugParams.breakPoints` of the next `/debug` runs. A stop is labelled **verified** only when the
+- **Breakpoints**: ONE set ("stop before" node codes, `run/runStore.ts`), edited by the user in the Run tab and by the
+  agent (panel message below); **last writer wins** — the agent's message replaces the whole set, and the page's banner
+  says so (`The agent set breakpoints: X (replacing Y).`). The user sets and removes them: **on the map** (the round
+  marker at a card's top-right corner: hollow = click to stop before the node, filled = set, click again to remove; it
+  also selects the card, whose panel shows the node with the same toggle even before any run), in **"Stop before (next
+  runs)"** (`oj-c-select-multiple` of every node of the definition, nested ones included, searchable by code or name;
+  its value is the set; a set code the definition lacks is listed as "(not in the definition)" and named in a warning),
+  and with the step detail's **"Stop before this node" / "Remove the breakpoint"** button (same toggle). Without a
+  readable definition: a code field (`CODE[,CODE…]`, `[A-Za-z0-9_]+`) and removable chips, with the notice that codes
+  cannot be checked. Kept in the browser tab's `sessionStorage` per workflow + version
+  (`xxx-gnimsys-ai-debug:breakpoints:<wf>:<version>`, `run/breakpointStorage.ts`): a reload restores them with a notice,
+  a reset keeps them, closing the tab drops them; a damaged stored value is dropped with a warning. Named in a banner
+  above the chat; sent as `debugParams.breakPoints` of the next `/debug` runs (resumes included; a `/chat` run is refused
+  while any is set), carried in Export (`breakpoints` and each turn's `request`). Marker changes never touch the
+  diagram's data (no re-layout), and the user's pan and zoom survive resizes (`ojBeforePanZoomReset` is cancelled; the
+  focus is applied only when it changes). A stop is labelled **verified** only when the
   output equals the last executed node's output and a not-executed breakpoint node is a direct graph successor of the
   last executed node (`run/breakpoints.ts`, `fai_workflow_run`'s rule); otherwise "unverified" with the reason.
+- **Full screen**: the header's "Full screen" / "Exit full screen" button (`oj-c-button`, Redwood maximize / minimize
+  icon) puts the WHOLE page (chat + Run inspector) full screen with `document.documentElement.requestFullscreen()`; Esc
+  or the button comes back; the graph and the detail take the extra space. The button is hidden when
+  `document.fullscreenEnabled` is false (the framing page does not allow it). A refusal is shown in the banner, never
+  swallowed. Standalone (`/ai-chat-debug/` in a browser tab) it always works; in the agent UI's side panel it needs the
+  panel frame's `allow="fullscreen"` (engine `PANEL_IFRAME_ALLOW`).
 - **Export** (`run/exporter.ts`): button or panel message → one JSON file (`debug-<workflow>-<version>-<time>.json`,
   Blob download): `{kind: "gnimsys-ai-chat-debug-export", formatVersion: 1, exportedAt, binding {pod, instance, podUser,
   workflowCode, version}, breakpoints, masked, conversations: [{conversationId, turns: [{seq, sentAt, endedAt, endpoint,

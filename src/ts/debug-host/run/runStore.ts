@@ -1,7 +1,9 @@
 // The debugger's record of every turn the chat runs in this page (bridge design §13): the component's run observer
 // (chat property `run-observer`) — each turn's request as sent, every SSE `data:` payload verbatim with its arrival time,
-// the end — plus the breakpoints the next `/debug` runs carry (set by the agent's panel message, removable in the
-// inspector). Client-only and in memory: the page's export (exporter.ts) is the way to keep it.
+// the end — plus the ONE set of breakpoints the next `/debug` runs carry: set in the inspector (graph, step detail, the
+// node picker) or by the agent's panel message, which replaces the whole set (last writer wins); removable in the
+// inspector. Client-only: the turns live in memory (the page's export, exporter.ts, keeps them); the breakpoints are
+// also kept in the browser tab's sessionStorage by the page (breakpointStorage.ts).
 import type { RunObserver, RunTurnSink, RunTurnStart } from "../../jet-composites/xxx-gnimsys-ai/chat/lib/debug/RunObserver";
 
 export interface RecordedFrame { payload: string; at: number }
@@ -90,6 +92,14 @@ export class RunStore implements RunObserver {
     const dup = codes.filter((c, i) => codes.indexOf(c) !== i);
     if (dup.length > 0) throw new Error(`given twice: ${[...new Set(dup)].join(", ")}`);
     this.points = [...codes];
+    this.changed();
+  }
+
+  /** Adds one breakpoint at the end (a node code; already set = nothing changes). */
+  addBreakpoint(code: string): void {
+    if (!NODE_CODE.test(code)) throw new Error(`not a node code: ${code}`);
+    if (this.points.includes(code)) return;
+    this.points = [...this.points, code];
     this.changed();
   }
 

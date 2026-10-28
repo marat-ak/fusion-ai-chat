@@ -79,7 +79,7 @@ describe("the run on the graph", () => {
   test("golden_turn_marks_its_17_nodes_with_steps_and_the_taken_edges", () => {
     const def = golden();
     const run = runView(goldenTurn(1));
-    const g = runOnGraph(def, run, [], null);
+    const g = runOnGraph(def, run, null);
     expect(g.unknownCodes).toEqual([]);
     const done = [...g.views.values()].filter((v) => v.steps.length > 0);
     expect(done).toHaveLength(17);
@@ -96,8 +96,7 @@ describe("the run on the graph", () => {
   test("codes_the_definition_lacks_are_reported", () => {
     const def = golden();
     const run = runView(turnOf([node("NODE_EXECUTED", "START"), node("NODE_EXECUTED", "RENAMED_NODE")]));
-    expect(runOnGraph(def, run, ["CODE_01"], null).unknownCodes).toEqual(["RENAMED_NODE"]);
-    expect(runOnGraph(def, run, ["CODE_01"], null).views.get(def.byCode.get("CODE_01")?.id as string)?.breakpoint).toBe(true);
+    expect(runOnGraph(def, run, null).unknownCodes).toEqual(["RENAMED_NODE"]);
   });
 });
 

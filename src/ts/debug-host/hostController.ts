@@ -7,11 +7,13 @@
 import * as ko from "knockout";
 import ArrayDataProvider = require("ojs/ojarraydataprovider");
 import "ojs/ojknockout";
+import "oj-c/button";
 import "oj-c/message-banner";
 import "oj-c/tab-bar";
 import "xxx-gnimsys-ai/chat/loader";
 import { startRun } from "./debugRun";
 import type { ChatRun, RunOutcome } from "./debugRun";
+import { breakpointKey, readBreakpoints, sessionStore, writeBreakpoints } from "./run/breakpointStorage";
 import { bossDefinitionSource } from "./run/definitionSource";
 import type { DefinitionSource } from "./run/definitionSource";
 import { buildExport, exportFileName } from "./run/exporter";
@@ -51,6 +53,8 @@ export class DebugHostViewModel {
   private readonly search: string;
   private readonly download: Download;
   private readonly now: () => number;
+  /** Where the breakpoints are kept across reloads of this tab (null = memory only). */
+  private readonly storage: Storage | null;
 
   /** What startRun decided; null until it has. */
   readonly outcome = ko.observable<RunOutcome | null>(null);
@@ -73,14 +77,20 @@ export class DebugHostViewModel {
   private readonly events = ko.observableArray<Notice>([]);
   private readonly turnCount = ko.observable(0);
   private readonly breakpoints = ko.observable<readonly string[]>([]);
+  /** The page may go full screen: false where the browser or the framing page does not allow it (the button is hidden). */
+  readonly fullscreenEnabled: boolean;
+  readonly isFullscreen = ko.observable(false);
+  readonly fullscreenLabel = ko.pureComputed(() => (this.isFullscreen() ? "Exit full screen" : "Full screen"));
+  readonly fullscreenIcon = ko.pureComputed(() => (this.isFullscreen() ? "oj-ux-ico-minimize" : "oj-ux-ico-maximize"));
   private eventSeq = 0;
   private source: DefinitionSource | null = null;
 
-  constructor(options: { origin: string; search: string; download?: Download; now?: () => number }) {
+  constructor(options: { origin: string; search: string; download?: Download; now?: () => number; storage?: Storage | null }) {
     this.origin = options.origin;
     this.search = options.search;
     this.download = options.download ?? browserDownload;
     this.now = options.now ?? Date.now;
+    this.storage = options.storage !== undefined ? options.storage : sessionStore();
     // A bare page (no query at all) is the expected header-button case; anything else is a broken binding.
     const bare = [...new URLSearchParams(this.search).keys()].length === 0;
     this.chat = ko.pureComputed(() => {
@@ -108,7 +118,7 @@ export class DebugHostViewModel {
       const out: Notice[] = [];
       if (o.podUser === undefined) out.push(notice("pod-user", "warning", `The pod user of ${o.instance} is unknown: the chat needs it as its user name.`));
       const bp = this.breakpoints();
-      if (bp.length > 0) out.push(notice("breakpoints", "info", `Breakpoints: the next runs stop before ${bp.join(", ")}`, "Set by the agent; the Run tab shows them and removes them."));
+      if (bp.length > 0) out.push(notice("breakpoints", "info", `Breakpoints: the next runs stop before ${bp.join(", ")}`, "Set in the Run tab or by the agent (an agent message replaces the whole set); removed in the Run tab; kept in this browser tab."));
       return [...out, ...this.events()];
     });
     this.notices = ko.pureComputed(() => banner(noticeList()));
@@ -117,6 +127,11 @@ export class DebugHostViewModel {
       { itemKey: "chat", label: "Chat" },
       { itemKey: "run", label: this.turnCount() > 0 ? `Run (${this.turnCount()})` : "Run" },
     ]);
+    // Full screen = the whole page (chat and Run tab); Esc or the button leave it, and the label follows either way.
+    this.fullscreenEnabled = typeof document !== "undefined" && document.fullscreenEnabled === true;
+    if (typeof document !== "undefined") {
+      document.addEventListener("fullscreenchange", () => this.isFullscreen(document.fullscreenElement !== null));
+    }
     this.runStore.subscribe(() => {
       this.turnCount(this.runStore.turns.length);
       this.breakpoints(this.runStore.breakpoints);
@@ -135,9 +150,36 @@ export class DebugHostViewModel {
           (e: unknown) => this.runStore.setDefinitionVersion(turn, { error: e instanceof Error ? e.message : String(e) }),
         );
       };
+      this.keepBreakpoints(o.binding.workflowCode, o.binding.version);
     }
     this.outcome(o);
   });
+
+  /**
+   * The breakpoints of this workflow and version kept in the browser tab (breakpointStorage.ts): restored now (with a note
+   * naming them, and what was dropped), written on every change afterwards.
+   */
+  private keepBreakpoints(workflowCode: string, version: string): void {
+    const storage = this.storage;
+    const key = breakpointKey(workflowCode, version);
+    const restored = readBreakpoints(storage, key);
+    if (restored !== null) {
+      if (restored.codes.length > 0) this.runStore.setBreakpoints(restored.codes);
+      const parts = [
+        ...(restored.codes.length > 0 ? [`Breakpoints kept in this browser tab were restored: ${restored.codes.join(", ")}.`] : []),
+        ...(restored.dropped !== null ? [`Stored breakpoints were dropped (${restored.dropped}).`] : []),
+      ];
+      if (parts.length > 0) this.event(restored.dropped !== null ? "warning" : "info", parts.join(" "));
+      if (restored.dropped !== null) writeBreakpoints(storage, key, restored.codes);
+    }
+    let saved = JSON.stringify(this.runStore.breakpoints);
+    this.runStore.subscribe(() => {
+      const now = JSON.stringify(this.runStore.breakpoints);
+      if (now === saved) return;
+      saved = now;
+      writeBreakpoints(storage, key, this.runStore.breakpoints);
+    });
+  }
 
   /** The definition reader of the bound run (null before start() bound one). */
   definitionSource(): DefinitionSource | null {
@@ -203,6 +245,24 @@ export class DebugHostViewModel {
     this.event("info", exportFirst ? "Exported, then started a fresh conversation." : "Started a fresh conversation (not exported).");
   };
 
+  /**
+   * Full screen for the whole page (Fullscreen API on the document root), or back. A refusal is shown, never swallowed:
+   * inside the agent UI's side panel the frame must allow full screen; the page opened on its own is not limited by that.
+   */
+  readonly toggleFullscreen = (): void => {
+    const why = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+    if (document.fullscreenElement !== null) {
+      document.exitFullscreen().catch((e: unknown) => this.event("error", `Leaving full screen failed: ${why(e)}`));
+      return;
+    }
+    const refused = (e: unknown): void => this.event("error", `Full screen was refused (${why(e)}). In the agent UI's side panel the panel's frame must allow full screen; the debugger opened on its own (its /ai-chat-debug/ address in a browser tab) can always go full screen.`);
+    try {
+      document.documentElement.requestFullscreen().catch(refused);
+    } catch (e) {
+      refused(e);
+    }
+  };
+
   /** What one of the agent's panel messages does. */
   apply(message: PanelMessage): void {
     switch (message.type) {
@@ -213,8 +273,13 @@ export class DebugHostViewModel {
         this.reset(message.export);
         return;
       case "breakpoints":
-        this.runStore.setBreakpoints(message.nodes);
-        this.event("info", message.nodes.length > 0 ? `The agent set breakpoints: ${message.nodes.join(", ")}.` : "The agent removed every breakpoint.");
+        {
+          // Last writer wins: the agent's set replaces whatever was set before (here or by an earlier message).
+          const before = [...this.runStore.breakpoints];
+          this.runStore.setBreakpoints(message.nodes);
+          const replaced = before.length > 0 && before.join(",") !== message.nodes.join(",") ? ` (replacing ${before.join(", ")})` : "";
+          this.event("info", message.nodes.length > 0 ? `The agent set breakpoints: ${message.nodes.join(", ")}${replaced}.` : `The agent removed every breakpoint${replaced}.`);
+        }
         return;
     }
   }

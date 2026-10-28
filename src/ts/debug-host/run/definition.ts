@@ -159,3 +159,21 @@ export function definitionUrl(workflowCode: string, status: string, fields = "wo
   const filter = `workflowCode='${workflowCode.replace(/'/g, "''")}' and status='${status.replace(/'/g, "''")}'`;
   return `/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$fields=${encodeURIComponent(fields)}&$filter=${encodeURIComponent(filter)}`;
 }
+
+/** A node offered for a breakpoint: its code and how the picker shows it. */
+export interface NodeOption { code: string; label: string }
+
+/** Every node of the definition that has a code (nested ones included), in definition order: "CODE — Name (TYPE)" + its LOOP. */
+export function nodeOptions(def: WorkflowDefinition): NodeOption[] {
+  return def.nodes.flatMap((n) => {
+    if (n.code === undefined) return [];
+    const inside = n.parentId !== undefined ? def.byId.get(n.parentId)?.code : undefined;
+    return [{ code: n.code, label: `${n.code} — ${n.name} (${n.type})${inside !== undefined ? ` · in ${inside}` : ""}` }];
+  });
+}
+
+/** The breakpoint set after the user's multi-select edit: the codes kept in their order, then the added ones in its order. */
+export function editedSet(before: readonly string[], selected: Iterable<string>): string[] {
+  const chosen = [...selected];
+  return [...before.filter((c) => chosen.includes(c)), ...chosen.filter((c) => !before.includes(c))];
+}

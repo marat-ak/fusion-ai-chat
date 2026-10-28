@@ -50,6 +50,7 @@
       .dbg-graph, .dbg-steps { width: 100%; height: 100%; }
       .dbg-turn { min-width: 16rem; max-width: 100%; }
       .dbg-search { flex: 1 1 12rem; min-width: 10rem; }
+      .dbg-breakpoint-select { flex: 1 1 22rem; min-width: 14rem; }
       .dbg-hits__list, .dbg-table { max-height: 30vh; }
       /* oj-c-badge's own stylesheet fixes it at 50px wide (Core Pack 19): the marks size to their label. */
       .dbg-badge { width: auto; min-height: 0; }
@@ -72,7 +73,12 @@
       .dbg-node__frame { fill: none; stroke: var(--oj-core-border-color-enabled); stroke-dasharray: 6 4; stroke-width: 2px; }
       .dbg-node__code { font: 600 15px var(--oj-html-font-family, sans-serif); fill: var(--oj-core-text-color-primary); }
       .dbg-node__type, .dbg-node__steps { font: 13px var(--oj-html-font-family, sans-serif); fill: var(--oj-core-text-color-secondary); }
-      .dbg-node__breakpoint { fill: var(--oj-core-danger-2); }
+      /* The breakpoint marker at a card's corner: hollow = click to stop before the node; filled = set. */
+      .dbg-node__bp { cursor: pointer; }
+      .dbg-node__bp-hit { fill: transparent; }
+      .dbg-node__bp-dot { fill: var(--oj-core-bg-color-content); stroke: var(--oj-core-border-color-enabled); stroke-width: 2px; }
+      .dbg-node__bp:hover .dbg-node__bp-dot { stroke: var(--oj-core-danger-2); }
+      .dbg-node__bp--on .dbg-node__bp-dot { fill: var(--oj-core-danger-2); stroke: var(--oj-core-danger-2); }
       .dbg-link--idle { stroke: var(--oj-core-border-color-enabled); }
       .dbg-link--taken { stroke: var(--oj-core-success-2); stroke-width: 3px; }
       .dbg-link--error { stroke-dasharray: 6 4; }
@@ -90,11 +96,19 @@
   </head>
   <body class="oj-web-applayout-body">
     <div id="globalBody" class="oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap">
-      <div class="oj-sm-padding-4x-horizontal oj-sm-padding-2x-vertical">
-        <h1 class="oj-typography-heading-xs oj-sm-margin-0">AI Chat Debugger</h1>
-        <!-- The run the agent chat bound through the URL (read-only: the page has no inputs). -->
-        <oj-bind-if test="[[hasBound]]">
-          <p data-testid="dbg-bound" class="oj-typography-body-sm oj-text-color-secondary oj-sm-margin-0"><oj-bind-text value="[[bound]]"></oj-bind-text></p>
+      <div class="oj-flex oj-sm-align-items-center oj-sm-flex-wrap-nowrap oj-sm-padding-4x-horizontal oj-sm-padding-2x-vertical">
+        <div class="oj-flex-item">
+          <h1 class="oj-typography-heading-xs oj-sm-margin-0">AI Chat Debugger</h1>
+          <!-- The run the agent chat bound through the URL (read-only: the page has no inputs). -->
+          <oj-bind-if test="[[hasBound]]">
+            <p data-testid="dbg-bound" class="oj-typography-body-sm oj-text-color-secondary oj-sm-margin-0"><oj-bind-text value="[[bound]]"></oj-bind-text></p>
+          </oj-bind-if>
+        </div>
+        <!-- The whole page full screen (hidden where the browser or the framing page does not allow it). -->
+        <oj-bind-if test="[[fullscreenEnabled]]">
+          <oj-c-button data-testid="dbg-fullscreen" size="sm" chroming="borderless" label="[[fullscreenLabel]]" on-oj-action="[[toggleFullscreen]]">
+            <span slot="startIcon" :class="[[fullscreenIcon]]"></span>
+          </oj-c-button>
         </oj-bind-if>
       </div>
       <oj-bind-if test="[[hasOpenFromChat]]">

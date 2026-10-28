@@ -2,9 +2,10 @@
 // run record (runStore.ts: every turn's request and raw frames, captured through the chat's run observer) and shows, for the
 // selected turn: the workflow graph with the path the run took (classic oj-diagram at Studio's own positions) or the
 // steps list, a stepper (first / previous / next / last / play, arrow keys), the selected step in detail (NodeDetail),
-// a search through every step's data, the turn's metrics, the breakpoint verdict, the breakpoints set for the next runs
-// (removable), and Export. Without a readable definition or without Studio positions there is no graph (decision 4: no
-// layout of our own) and a notice says why; a definition saved after the run is named as such.
+// a search through every step's data, the turn's metrics, the breakpoint verdict, the breakpoints of the next runs
+// (BreakpointEditor: add from a picker of every node, remove; also from a graph node or the step detail), and Export.
+// Without a readable definition or without Studio positions there is no graph (decision 4: no layout of our own) and a
+// notice says why; a definition saved after the run is named as such.
 import "oj-c/button";
 import "oj-c/buttonset-single";
 import "oj-c/input-text";
@@ -30,7 +31,8 @@ import { graphGeometry } from "../run/graphLayout";
 import { focusOf, runOnGraph } from "../run/graphRun";
 import type { RecordedTurn, RunStore } from "../run/runStore";
 import { onCopy } from "./clipboard";
-import { NodeDetail } from "./NodeDetail";
+import { BreakpointEditor } from "./BreakpointEditor";
+import { NodeDetail, NodeInfo } from "./NodeDetail";
 import type { DetailTab } from "./NodeDetail";
 import { RunGraph } from "./RunGraph";
 import { StepsList } from "./StepsList";
@@ -191,7 +193,7 @@ export function Inspector(props: InspectorProps) {
   const shown = graphOk ? view : "steps";
 
   const verdict = useMemo(() => (run !== null ? breakpointVerdict(run, definition) : null), [run, definition]);
-  const onGraph = useMemo(() => (definition !== null && geometry !== null ? runOnGraph(definition, run, store.breakpoints, verdict) : null), [definition, geometry, run, rev, verdict]);
+  const onGraph = useMemo(() => (definition !== null && geometry !== null ? runOnGraph(definition, run, verdict) : null), [definition, geometry, run, verdict]);
 
   // ---- notices -----------------------------------------------------------------------------------
   const notices: Notice[] = [];
@@ -218,7 +220,7 @@ export function Inspector(props: InspectorProps) {
   const verdictLine = verdict !== null ? verdictText(verdict) : null;
   if (verdictLine !== null) note("verdict", verdict?.stop?.verified === true ? "confirmation" : "info", verdictLine);
   const unknownBreakpoints = definition !== null ? store.breakpoints.filter((c) => !definition.byCode.has(c)) : [];
-  if (unknownBreakpoints.length > 0) note("bp-unknown", "warning", `Breakpoint${unknownBreakpoints.length > 1 ? "s" : ""} ${unknownBreakpoints.join(", ")} name no node of the current definition.`);
+  if (unknownBreakpoints.length > 0) note("bp-unknown", "warning", `Breakpoint${unknownBreakpoints.length > 1 ? "s" : ""} ${unknownBreakpoints.join(", ")} name${unknownBreakpoints.length > 1 ? "" : "s"} no node of the current definition.`);
   const noticeData = useMemo(() => new MutableArrayDataProvider<string, Notice>([], { keyAttributes: "id" }), []);
   const noticeKey = JSON.stringify(notices);
   useEffect(() => { noticeData.data = notices; }, [noticeKey]);
@@ -232,9 +234,16 @@ export function Inspector(props: InspectorProps) {
 
   // ---- navigation --------------------------------------------------------------------------------
   const count = run?.occurrences.length ?? 0;
+  // A graph node shown from the definition alone (no step of the shown run there); any step navigation leaves it.
+  const [graphNode, setGraphNode] = useState<string | null>(null);
+  const toggleBreakpoint = useCallback((code: string) => {
+    if (store.breakpoints.includes(code)) store.removeBreakpoint(code);
+    else store.addBreakpoint(code);
+  }, [store]);
   const go = useCallback((i: number, fromGraph = false) => {
     if (run === null || count === 0) return;
     const j = Math.max(0, Math.min(count - 1, i));
+    setGraphNode(null);
     setPicked({ seq: run.turn.seq, index: j });
     if (!fromGraph && definition !== null) setFocusNode(definition.byCode.get(run.occurrences[j].nodeCode)?.id ?? null);
   }, [run, count, definition]);
@@ -265,7 +274,7 @@ export function Inspector(props: InspectorProps) {
   const nodeIdOfOcc = occ !== null && definition !== null ? definition.byCode.get(occ.nodeCode)?.id ?? null : null;
   // The graph opens on the selected step of each turn (its last, until another is picked); afterwards the stepper, the
   // steps list and the search move it, while a click in the graph keeps the user's own pan and zoom.
-  useEffect(() => { setFocusNode(nodeIdOfOcc); }, [run?.turn.seq, definition]);
+  useEffect(() => { setFocusNode(nodeIdOfOcc); setGraphNode(null); }, [run?.turn.seq, definition]);
   const focus = useMemo(() => {
     if (definition === null || geometry === null) return undefined;
     if (focusNode !== null) return focusOf(definition, [focusNode], geometry.bounds);
@@ -297,17 +306,9 @@ export function Inspector(props: InspectorProps) {
           <span slot="startIcon" class="oj-ux-ico-download" />
         </oj-c-button>
       </div>
-      {store.breakpoints.length > 0 && (
-        <div class="oj-flex oj-sm-align-items-center oj-sm-flex-wrap dbg-gap" data-testid="dbg-breakpoints">
-          <span class="oj-typography-body-sm oj-text-color-secondary">Next runs stop before:</span>
-          {store.breakpoints.map((c) => (
-            <oj-c-button key={c} data-testid="dbg-breakpoint" data-node-code={c} size="sm" chroming="outlined" label={c}
-              tooltip={`Remove the breakpoint on ${c}`} onojAction={() => store.removeBreakpoint(c)}>
-              <span slot="endIcon" class="oj-ux-ico-close" />
-            </oj-c-button>
-          ))}
-        </div>
-      )}
+      <BreakpointEditor breakpoints={store.breakpoints} definition={definition} unavailable={def !== null && !def.ok ? def.reason : null}
+        onSet={(codes) => store.setBreakpoints(codes)} onAdd={(codes) => { for (const c of codes) store.addBreakpoint(c); }}
+        onRemove={(c) => store.removeBreakpoint(c)} />
       {run !== null && <p class="oj-typography-body-xs oj-text-color-secondary oj-sm-margin-0" data-testid="dbg-metrics">{metricsText(run)}</p>}
       {notices.length > 0 && <oj-c-message-banner data-testid="dbg-inspector-notices" type="section" data={noticeData} />}
       {run !== null && count > 0 && (
@@ -358,14 +359,15 @@ export function Inspector(props: InspectorProps) {
       <div class="dbg-body">
         {shown === "graph" && props.active && geometry !== null && onGraph !== null && definition !== null && (
           <div class="dbg-body__nav">
-            <RunGraph geometry={geometry} views={onGraph.views} taken={onGraph.taken} showErrorEdges={false} selectedId={nodeIdOfOcc}
+            <RunGraph geometry={geometry} views={onGraph.views} taken={onGraph.taken} showErrorEdges={false} selectedId={graphNode ?? nodeIdOfOcc}
+              breakpoints={store.breakpoints} onToggleBreakpoint={toggleBreakpoint}
               {...(focus !== undefined && { focus })}
               onSelect={(nodeId) => {
-                if (run === null) return;
                 const code = definition.byId.get(nodeId)?.code;
-                // A node run several times: the next of its runs after the current step, else its first.
-                const mine = run.occurrences.map((o, i) => (o.nodeCode === code ? i : -1)).filter((i) => i >= 0);
-                if (mine.length === 0) return;
+                // A node run several times: the next of its runs after the current step, else its first. A node with no
+                // step in this run (or no run yet) is shown from the definition, with its breakpoint.
+                const mine = run === null ? [] : run.occurrences.map((o, i) => (o.nodeCode === code ? i : -1)).filter((i) => i >= 0);
+                if (mine.length === 0) { setGraphNode(nodeId); return; }
                 go(mine.find((i) => i > index) ?? mine[0], true);
               }} />
           </div>
@@ -375,9 +377,14 @@ export function Inspector(props: InspectorProps) {
             <StepsList run={run} selected={index} breakpoints={store.breakpoints} onSelect={(i) => go(i)} />
           </div>
         )}
-        {run !== null && occ !== null && (
+        {graphNode !== null && definition !== null && shown === "graph" ? (
           <div class="dbg-body__detail">
-            <NodeDetail runs={runs} run={run} o={occ} def={definition} query={query} tab={tab} onTab={setTab} />
+            <NodeInfo def={definition} nodeId={graphNode} ran={run !== null} breakpoints={store.breakpoints} onToggleBreakpoint={toggleBreakpoint} />
+          </div>
+        ) : run !== null && occ !== null && (
+          <div class="dbg-body__detail">
+            <NodeDetail runs={runs} run={run} o={occ} def={definition} query={query} tab={tab} onTab={setTab}
+              breakpoints={store.breakpoints} onToggleBreakpoint={toggleBreakpoint} />
           </div>
         )}
       </div>

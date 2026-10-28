@@ -36,14 +36,33 @@ async function detailTab(s: Scope, name: string): Promise<void> {
   await s.getByTestId("dbg-detail-tabs").getByRole("tab", { name }).click();
 }
 
-/** The debugger framed by a page of the same origin, as the agent UI's side panel frames it. */
+/** The agent UI's side panel frame attributes (gnimsys-agent-core webc sidePanelModel.ts, engine commit 3141e5d). */
+const PANEL_SANDBOX = "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-downloads";
+const PANEL_ALLOW = "fullscreen";
+
+/** The debugger framed by a page of the same origin with the side panel's own iframe attributes. */
 async function framed(page: Page, workflow = "WIZARD_WF"): Promise<FrameLocator> {
   await page.goto(`${ORIGIN}/ai-chat-debug/not-a-file`); // any page of the origin, to own its document
   await page.setContent(`<!DOCTYPE html><html><body style="margin:0"><iframe id="panel" style="width:1200px;height:950px;border:0"
-    src="${ORIGIN}${debuggerUrl(workflow)}"></iframe></body></html>`);
+    sandbox="${PANEL_SANDBOX}" allow="${PANEL_ALLOW}" src="${ORIGIN}${debuggerUrl(workflow)}"></iframe></body></html>`);
   const frame = page.frameLocator("#panel");
   await expect(frame.getByTestId("dbg-bound")).toContainText(`Workflow ${workflow} · DRAFT · dev1`);
   return frame;
+}
+
+/** The breakpoint set as the Run tab's node multi-select holds it (its value). */
+const breakpoints = (s: Scope): Promise<string[]> =>
+  s.getByTestId("dbg-breakpoint-select").evaluate((el) => [...(((el as unknown as { value?: Set<string> | null }).value) ?? [])]);
+
+/** Picks (or unpicks) a node in the Run tab's multi-select: search by its code, click its option. */
+async function pickNode(s: Scope, code: string): Promise<void> {
+  const input = s.getByTestId("dbg-breakpoint-select").locator("input");
+  await input.click();
+  await input.fill(code);
+  // The dropdown's rows (the field's own chips carry the option role too).
+  await s.locator('div[role="option"]').filter({ hasText: new RegExp(`^${code} [—(]`) }).click();
+  await input.press("Escape");
+  await expect(s.locator('div[role="option"]')).toHaveCount(0); // the dropdown is closed before anything else is clicked
 }
 
 /** The agent UI's panel message, posted by the parent to the framed page. */
@@ -255,15 +274,15 @@ test("panel_messages_set_breakpoints_and_the_run_stops_before_the_node_verified"
   // The run carried the breakpoint; the mock pod (as Oracle) stopped before CODE_04.
   expect(((await debugCalls(page))[0].body as { debugParams: unknown }).debugParams).toEqual({ isDebug: true, breakPoints: ["CODE_04"] });
   await tab(frame, "Run");
-  await expect(frame.getByTestId("dbg-breakpoint")).toHaveText(["CODE_04"]);
+  await expect.poll(() => breakpoints(frame)).toEqual(["CODE_04"]);
   await expect(frame.getByTestId("dbg-inspector-notices")).toContainText("Stopped before CODE_04 (breakpoint; verified against the graph)");
   await expect(frame.getByTestId("dbg-position")).toHaveText("Step 5 of 5 · CONDITION_01");
   await expect(frame.locator('g[data-node-code="CODE_04"]')).toHaveClass(/dbg-node--stopped-before/);
   await page.waitForTimeout(500);
   await page.screenshot({ path: "test-results/inspector-breakpoint.png" });
-  // Removed in the inspector: the next run carries none.
-  await frame.getByTestId("dbg-breakpoint").click();
-  await expect(frame.getByTestId("dbg-breakpoints")).toHaveCount(0);
+  // Removed in the inspector (unpicked in the node select): the next run carries none.
+  await pickNode(frame, "CODE_04");
+  await expect.poll(() => breakpoints(frame)).toEqual([]);
   await tab(frame, "Chat");
   await send(frame, "next");
   await expect(frame.getByTestId("gai-bubble-assistant")).toHaveCount(2);
@@ -300,4 +319,140 @@ test("panel_messages_export_and_reset_to_a_fresh_conversation", async ({ page })
   // A message of ours with a bad shape is refused with its reason.
   await panelMessage(page, { type: "breakpoints", nodes: "A B" });
   await expect(frame.getByTestId("dbg-notices")).toContainText('A panel message was refused: "breakpoints" nodes must be "" or node codes separated by commas');
+});
+
+test("the_user_sets_breakpoints_on_the_map_in_the_node_select_and_in_the_step_detail", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.goto(debuggerUrl());
+  // Before any run: the Run tab already shows the workflow, and its nodes can be picked.
+  await tab(page, "Run");
+  await expect(page.getByTestId("dbg-no-run")).toBeVisible();
+  await expect.poll(() => page.locator("g[data-node-code]").count(), { timeout: 20_000 }).toBe(71);
+  expect(await breakpoints(page)).toEqual([]);
+  // The user's zoom survives the breakpoint edits (the banner they bring resizes the graph's frame).
+  const card = page.locator('g[data-node-code="SET_FIELDS_01"] .dbg-node__box');
+  const graph = (await page.getByTestId("dbg-graph").boundingBox())!;
+  await page.mouse.move(graph.x + graph.width / 2, graph.y + graph.height / 2);
+  await page.mouse.wheel(0, -300);
+  await expect.poll(async () => (await card.boundingBox())!.width).toBeGreaterThan(118);
+  const zoomed = (await card.boundingBox())!.width;
+  // (b) The multi-select of ALL nodes (nodes not executed yet included), searchable: its value is the set.
+  await pickNode(page, "CODE_04");
+  await expect.poll(() => breakpoints(page)).toEqual(["CODE_04"]);
+  await expect(page.locator('g[data-breakpoint-toggle="CODE_04"]')).toHaveClass(/dbg-node__bp--on/);
+  // (a) On the map: a card's corner marker sets and removes "stop before" (and selects the card).
+  const marker = page.locator('g[data-breakpoint-toggle="SET_FIELDS_01"]');
+  await expect(marker).not.toHaveClass(/dbg-node__bp--on/);
+  await marker.click(); // (actionable: waits until the banner that the first breakpoint brought has settled)
+  await expect.poll(() => breakpoints(page)).toEqual(["CODE_04", "SET_FIELDS_01"]);
+  await expect(page.locator('g[data-breakpoint-toggle="SET_FIELDS_01"]')).toHaveClass(/dbg-node__bp--on/);
+  await expect(page.getByTestId("dbg-node-info")).toContainText("no run yet");
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: "test-results/inspector-user-breakpoints.png" });
+  await page.locator('g[data-breakpoint-toggle="SET_FIELDS_01"]').click();
+  await expect.poll(() => breakpoints(page)).toEqual(["CODE_04"]);
+  // The node panel's action is the same toggle.
+  await page.getByTestId("dbg-node-info").getByTestId("dbg-toggle-breakpoint").click();
+  await expect.poll(() => breakpoints(page)).toEqual(["CODE_04", "SET_FIELDS_01"]);
+  await pickNode(page, "SET_FIELDS_01");
+  await expect.poll(() => breakpoints(page)).toEqual(["CODE_04"]);
+  expect(Math.abs((await card.boundingBox())!.width - zoomed)).toBeLessThan(0.5);
+  expect(consoleErrors).toEqual([]);
+  // The banner above the chat names them; the run carries them and stops before CODE_04, verified.
+  await tab(page, "Chat");
+  await expect(page.getByTestId("dbg-notices")).toContainText("Breakpoints: the next runs stop before CODE_04");
+  await send(page, "start");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(1);
+  expect(((await debugCalls(page))[0].body as { debugParams: unknown }).debugParams).toEqual({ isDebug: true, breakPoints: ["CODE_04"] });
+  await tab(page, "Run");
+  await expect(page.getByTestId("dbg-inspector-notices")).toContainText("Stopped before CODE_04 (breakpoint; verified against the graph)");
+  // The step detail's toggle (the same code path).
+  await expect(page.getByTestId("dbg-position")).toHaveText("Step 5 of 5 · CONDITION_01");
+  await page.getByTestId("dbg-detail").getByTestId("dbg-toggle-breakpoint").click();
+  await expect.poll(() => breakpoints(page)).toEqual(["CODE_04", "CONDITION_01"]);
+  await page.getByTestId("dbg-detail").getByTestId("dbg-toggle-breakpoint").click();
+  await expect.poll(() => breakpoints(page)).toEqual(["CODE_04"]);
+  // The export carries the user's breakpoints in the request and as the current set.
+  const download = page.waitForEvent("download");
+  await page.getByTestId("dbg-export").click();
+  const json = JSON.parse(readFileSync(await (await download).path() as string, "utf8"));
+  expect(json.breakpoints).toEqual(["CODE_04"]);
+  expect(json.conversations[0].turns[0].request.debugParams).toEqual({ isDebug: true, breakPoints: ["CODE_04"] });
+  // A reload of the page keeps them (this browser tab's sessionStorage), and says so.
+  await page.reload();
+  await expect(page.getByTestId("dbg-notices")).toContainText("Breakpoints kept in this browser tab were restored: CODE_04.");
+  await tab(page, "Run");
+  await expect.poll(() => breakpoints(page)).toEqual(["CODE_04"]);
+  // Removed: gone after a reload too.
+  await pickNode(page, "CODE_04");
+  await expect.poll(() => breakpoints(page)).toEqual([]);
+  await page.reload();
+  await expect(page.getByTestId("dbg-bound")).toBeVisible();
+  await expect(page.getByText("Breakpoints kept in this browser tab")).toHaveCount(0);
+  await tab(page, "Run");
+  await expect.poll(() => breakpoints(page)).toEqual([]);
+});
+
+test("an_agent_message_replaces_the_users_breakpoints", async ({ page }) => {
+  const frame = await framed(page);
+  await tab(frame, "Run");
+  await pickNode(frame, "LLM_01");
+  await expect.poll(() => breakpoints(frame)).toEqual(["LLM_01"]);
+  await panelMessage(page, { type: "breakpoints", nodes: "CODE_04,BO_FUNCTION_06,NOT_A_NODE" });
+  await expect.poll(() => breakpoints(frame)).toEqual(["CODE_04", "BO_FUNCTION_06", "NOT_A_NODE"]);
+  await expect(frame.getByTestId("dbg-notices")).toContainText("The agent set breakpoints: CODE_04, BO_FUNCTION_06, NOT_A_NODE (replacing LLM_01).");
+  // A code the definition does not have stays visible (marked) and removable; it is named in a warning.
+  await expect(frame.getByTestId("dbg-inspector-notices")).toContainText("Breakpoint NOT_A_NODE names no node of the current definition.");
+  await pickNode(frame, "NOT_A_NODE");
+  await pickNode(frame, "BO_FUNCTION_06");
+  await expect.poll(() => breakpoints(frame)).toEqual(["CODE_04"]);
+});
+
+test("full_screen_takes_the_whole_page_and_comes_back", async ({ page }) => {
+  // The debugger opened on its own: full screen is allowed.
+  await page.goto(debuggerUrl());
+  const button = page.getByTestId("dbg-fullscreen");
+  await expect(button).toHaveText("Full screen");
+  await button.click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === document.documentElement)).toBe(true);
+  await expect(button).toHaveText("Exit full screen");
+  await button.click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(button).toHaveText("Full screen");
+  // A refusal is shown, never swallowed.
+  await page.evaluate(() => { document.documentElement.requestFullscreen = () => Promise.reject(new TypeError("Permissions check failed")); });
+  await button.click();
+  await expect(page.getByTestId("dbg-notices")).toContainText("Full screen was refused (Permissions check failed). In the agent UI's side panel the panel's frame must allow full screen");
+});
+
+test("full_screen_in_the_side_panel_frame", async ({ page }) => {
+  // The agent UI's panel frame (sandbox + allow="fullscreen"): the whole debugger page goes full screen and back.
+  const frame = await framed(page);
+  await frame.getByTestId("dbg-fullscreen").click();
+  await expect(frame.getByTestId("dbg-fullscreen")).toHaveText("Exit full screen");
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: "test-results/debug-host-fullscreen.png" });
+  await frame.getByTestId("dbg-fullscreen").click();
+  await expect(frame.getByTestId("dbg-fullscreen")).toHaveText("Full screen");
+});
+
+test("without_a_readable_definition_breakpoints_are_typed_and_named_as_unchecked", async ({ page }) => {
+  await page.goto(debuggerUrl("MOCK_WF"));
+  await tab(page, "Run");
+  await expect(page.getByTestId("dbg-breakpoint-unchecked")).toHaveText(
+    "Node codes cannot be checked: the workflow definition is unavailable (the workflow row has no specification).");
+  await expect(page.getByTestId("dbg-breakpoint-add")).toHaveCount(0);
+  const codes = page.getByTestId("dbg-breakpoint-codes").locator("input");
+  await codes.fill("NODE_A NODE_B");
+  await page.getByTestId("dbg-breakpoint-codes-add").click();
+  await expect(page.getByTestId("dbg-breakpoints")).toContainText('Not added: nodes must be "" or node codes separated by commas');
+  await codes.fill("NODE_A, NODE_B");
+  await page.getByTestId("dbg-breakpoint-codes-add").click();
+  await expect(page.getByTestId("dbg-breakpoint")).toHaveText(["NODE_A", "NODE_B"]);
+  await tab(page, "Chat");
+  await send(page, "hello");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveCount(1);
+  expect(((await debugCalls(page))[0].body as { debugParams: unknown }).debugParams).toEqual({ isDebug: true, breakPoints: ["NODE_A", "NODE_B"] });
 });

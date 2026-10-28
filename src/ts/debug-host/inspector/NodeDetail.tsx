@@ -178,7 +178,49 @@ function Compare(props: { runs: RunView[]; run: RunView; o: Occurrence; query: s
   );
 }
 
-export function NodeDetail(props: { runs: RunView[]; run: RunView; o: Occurrence; def: WorkflowDefinition | null; query: string; tab: DetailTab; onTab: (t: DetailTab) => void }) {
+/** The breakpoint of the shown node: set it ("Stop before") or remove it; part of the page's one set of breakpoints. */
+export interface BreakpointToggleProps { breakpoints: readonly string[]; onToggleBreakpoint: (code: string) => void }
+
+function BreakpointToggle(props: BreakpointToggleProps & { code: string }) {
+  const on = props.breakpoints.includes(props.code);
+  return (
+    <oj-c-button key={on ? "on" : "off"} data-testid="dbg-toggle-breakpoint" class="oj-sm-margin-2x-start" size="sm" chroming={on ? "outlined" : "callToAction"}
+      label={on ? "Remove the breakpoint" : "Stop before this node"} onojAction={() => props.onToggleBreakpoint(props.code)}>
+      <span slot="startIcon" class={on ? "oj-ux-ico-close" : "oj-ux-ico-pause-circle"} />
+    </oj-c-button>
+  );
+}
+
+/**
+ * A node of the definition that has no step in the shown run (not executed, or no run yet): what the definition says
+ * about it, and its breakpoint.
+ */
+export function NodeInfo(props: BreakpointToggleProps & { def: WorkflowDefinition; nodeId: string; ran: boolean }) {
+  const { def } = props;
+  const n = def.byId.get(props.nodeId);
+  if (n === undefined || n.code === undefined) return null;
+  const inside = n.parentId !== undefined ? def.byId.get(n.parentId)?.code : undefined;
+  const out = def.edges.filter((e) => e.from === n.id);
+  const into = def.edges.filter((e) => e.to === n.id && e.kind === "outcome");
+  const code = (id: string): string => def.byId.get(id)?.code ?? id;
+  return (
+    <div class="dbg-detail oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap" data-testid="dbg-node-info">
+      <div class="oj-flex oj-sm-align-items-center oj-sm-padding-1x-vertical">
+        <span class="oj-typography-heading-xs" data-testid="dbg-detail-title">{n.code}</span>
+        <span class="oj-typography-body-sm oj-text-color-secondary oj-sm-margin-2x-start">{n.type}</span>
+        <BreakpointToggle code={n.code} breakpoints={props.breakpoints} onToggleBreakpoint={props.onToggleBreakpoint} />
+      </div>
+      <Fact label="Node">{`${n.code}${n.name !== n.code ? ` — ${n.name}` : ""}`}</Fact>
+      <Fact label="Type">{n.type}</Fact>
+      <Fact label="This run" testId="dbg-node-info-run">{props.ran ? "not executed" : "no run yet"}</Fact>
+      {inside !== undefined && <Fact label="Inside">{inside}</Fact>}
+      <Fact label="Comes from">{into.length > 0 ? into.map((e) => `${code(e.from)} (${e.label})`).join(", ") : "—"}</Fact>
+      <Fact label="Goes to">{out.length > 0 ? out.map((e) => `${e.label} → ${code(e.to)}`).join(", ") : "—"}</Fact>
+    </div>
+  );
+}
+
+export function NodeDetail(props: BreakpointToggleProps & { runs: RunView[]; run: RunView; o: Occurrence; def: WorkflowDefinition | null; query: string; tab: DetailTab; onTab: (t: DetailTab) => void }) {
   const { run, o, query } = props;
   const contextValue = o.context;
   return (
@@ -186,6 +228,7 @@ export function NodeDetail(props: { runs: RunView[]; run: RunView; o: Occurrence
       <div class="oj-flex oj-sm-align-items-center oj-sm-padding-1x-vertical">
         <span class="oj-typography-heading-xs" data-testid="dbg-detail-title">{`${o.step !== null ? `#${o.step} ` : ""}${o.nodeCode}`}</span>
         <span class="oj-typography-body-sm oj-text-color-secondary oj-sm-margin-2x-start">{[o.nodeType, durationText(o)].filter((x) => x).join(" · ")}</span>
+        <BreakpointToggle code={o.nodeCode} breakpoints={props.breakpoints} onToggleBreakpoint={props.onToggleBreakpoint} />
       </div>
       <oj-c-tab-bar data-testid="dbg-detail-tabs" aria-label="Step details" layout="condense" overflow="conveyor" data={TABS} selection={props.tab}
         onselectionChanged={(e) => { if (e.detail.value !== undefined && e.detail.value !== props.tab) props.onTab(e.detail.value as DetailTab); }} />

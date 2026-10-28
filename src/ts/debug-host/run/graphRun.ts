@@ -18,8 +18,6 @@ export interface GraphNodeView {
   state: NodeRunState;
   /** The run's step numbers at this node (1-based, in order). */
   steps: number[];
-  /** A breakpoint is set on this node. */
-  breakpoint: boolean;
 }
 
 export interface RunOnGraph {
@@ -38,7 +36,8 @@ function stateOf(occ: Occurrence[], run: RunView, code: string): NodeRunState {
   return "done";
 }
 
-export function runOnGraph(def: WorkflowDefinition, run: RunView | null, breakpoints: readonly string[], verdict: BreakpointVerdict | null): RunOnGraph {
+/** The run on the graph (the breakpoint markers are drawn by RunGraph from the page's set, not from this view). */
+export function runOnGraph(def: WorkflowDefinition, run: RunView | null, verdict: BreakpointVerdict | null): RunOnGraph {
   const { nodes, edges } = drawable(def);
   const byNode = new Map<string, Occurrence[]>();
   const unknown = new Set<string>();
@@ -56,7 +55,6 @@ export function runOnGraph(def: WorkflowDefinition, run: RunView | null, breakpo
     views.set(n.id, {
       id: n.id, code, name: n.name, type: n.type, state,
       steps: occ.flatMap((o) => (o.step !== null ? [o.step] : [])),
-      breakpoint: breakpoints.includes(code),
     });
   }
   const taken = new Set<string>();
