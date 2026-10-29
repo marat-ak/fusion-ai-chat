@@ -1,7 +1,10 @@
 import "oj-c/button";
 import "oj-c/toggle-button";
 import { useEffect, useState } from "preact/hooks";
+import { filesAloneSendable } from "../lib/files/AttachmentService";
 import type { WaitInfo } from "../lib/state/conversation";
+import { AttachButton, AttachmentList } from "./Attachments";
+import type { ComposerAttachments } from "./Composer";
 import { MessageArea } from "./MessageArea";
 import type { ResumeAction, ResumeOptions } from "./useChatController";
 
@@ -26,26 +29,36 @@ function useCountdown(seconds: number | undefined): number {
   return left;
 }
 
-/** A reply text with its Send button (Enter sends, Shift+Enter is a new line). */
+/**
+ * A reply text with its Send button (Enter sends, Shift+Enter is a new line). With `attachments` (the free-text reply when
+ * files are on) it has the composer's attach button and file list, and picked files may go without a text (the reply's
+ * content is then "", see filesAloneSendable).
+ */
 function ReplyText(props: {
   testId: string; sendTestId: string; label: string; placeholder?: string; disabled: boolean; onSend: (text: string) => void;
+  attachments?: ComposerAttachments;
 }) {
   const [text, setText] = useState("");
-  const empty = text.trim() === "";
+  const att = props.attachments;
+  const blank = text.trim() === "" && !(att !== undefined && filesAloneSendable(att.tray.pending));
   const submit = (): void => {
-    if (props.disabled || empty) return;
+    if (props.disabled || blank) return;
     props.onSend(text.trim());
   };
   return (
-    <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-flex-end">
-      <MessageArea testId={props.testId} label={props.label} value={text} disabled={props.disabled}
-        {...(props.placeholder !== undefined && { placeholder: props.placeholder })}
-        onInput={setText} onEnter={submit} />
-      <oj-c-button class="oj-sm-margin-2x-start" data-testid={props.sendTestId} chroming="callToAction" label="Send"
-        disabled={props.disabled || empty} onojAction={submit}>
-        <span slot="startIcon" class="oj-ux-ico-send" />
-      </oj-c-button>
-    </div>
+    <>
+      {att && <AttachmentList tray={att.tray} maxSizeMB={att.maxSizeMB} />}
+      <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-flex-end">
+        {att && <AttachButton tray={att.tray} accept={att.accept} disabled={props.disabled} />}
+        <MessageArea testId={props.testId} label={props.label} value={text} disabled={props.disabled}
+          {...(props.placeholder !== undefined && { placeholder: props.placeholder })}
+          onInput={setText} onEnter={submit} />
+        <oj-c-button class="oj-sm-margin-2x-start" data-testid={props.sendTestId} chroming="callToAction" label="Send"
+          disabled={props.disabled || blank} onojAction={submit}>
+          <span slot="startIcon" class="oj-ux-ico-send" />
+        </oj-c-button>
+      </div>
+    </>
   );
 }
 
@@ -54,15 +67,18 @@ function ReplyText(props: {
  * Controls by the node's flags: approval + feedback -> Approve / Request change (opens a reply text); approval only ->
  * Approve / Reject; no approval -> a free-text reply. A WAIT node keeps them disabled and counts down its wait time
  * (+15 s), then offers Refresh, a status check; without a wait time Refresh is offered at once. `disabled` (auth
- * problem) disables every control. The bar is created only after the stream that brought the wait has ended and goes
- * when a resume is sent (see ChatShell), so its controls never change `disabled` while they are being created.
+ * problem, or the reply's files uploading) disables every control. The bar is created only after the stream that brought
+ * the wait has ended and goes when a resume is sent (see ChatShell), so its controls never change `disabled` while they
+ * are being created. `attachments` (files on): the free-text reply takes files, as Oracle's chat client answers an input
+ * wait from its composer; approve / reject / request change take none.
  */
 export function HitlBar(props: {
   wait: WaitInfo;
   disabled: boolean;
   onResume: (action: ResumeAction, content?: string, opts?: ResumeOptions) => void;
+  attachments?: ComposerAttachments;
 }) {
-  const { wait, disabled, onResume } = props;
+  const { wait, disabled, onResume, attachments } = props;
   const timed = wait.kind === "WAIT";
   const left = useCountdown(timed && wait.waitMinutes !== undefined ? waitSeconds(wait.waitMinutes) : undefined);
   const inputsDisabled = disabled || timed;
@@ -102,7 +118,7 @@ export function HitlBar(props: {
       )}
       {!wait.approval && (
         <ReplyText testId="gai-hitl-free-text" sendTestId="gai-hitl-free-send" label="Your reply"
-          disabled={inputsDisabled} onSend={(text) => onResume("RFI_ACTION", text)} />
+          disabled={inputsDisabled} {...(attachments !== undefined && { attachments })} onSend={(text) => onResume("RFI_ACTION", text)} />
       )}
     </div>
   );

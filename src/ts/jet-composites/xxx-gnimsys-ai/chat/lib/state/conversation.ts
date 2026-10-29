@@ -32,7 +32,7 @@ export type ChatAction =
   | { type: "history_loading" } | { type: "history_loaded"; messages: HistoryMessage[] } | { type: "history_failed"; status: number; text?: string }
   | { type: "new_conversation"; id: string } | { type: "open_conversation"; id: string }
   // statusCheckOnly: a WAIT node's Refresh — the user said nothing, so no user turn is added.
-  | { type: "resume_sent"; action: "APPROVE_ACTION" | "REJECT_ACTION" | "RFI_ACTION"; content?: string; statusCheckOnly?: boolean }
+  | { type: "resume_sent"; action: "APPROVE_ACTION" | "REJECT_ACTION" | "RFI_ACTION"; content?: string; statusCheckOnly?: boolean; attachments?: UploadedAttachment[] }
   | { type: "auth"; state: ChatState["authState"]; reason?: AuthReason; status?: number; detail?: string };
 
 export function initialState(conversationId: string): ChatState {
@@ -166,7 +166,7 @@ export function reduce(state: ChatState, action: ChatAction): ChatState {
         return { ...rest, turns: [...state.turns, asst], nextTurnId: state.nextTurnId + 1, status: "sending", followups: [] };
       }
       const text = action.action === "APPROVE_ACTION" ? "Approved" : action.action === "REJECT_ACTION" ? "Rejected" : action.content ?? "";
-      const { wait: _wait, ...rest } = appendUserAndAssistant(state, text);
+      const { wait: _wait, ...rest } = appendUserAndAssistant(state, text, action.attachments);
       return rest;
     }
     case "auth": {

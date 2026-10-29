@@ -3,7 +3,9 @@ import { expect, test, type Page } from "@playwright/test";
 // Host page = src/index.html (default mock config). Mock pod chat fixtures: message "approve me" -> HUMAN wait
 // "Approve the transfer?" (approval + feedback, callbackToken "cb-1", jobId "job-1", requestChangeMessage
 // "What should change?"); message "wait for me" -> WAIT node "Waiting for the timer" (waitTimeInMinutes 1, callbackToken
-// "cb-2", jobId "job-2", no approval/feedback flags); any request carrying `resumeInput` -> final "Approved and done".
+// "cb-2", jobId "job-2", no approval/feedback flags); message "send me a file" -> HUMAN wait "Attach the invoice" (free-text
+// reply: no approval, no feedback; callbackToken "cb-3", jobId "job-3"); any request carrying `resumeInput` -> final
+// "Approved and done". Attachment flow steps as in files.spec.ts.
 const MOCK_POD = "http://localhost:8787";
 
 type MockRequest = { method: string; url: string; headers: Record<string, string>; body: unknown };
@@ -82,6 +84,8 @@ test("wait_reply_shows_approve_and_request_change", async ({ page }) => {
   await expect(page.getByTestId("gai-composer-input")).toHaveCount(0);
   // The change textarea opens only on "Request change".
   await expect(page.getByTestId("gai-hitl-change-text")).toHaveCount(0);
+  // Files go with a free-text reply only.
+  await expect(page.getByTestId("gai-attach")).toHaveCount(0);
 });
 
 test("approve_sends_resumeInput_and_streams_result", async ({ page }) => {
@@ -168,5 +172,48 @@ test("request_change_sends_rfi_with_content", async ({ page }) => {
     jobId: "job-1",
     conversationId: chat[0].conversationId,
     resumeInput: { messageInstanceId: "cb-1", userResponse: "RFI_ACTION", content: "Use account 42" },
+  });
+});
+
+test("free_text_wait_takes_files_alone_as_its_reply", async ({ page }) => {
+  // The agent asked for a file through a HUMAN wait: the free-text reply carries the picked files (uploaded and linked to
+  // the conversation first, as a message's) and, without text, resumes with an empty content, as Oracle's chat client
+  // answers an input wait from its composer (`resumeInput.content` = the composer text, "" here).
+  await page.goto("/");
+  await sendText(page, "send me a file");
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Attach the invoice"]);
+  await expect(page.getByTestId("gai-hitl")).toBeVisible();
+  await expect(page.getByTestId("gai-hitl-approve")).toHaveCount(0);
+  const text = page.getByTestId("gai-hitl-free-text").locator("textarea");
+  const send = page.getByTestId("gai-hitl-free-send").locator("button");
+  await expect(text).toBeEnabled();
+  await expect(send).toBeDisabled();
+
+  await page.getByTestId("gai-attach-input").setInputFiles({ name: "invoice.pdf", mimeType: "application/pdf", buffer: Buffer.alloc(2048) });
+  const chip = page.getByTestId("gai-attach-chip");
+  await expect(chip).toHaveAttribute("data-state", "pending");
+  await expect(text).toHaveValue("");
+  await expect(send).toBeEnabled();
+  await send.click();
+
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Attach the invoice", "Approved and done"]);
+  await expect(page.getByTestId("gai-bubble-user")).toHaveText(["send me a file", "invoice.pdf"]);
+  await expect(page.getByTestId("gai-bubble-user").nth(1).getByTestId("gai-bubble-attachment")).toHaveText(["invoice.pdf"]);
+  await expect(page.getByTestId("gai-hitl")).toHaveCount(0);
+  await expect(page.getByTestId("gai-attach-chip")).toHaveCount(0);
+  await expect(page.getByTestId("gai-composer-input").locator("textarea")).toBeEnabled();
+
+  const log = ((await (await page.request.get(`${MOCK_POD}/__mock/requests`)).json()) as MockRequest[]).filter((r) => r.method === "POST");
+  const hcm = "/hcmRestApi/rest/latest/en/11.13.18.05:9";
+  const step = (r: MockRequest): string =>
+    r.url.includes("/chat") ? "chat" : r.url === `${hcm}/` ? "batch" : r.url.split("/").filter((p) => p !== "").pop() ?? r.url;
+  expect(log.map(step)).toEqual(["chat", "hcmAiStudioConversations", "attachDocTracker", "attachUpload", "batch", "chat"]);
+  const chat = await chatBodies(page);
+  expect(chat).toHaveLength(2);
+  expect(chat[1]).toMatchObject({
+    message: "",
+    jobId: "job-3",
+    conversationId: chat[0].conversationId,
+    resumeInput: { messageInstanceId: "cb-3", userResponse: "RFI_ACTION", content: "" },
   });
 });

@@ -1,5 +1,6 @@
 import "oj-c/button";
 import { useState } from "preact/hooks";
+import { filesAloneSendable } from "../lib/files/AttachmentService";
 import { AttachButton, AttachmentList } from "./Attachments";
 import { MessageArea } from "./MessageArea";
 import type { AttachmentTray } from "./useChatController";
@@ -15,12 +16,13 @@ export function Composer(props: {
   attachments?: ComposerAttachments;
 }) {
   const [text, setText] = useState("");
-  const empty = text.trim() === "";
   const att = props.attachments;
+  // Nothing to send: no text and no picked files that may go alone (filesAloneSendable; the message is then "").
+  const blank = text.trim() === "" && !(att !== undefined && filesAloneSendable(att.tray.pending));
   // The field is emptied in the render that disables it for the send (see MessageArea); a message that did not go out
   // gets its text back, unless the user has typed something else meanwhile.
   const submit = (): void => {
-    if (props.disabled || empty) return;
+    if (props.disabled || blank) return;
     const sent = text;
     setText("");
     void props.onSend(sent).then((ok) => {
@@ -36,7 +38,7 @@ export function Composer(props: {
         <MessageArea testId="gai-composer-input" label="Message" value={text} disabled={props.disabled}
           placeholder={props.placeholder} onInput={setText} onEnter={submit} />
         <oj-c-button class="oj-sm-margin-2x-start" data-testid="gai-composer-send" chroming="callToAction" display="icons" label="Send"
-          disabled={props.disabled || empty} onojAction={submit}>
+          disabled={props.disabled || blank} onojAction={submit}>
           <span slot="startIcon" class="oj-ux-ico-send" />
         </oj-c-button>
       </div>

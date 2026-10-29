@@ -16,7 +16,8 @@
 //                                          0 = every frame and the end of the stream at once
 //   GET /__mock/arm?wizardVersion=<n>   -> until reset, the WIZARD_WF DRAFT row reports version <n> (a saved draft)
 //                                          (the parameters may be combined in one call)
-//   /chat by message: "approve me" / "wait for me" / "fail" / "unsafe html" / "long list" (see the route), "pick subinventory"
+//   /chat by message: "approve me" / "wait for me" / "send me a file" (a HUMAN wait for a free-text reply: no approval, no
+//   feedback; callbackToken "cb-3", jobId "job-3") / "fail" / "unsafe html" / "long list" (see the route), "pick subinventory"
 //   (a gnimsys-ui form: 24-option select + hidden + Approve/Back), "pick from datasource" (a select searched and paged
 //   through GET /fscmRestApi/resources/11.13.18.05/subinventories, 300 rows), "choose next step" (radio + checkbox +
 //   hidden + confirm button, then an invalid block); anything else -> chat-hello.sse.
@@ -353,6 +354,7 @@ const routes = [
       const pick = b.resumeInput ? "chat-resumed.sse"
         : b.message === "approve me" ? "chat-wait.sse"
         : b.message === "wait for me" ? "chat-wait-timer.sse"
+        : b.message === "send me a file" ? "chat-wait-input.sse"
         : b.message === "fail" ? "chat-error.sse"
         : b.message === "unsafe html" ? "chat-unsafe.sse"
         : b.message === "long list" ? "chat-long-list.sse"

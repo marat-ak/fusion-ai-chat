@@ -15,6 +15,7 @@ import { OracleWorkflowInfo } from "../lib/history/OracleWorkflowInfo";
 import type { WorkflowInfo } from "../lib/history/OracleWorkflowInfo";
 import { localTitle } from "../lib/history/localTitle";
 import { OracleAttachmentService } from "../lib/files/OracleAttachmentService";
+import { filesAloneSendable } from "../lib/files/AttachmentService";
 import type { Rejection, UploadedAttachment } from "../lib/files/AttachmentService";
 import { initialState, newConversationId, reduce } from "../lib/state/conversation";
 import type { ChatState } from "../lib/state/conversation";
@@ -402,7 +403,8 @@ export function useChatController(config: RunConfig, props: ChatControllerProps,
 
   const send = useCallback(async (text: string): Promise<boolean> => {
     const t = text.trim();
-    if (t === "" || !canStart()) return false;
+    // A text, or picked files alone (the message is then "", as Oracle's chat client sends it).
+    if (!canStart() || (t === "" && !(fileService !== null && filesAloneSendable(trayRef.current.pending)))) return false;
     // Without the streaming capability no reply can arrive: refuse before anything is written to the pod (no conversation
     // row, no upload). The message is not sent: the composer keeps its text and the picked files stay pending.
     if (!endpoints.canStream) {
@@ -429,16 +431,35 @@ export function useChatController(config: RunConfig, props: ChatControllerProps,
     const wait = stateRef.current.wait;
     if (!wait || !ready()) return;
     const statusCheckOnly = opts?.statusCheckOnly === true;
-    dispatch({ type: "resume_sent", action, ...(content !== undefined && { content }), ...(statusCheckOnly && { statusCheckOnly }) });
-    void run({
-      conversationId: conversationId.current,
-      text: "",
-      resume: {
-        jobId: wait.jobId, token: wait.token, action,
-        ...(content !== undefined && { content }), ...(statusCheckOnly && { statusCheckOnly }),
-      },
+    // The free-text reply (a wait without approval) carries the picked files, uploaded and linked to the conversation first
+    // as a message's are (Oracle's chat client answers an input wait from its composer, attachments linked before the
+    // resume); without a text the files must be able to go alone and the content is "". Other replies take no files.
+    const files = fileService !== null && !wait.approval && content !== undefined ? trayRef.current.pending : [];
+    if (content !== undefined && content.trim() === "" && !filesAloneSendable(files)) return;
+    const id = conversationId.current;
+    const go = (uploaded?: UploadedAttachment[]): void => {
+      dispatch({
+        type: "resume_sent", action, ...(content !== undefined && { content }), ...(statusCheckOnly && { statusCheckOnly }),
+        ...(uploaded !== undefined && { attachments: uploaded }),
+      });
+      void run({
+        conversationId: id,
+        text: "",
+        resume: {
+          jobId: wait.jobId, token: wait.token, action,
+          ...(content !== undefined && { content }), ...(statusCheckOnly && { statusCheckOnly }),
+        },
+      });
+    };
+    if (fileService === null || files.length === 0) { go(); return; }
+    // The flow holds the guard (`uploading`), so no other turn or resume starts meanwhile; a failed upload keeps the wait.
+    // (A wait only comes from a streamed reply, so the streaming capability send() checks is there.)
+    void uploadAll(id, fileService).then((uploaded) => {
+      if (uploaded === null) return;
+      setTray((s) => ({ ...s, pending: [], rejected: [] }));
+      go(uploaded);
     });
-  }, [run]);
+  }, [run, fileService, uploadAll, setTray]);
 
   const stop = (): void => {
     inflight.current?.abort();

@@ -268,7 +268,12 @@ export function ChatShell(props: ChatShellProps) {
         {!busy && !wait && <FollowUps questions={state.followups} disabled={!canSend} onPick={ctl.send} />}
       </Feed>
       {wait ? (
-        ctl.inFlight ? <PendingBar /> : <HitlBar key={wait.token} wait={wait} disabled={!authOk} onResume={ctl.resume} />
+        ctl.inFlight ? <PendingBar /> : (
+          <HitlBar key={wait.token} wait={wait} disabled={!authOk || uploading} onResume={ctl.resume}
+            {...(attachments !== null && {
+              attachments: { tray: attachments, accept: config.files.accept, maxSizeMB: config.files.maxSizeMB },
+            })} />
+        )
       ) : showComposer ? (
         <Composer disabled={!canSend} onSend={ctl.send} placeholder={config.ui.placeholder ?? props.strings.placeholder}
           {...(attachments !== null && {

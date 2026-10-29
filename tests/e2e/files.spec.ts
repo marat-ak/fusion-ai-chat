@@ -99,6 +99,93 @@ test("upload_then_send_performs_oracle_sequence", async ({ page }) => {
   expect((step("chat").body as { message: string }).message).toBe("summarize the file");
 });
 
+test("files_alone_are_sent_at_conversation_start_with_an_empty_message", async ({ page }) => {
+  // Oracle's chat client sends picked files with an empty text (`message: ""`) once every one of them is ready.
+  await page.goto("/");
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
+  const send = page.getByTestId("gai-composer-send").locator("button");
+  await expect(input).toBeEnabled();
+  await expect(send).toBeDisabled();
+  await page.getByTestId("gai-attach-input").setInputFiles(file("invoice.pdf", "application/pdf", 2048));
+  await expect(page.getByTestId("gai-attach-chip")).toHaveAttribute("data-state", "pending");
+  await expect(input).toHaveValue("");
+  await expect(send).toBeEnabled();
+  // Removing the only file disables Send again.
+  await page.getByTestId("gai-attach-chip").getByTestId("gai-attach-remove").locator("button").click();
+  await expect(send).toBeDisabled();
+  await page.getByTestId("gai-attach-input").setInputFiles(file("invoice.pdf", "application/pdf", 2048));
+  await expect(send).toBeEnabled();
+  await send.click();
+
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  const userBubble = page.getByTestId("gai-bubble-user");
+  await expect(userBubble).toHaveCount(1);
+  await expect(userBubble.getByTestId("gai-bubble-attachment")).toHaveText(["invoice.pdf"]);
+  await expect(userBubble).toHaveText("invoice.pdf");
+  await expect(page.getByTestId("gai-attach-chip")).toHaveCount(0);
+  await expect(send).toBeDisabled();
+
+  const log = await mockRequests(page);
+  expect(log.map(flowStep).filter((s) => s !== null)).toEqual([
+    "hcmAiStudioConversations", "attachDocTracker", "attachUpload", "batch", "chat",
+  ]);
+  const chat = log.find((r) => flowStep(r) === "chat") as MockRequest;
+  expect((chat.body as { message: string }).message).toBe("");
+  // The empty message is signed like any other (the hash of "").
+  expect(typeof chat.headers["x-ora-ai-api-v2-check"]).toBe("string");
+});
+
+test("files_alone_are_sent_mid_conversation", async ({ page }) => {
+  await page.goto("/");
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
+  const send = page.getByTestId("gai-composer-send").locator("button");
+  await input.fill("hello");
+  await send.click();
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+
+  await page.getByTestId("gai-attach-input").setInputFiles(file("invoice.pdf", "application/pdf", 2048));
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?", "Hello! How can I help?"]);
+  await expect(page.getByTestId("gai-bubble-user")).toHaveText(["hello", "invoice.pdf"]);
+
+  const log = await mockRequests(page);
+  expect(log.map(flowStep).filter((s) => s !== null)).toEqual([
+    "chat", "hcmAiStudioConversations", "attachDocTracker", "attachUpload", "batch", "chat",
+  ]);
+  const chats = log.filter((r) => flowStep(r) === "chat").map((r) => r.body as { message: string; conversationId: string });
+  expect(chats.map((c) => c.message)).toEqual(["hello", ""]);
+  expect(chats[1].conversationId).toBe(chats[0].conversationId);
+});
+
+test("files_alone_whose_upload_failed_keep_send_disabled_until_text_is_typed", async ({ page }) => {
+  // Without text, Send needs every picked file ready to go; a failed upload blocks it (remove the file, or type a text:
+  // a message with text retries the upload as before).
+  await page.request.get(`${MOCK_POD}/__mock/arm?attachUpload=500`);
+  await page.goto("/");
+  const input = page.getByTestId("gai-composer-input").locator("textarea");
+  const send = page.getByTestId("gai-composer-send").locator("button");
+  await page.getByTestId("gai-attach-input").setInputFiles(file("invoice.pdf", "application/pdf", 2048));
+  await send.click();
+
+  const chip = page.getByTestId("gai-attach-chip");
+  await expect(chip).toHaveAttribute("data-state", "failed");
+  await expect(chip).toContainText("attachment upload HTTP 500");
+  await expect(page.getByTestId("gai-bubble-user")).toHaveCount(0);
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveValue("");
+  await expect(send).toBeDisabled();
+
+  await input.fill("here it is");
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(page.getByTestId("gai-bubble-assistant")).toHaveText(["Hello! How can I help?"]);
+  await expect(page.getByTestId("gai-bubble-user")).toContainText("here it is");
+  expect((await mockRequests(page)).map(flowStep).filter((s) => s !== null)).toEqual([
+    "hcmAiStudioConversations", "attachDocTracker", "attachUpload", "attachDocTracker", "attachUpload", "batch", "chat",
+  ]);
+});
+
 test("failed_upload_blocks_send_and_marks_chip", async ({ page }) => {
   await page.request.get(`${MOCK_POD}/__mock/arm?attachUpload=500`);
   await page.goto("/");

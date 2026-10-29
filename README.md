@@ -525,4 +525,8 @@ Approve / Back), `pick from datasource` (an inline datasource searched and paged
 - Widgets: the `gnimsys-ui` v1 `form` block only (see Widgets); `table`, `dependsOn` (cascading selects), text/number/date
   fields and the `ai-chat-submit` / `ai-chat-action` events are not built.
 - No cancel API: a running reply cannot be stopped; leaving the conversation only closes the local stream.
-- Attachments: when a send fails, the files stay pending and are uploaded again on the next send.
+- Attachments: when a send fails, the files stay pending and are uploaded again on the next send. Files can go without
+  a text (the message is then `""`, as Oracle's chat client sends it) while every picked file is waiting to go — not
+  after its upload failed (remove it, or add a text: a message with text retries the upload). A free-text HITL reply
+  (a wait without approval) takes files the same way (`resumeInput.content` `""` without text); approve / reject /
+  request-change replies take none.

@@ -143,6 +143,17 @@ describe("conversation reducer", () => {
     expect(run(base, { type: "resume_sent", action: "RFI_ACTION", content: "change x" }).turns.slice(-2)[0].text).toBe("change x");
   });
 
+  test("resume_sent_with_files_shows_them_on_the_reply_turn", () => {
+    // A free-text reply may be files alone: the user turn has an empty text and the files.
+    const base = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "job", jobId: "j1" }),
+      ev({ type: "wait", kind: "HUMAN", token: "tk", message: "Attach the invoice", approval: false, feedback: false }));
+    const att = [{ trackerId: "t", fileName: "invoice.pdf", size: 1, mimeType: "application/pdf" }];
+    const r = run(base, { type: "resume_sent", action: "RFI_ACTION", content: "", attachments: att });
+    expect(r.wait).toBeUndefined();
+    expect(r.turns.slice(-2)).toMatchObject([{ role: "user", text: "", attachments: att }, { role: "assistant", text: "", streaming: true }]);
+    expect("attachments" in run(base, { type: "resume_sent", action: "RFI_ACTION", content: "x" }).turns.slice(-2)[0]).toBe(false);
+  });
+
   test("resume_sent_status_check_adds_no_user_turn", () => {
     const base = run(initialState("c"), { type: "user_send", text: "q" }, ev({ type: "job", jobId: "j1" }),
       ev({ type: "wait", kind: "WAIT", token: "tk", message: "Waiting", approval: false, feedback: false, waitMinutes: 1 }),

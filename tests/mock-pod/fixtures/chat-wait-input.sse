@@ -1,0 +1,4 @@
+data: {"jobId":"job-3"}
+
+data: {"message":{"finishReason":"wait"},"waitingNodeDetails":{"type":"HUMAN","initialMessage":"Attach the invoice","callbackToken":"cb-3","approvalEnabledFlag":false,"feedbackEnabledFlag":false}}
+
