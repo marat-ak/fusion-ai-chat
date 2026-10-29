@@ -1,5 +1,6 @@
 // A JSON value as a tree (JET's classic oj-tree-view: the Core Pack has no tree): Oracle's JSON-in-string values are shown
-// decoded and marked, a value Oracle cut is marked, the matches of the inspector's search are expanded and highlighted.
+// decoded and marked, a value Oracle cut is marked, a string is shown whole and wrapped with its line breaks, the matches
+// of the inspector's search are expanded and highlighted.
 // Selecting a row shows its path with Copy value / Copy path.
 import "ojs/ojtreeview";
 import "oj-c/button";
@@ -39,7 +40,8 @@ function renderRow(query: string) {
     row.appendChild(key);
     const value = document.createElement("span");
     value.className = `dbg-json__value dbg-json__value--${t.kind}`;
-    value.textContent = t.children !== undefined ? ` ${t.text}` : `: ${t.kind === "string" || t.kind === "cut" ? JSON.stringify(t.text.length > 400 ? t.text.slice(0, 400) + "…" : t.text) : t.text}`;
+    // A string whole, between quotes, its line breaks kept (the row wraps it: index.html .dbg-json__value--string).
+    value.textContent = t.children !== undefined ? ` ${t.text}` : `: ${t.kind === "string" || t.kind === "cut" ? `"${t.text}"` : t.text}`;
     row.appendChild(value);
     const q = query.toLowerCase();
     if (q !== "" && (t.label.toLowerCase().includes(q) || (t.children === undefined && t.text.toLowerCase().includes(q)))) row.classList.add("dbg-json__row--hit");

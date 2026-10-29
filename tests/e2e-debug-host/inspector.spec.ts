@@ -173,6 +173,41 @@ test("steps_view_and_detail_tabs_decode_oracles_json_in_strings", async ({ page 
   await expect(page.getByTestId("dbg-calls")).toBeVisible();
 });
 
+test("a_long_multi_line_value_is_shown_whole_and_wrapped_and_never_widens_the_page", async ({ page }) => {
+  // The RETURN of a 2026-10-29 dev1 run: a ~1000-character reply with blank lines and a long unbroken JSON line. It was cut
+  // to 400 characters by the tree's row, shown as one escaped line, and that line widened the whole page.
+  const fixture = readFileSync("tests/mock-pod/fixtures/debug-return-long.sse", "utf8").split("\n").filter((l) => l.startsWith("data:"));
+  const reply = (JSON.parse(fixture[2].slice(5)) as { message: { output: string } }).message.output;
+  expect(reply.length).toBeGreaterThan(900);
+  const lastLine = reply.split("\n").pop() as string;
+  const overflow = (s: Page): Promise<number[]> => s.evaluate(() => {
+    const doc = document.documentElement;
+    const trees = [...document.querySelectorAll("[data-testid='dbg-detail'] oj-tree-view")];
+    return [doc.scrollWidth - doc.clientWidth, ...trees.map((t) => t.scrollWidth - t.clientWidth)];
+  });
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.goto(debuggerUrl("MOCK_WF"));
+  await send(page, "long return");
+  await expect(page.getByTestId("gai-bubble-assistant")).toContainText(lastLine);
+  await tab(page, "Run");
+  await expect(page.getByTestId("dbg-position")).toHaveText("Step 2 of 2 · RETURN_PICK");
+  for (const [name, testId] of [["Output", "dbg-output"], ["Input", "dbg-input"]] as const) {
+    await detailTab(page, name);
+    const value = page.getByTestId(testId).locator(".dbg-json__value--string");
+    // The whole value, its line breaks as line breaks (no escaped "\n"), wrapped inside the detail.
+    await expect(value).toContainText(lastLine);
+    await expect(value).not.toContainText("\\n");
+    expect(await value.evaluate((el) => el.getClientRects().length > 1 || (el as HTMLElement).offsetHeight > 100)).toBe(true);
+    for (const width of [1280, 800]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await expect.poll(() => overflow(page)).toEqual([0, 0]);
+    }
+    await page.setViewportSize({ width: 1280, height: 1000 });
+  }
+  await detailTab(page, "Output");
+  await page.screenshot({ path: "test-results/inspector-long-value.png" });
+});
+
 test("two_turns_are_selectable_compared_and_a_saved_draft_is_named", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 });
   await page.goto(debuggerUrl());

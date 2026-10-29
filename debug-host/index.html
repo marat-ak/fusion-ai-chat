@@ -83,9 +83,10 @@
       .dbg-link--taken { stroke: var(--oj-core-success-2); stroke-width: 3px; }
       .dbg-link--error { stroke-dasharray: 6 4; }
 
-      /* JSON tree rows (oj-tree-view draws them through our renderer). */
+      /* JSON tree rows (oj-tree-view draws them through our renderer). Its rows are nowrap (JET's .oj-treeview-item): a
+         string value wraps, keeping its line breaks, so a long value is read without scrolling sideways. */
       .dbg-json__key { font-weight: 600; }
-      .dbg-json__value--string, .dbg-json__value--cut { color: var(--oj-core-text-color-success); overflow-wrap: anywhere; }
+      .dbg-json__value--string, .dbg-json__value--cut { color: var(--oj-core-text-color-success); white-space: pre-wrap; overflow-wrap: anywhere; }
       .dbg-json__value--number, .dbg-json__value--boolean, .dbg-json__value--null { color: var(--oj-core-text-color-brand); }
       .dbg-json__value--object, .dbg-json__value--array { color: var(--oj-core-text-color-secondary); }
       .dbg-json__mark { margin-inline-start: var(--oj-core-spacing-2x); font-size: 0.75rem; color: var(--oj-core-text-color-secondary); }
@@ -130,8 +131,10 @@
             endpoint="[[chat().endpoint]]" run-observer="[[runStore]]"></xxx-gnimsys-ai-chat>
         </oj-bind-if>
       </div>
-      <!-- The Run Inspector: Preact renders it into #dbg-run (root.ts); Knockout and its binding provider stay out of it. -->
-      <div class="dbg-pane oj-flex oj-sm-flex-direction-column oj-sm-padding-4x-horizontal oj-sm-padding-2x-bottom" data-testid="dbg-run-pane"
+      <!-- The Run Inspector: Preact renders it into #dbg-run (root.ts); Knockout and its binding provider stay out of it.
+           Single-line (nowrap): a wrapping column flex container sizes its line to its widest content, so a long row of the
+           step detail would make the whole page wider than the viewport. -->
+      <div class="dbg-pane oj-flex oj-sm-flex-direction-column oj-sm-flex-wrap-nowrap oj-sm-padding-4x-horizontal oj-sm-padding-2x-bottom" data-testid="dbg-run-pane"
         :hidden="[[tab() !== 'run']]">
         <div id="dbg-run" class="dbg-pane" data-oj-binding-provider="none"></div>
       </div>
