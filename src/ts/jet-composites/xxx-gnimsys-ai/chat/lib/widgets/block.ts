@@ -81,6 +81,20 @@ export function splitBlocks(text: string): Segment[] {
   return out;
 }
 
+/** One message of a reply as the feed shows it; `key` stays the same while the reply streams on. */
+export type ReplyPart = Segment & { key: string };
+
+/**
+ * The messages a reply shows as, in order: each run of markdown text between blocks is one, each ```gnimsys-ui block
+ * is one; blank text between, before or after blocks shows as nothing. A reply that is blank throughout is one (empty)
+ * text message, as before any split.
+ */
+export function replyParts(text: string): ReplyPart[] {
+  const parts: ReplyPart[] = splitBlocks(text).map((s, i) => ({ ...s, key: s.kind === "block" ? `b${s.index}` : `t${i}` }));
+  const shown = parts.filter((p) => p.kind === "block" || p.text.trim() !== "");
+  return shown.length > 0 ? shown : parts;
+}
+
 // ---- validation ---------------------------------------------------------------------------------------------------
 
 /** Parses and validates one block's JSON text; a failure names every problem found (the error box shows them). */

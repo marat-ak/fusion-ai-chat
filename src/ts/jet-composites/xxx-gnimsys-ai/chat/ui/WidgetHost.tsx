@@ -197,7 +197,7 @@ export function WidgetHost(props: { block: FormBlock; deps: WidgetHostDeps; subm
   };
 
   return (
-    <div class="oj-sm-margin-2x-top" data-testid="gai-widget" data-widget-id={block.id} {...(clicked !== undefined && { "data-submitted": clicked.id })}
+    <div data-testid="gai-widget" data-widget-id={block.id} {...(clicked !== undefined && { "data-submitted": clicked.id })}
       role="group" aria-label={block.title ?? block.id}>
       {block.title !== undefined && <div class="oj-typography-subheading-xs oj-sm-margin-2x-bottom" data-testid={testId("title")}>{block.title}</div>}
       <oj-c-form-layout columns={1} labelEdge="top" userAssistanceDensity="reflow">

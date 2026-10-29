@@ -56,17 +56,27 @@ test.beforeEach(async ({ page }) => {
   await page.request.delete(`${MOCK_POD}/__mock/requests`);
 });
 
-test("form_block_renders_in_place_with_the_markdown_around_it", async ({ page }) => {
+/** The avatars beside assistant bubbles (one per reply: the reply's further messages are indented, without one). */
+const replyAvatars = (page: Page) => page.locator("div:has(> [data-testid='gai-bubble-assistant']) > .gai-avatar");
+
+test("a_reply_shows_as_separate_messages_the_markdown_and_each_form_block_in_its_own_bubble", async ({ page }) => {
   await page.goto("/");
   await sendText(page, "pick subinventory");
-  const bubble = page.getByTestId("gai-bubble-assistant");
+  const bubbles = page.getByTestId("gai-bubble-assistant");
   const widget = page.getByTestId("gai-widget");
   await expect(widget).toBeVisible();
-  // The markdown before and after the block renders; the block's JSON is not shown as text.
-  await expect(bubble.locator("strong")).toHaveText("Destination");
-  await expect(bubble).toContainText("You can also go back to change the quantity.");
-  await expect(bubble).not.toContainText('"kind"');
-  await expect(bubble.locator("pre")).toHaveCount(0);
+  // Streamed (the fence split across two deltas), then replaced by the final output: the markdown before the block, the
+  // block alone, the markdown after it, in order; one avatar for the reply; the block's JSON is not shown as text.
+  await expect(bubbles).toHaveCount(3);
+  expect(await bubbles.evaluateAll((els) => els.map((e) => e.getAttribute("data-part")))).toEqual(["text", "block", "text"]);
+  await expect(bubbles.nth(0).locator("strong")).toHaveText("Destination");
+  await expect(bubbles.nth(0)).toContainText("Pick the destination subinventory and approve.");
+  await expect(bubbles.nth(1).getByTestId("gai-widget")).toBeVisible();
+  await expect(bubbles.nth(1)).not.toContainText("Pick the destination");
+  await expect(bubbles.nth(2)).toHaveText("You can also go back to change the quantity.");
+  await expect(replyAvatars(page)).toHaveCount(1);
+  await expect(page.locator(".gai-feed")).not.toContainText('"kind"');
+  await expect(bubbles.locator("pre")).toHaveCount(0);
   await expect(page.getByTestId("gai-widget-title")).toHaveText("Select the destination subinventory");
   await expect(page.getByTestId("gai-widget-field-subinv")).toBeVisible();
   // The hidden field has no control; the two buttons are there; Oracle's follow-up chips stay.
@@ -283,6 +293,38 @@ test("history_rerender_shows_a_submitted_block_read_only", async ({ page }) => {
   await expect(page.getByTestId("gai-widget")).toBeVisible();
   await expect(page.getByTestId("gai-widget")).not.toHaveAttribute("data-submitted");
   await expect(page.getByTestId("gai-widget-button-submit").locator("button")).toBeEnabled();
+});
+
+test("a_paused_reply_and_a_reply_reopened_from_history_split_at_their_block_too", async ({ page }) => {
+  // The AP supplier pick's shape: an explanation, a prompt line, one block.
+  const block = '```gnimsys-ui\n{"v":1,"kind":"form","id":"pick","title":"Pick","fields":[{"id":"x","type":"select","options":[{"value":"1","label":"One"}]}],"buttons":[{"id":"ok","label":"OK","data":{"decision":"OK"}}]}\n```';
+  const reply = `The supplier was not matched: no candidate has its tax registration.\n\nPick the supplier:\n\n${block}\n`;
+  const expectSplit = async (): Promise<void> => {
+    const bubbles = page.getByTestId("gai-bubble-assistant");
+    await expect(bubbles).toHaveCount(2);
+    expect(await bubbles.evaluateAll((els) => els.map((e) => e.getAttribute("data-part")))).toEqual(["text", "block"]);
+    await expect(bubbles.nth(0)).toContainText("no candidate has its tax registration.");
+    await expect(bubbles.nth(0)).toContainText("Pick the supplier:");
+    await expect(bubbles.nth(1).getByTestId("gai-widget")).toBeVisible();
+    await expect(replyAvatars(page)).toHaveCount(1);
+  };
+  // A HUMAN wait whose message is the reply: the reply splits; the HITL bar stays below it.
+  await page.route("**/api/fusion-ai/orchestrator/agent/v2/*/chat", (route) => route.fulfill({
+    status: 200, contentType: "text/event-stream",
+    body: `data: ${JSON.stringify({ jobId: "job-p" })}\n\n` + `data: ${JSON.stringify({ message: { finishReason: "wait" },
+      waitingNodeDetails: { type: "HUMAN", initialMessage: reply, callbackToken: "cb-p", approvalEnabledFlag: true } })}\n\n`,
+  }));
+  await page.goto("/");
+  await sendText(page, "pause with a pick");
+  await expect(page.getByTestId("gai-hitl")).toBeVisible();
+  await expectSplit();
+
+  // The same reply reopened from Oracle's history.
+  await page.route("**/api/fusion-ai/orchestrator/conversations/v1/*/messages", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{ type: "AI", text: reply }] }) }));
+  await page.addInitScript(() => { (window as unknown as { __CHAT_CONVERSATION_ID__: string }).__CHAT_CONVERSATION_ID__ = "split-reply"; });
+  await page.goto("/");
+  await expectSplit();
 });
 
 // ---- BOSS datasource (Business Objects API: $filter / $limit / $offset) -----------------------------------------------

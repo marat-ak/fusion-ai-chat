@@ -373,10 +373,12 @@ Published contract: [`chat/schemas/gnimsys-ui-v1.schema.json`](src/ts/jet-compos
 (`$id` `https://gnimsys.com/schemas/ai-chat/gnimsys-ui-v1.json`, JSON Schema 2020-12; design
 `docs/superpowers/specs/2026-10-26-gnimsys-ui-block-v1-design.md`, rev 2). A workflow turn that needs a selection or a
 decision puts a fenced block in its reply; the component takes the blocks out before the markdown renders, validates
-each one against the contract and mounts a form in its place (`oj-c-form-layout` with `oj-c-select-single` /
-`oj-c-select-multiple` / `oj-c-radioset` / `oj-c-checkboxset` — the rich sets when an option carries a `description` —
-and `oj-c-button`s). Several blocks per reply are fine; the markdown around them renders as usual; Oracle's follow-up
-chips are unrelated and stay. An invalid block (bad JSON, schema violation, unknown `v`/`kind`/`type`, duplicate ids, a
+each one against the contract and shows the reply as separate messages split at its blocks: each run of markdown
+between them is one bubble, each block a bubble of its own holding its form (`oj-c-form-layout` with
+`oj-c-select-single` / `oj-c-select-multiple` / `oj-c-radioset` / `oj-c-checkboxset` — the rich sets when an option
+carries a `description` — and `oj-c-button`s), in the reply's order (blank text between them shows as nothing; the
+first carries the agent's avatar). The same holds for a streamed reply, a paused (HITL) one and one reopened from
+history. Several blocks per reply are fine; Oracle's follow-up chips are unrelated and stay. An invalid block (bad JSON, schema violation, unknown `v`/`kind`/`type`, duplicate ids, a
 `select` with both or neither option source, buttons without or with equal `data`) is shown as an error box with the
 reason and the raw text, never dropped. While a reply streams, a block is rendered only once its closing fence has
 arrived (until then its text shows as plain text); its controls mount once the turn has ended.

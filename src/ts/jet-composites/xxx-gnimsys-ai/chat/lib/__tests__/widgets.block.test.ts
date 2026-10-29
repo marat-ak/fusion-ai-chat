@@ -1,4 +1,4 @@
-import { applyOverlay, parseBlock, splitBlocks } from "../widgets/block";
+import { applyOverlay, parseBlock, replyParts, splitBlocks } from "../widgets/block";
 import type { FormBlock } from "../widgets/block";
 
 const fence = (json: string, lang = "gnimsys-ui") => "```" + lang + "\n" + json + "\n```";
@@ -55,6 +55,31 @@ describe("splitBlocks", () => {
   test("plain_text_is_one_segment", () => {
     expect(splitBlocks("Hello")).toEqual([{ kind: "text", text: "Hello" }]);
     expect(splitBlocks("")).toEqual([{ kind: "text", text: "" }]);
+  });
+});
+
+describe("replyParts", () => {
+  test("a_reply_with_a_block_is_one_message_per_markdown_run_and_per_block_in_order_without_blank_ones", () => {
+    // The AP supplier pick: the explanation, a prompt line, the block; blank text after the block shows as nothing.
+    const text = `The supplier could not be matched because …\n\nNo candidate matches.\n\nPick the supplier:\n\n${fence("{\"a\":1}")}\n\n`;
+    expect(replyParts(text)).toEqual([
+      { kind: "text", text: "The supplier could not be matched because …\n\nNo candidate matches.\n\nPick the supplier:\n", key: "t0" },
+      { kind: "block", index: 0, raw: "{\"a\":1}", key: "b0" },
+    ]);
+    const two = `${fence("{\"a\":1}")}\n\n\n${fence("{\"b\":2}")}\nTail`;
+    expect(replyParts(two).map((p) => p.key)).toEqual(["b0", "b1", "t3"]);
+  });
+
+  test("keys_stay_while_a_reply_streams_and_its_fence_closes", () => {
+    const partial = "Pick:\n\n```gnimsys-ui\n{ \"v\": 1,";
+    expect(replyParts(partial)).toEqual([{ kind: "text", text: partial, key: "t0" }]);
+    expect(replyParts(partial + " \"kind\": \"form\" }\n```\nAfter").map((p) => p.key)).toEqual(["t0", "b0", "t2"]);
+  });
+
+  test("a_reply_without_a_block_is_one_message_even_when_blank", () => {
+    expect(replyParts("Hello\n\nWorld")).toEqual([{ kind: "text", text: "Hello\n\nWorld", key: "t0" }]);
+    expect(replyParts("")).toEqual([{ kind: "text", text: "", key: "t0" }]);
+    expect(replyParts(" \n")).toEqual([{ kind: "text", text: " \n", key: "t0" }]);
   });
 });
 

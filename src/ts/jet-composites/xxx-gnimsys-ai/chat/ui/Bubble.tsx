@@ -1,11 +1,12 @@
 import "oj-c/avatar";
 import "oj-c/badge";
 import type { ComponentChildren } from "preact";
-import { useMemo } from "preact/hooks";
+import { useMemo, useRef } from "preact/hooks";
 import type { Turn } from "../lib/state/conversation";
+import { replyParts } from "../lib/widgets/block";
 import { withoutEnvelopes } from "../lib/widgets/submit";
 import type { Submit } from "../lib/widgets/submit";
-import { AssistantContent } from "./Content";
+import { ReplyPartContent } from "./Content";
 import type { WidgetContext } from "./Content";
 
 export interface MarkdownRenderer { render(md: string): string }
@@ -30,13 +31,42 @@ export function AgentAvatar(props: { size: "2xs" | "xs"; class?: string }) {
   );
 }
 
-/** A transcript line of the agent: its avatar, then the content. */
-export function AgentRow(props: { children: ComponentChildren }) {
+/** A transcript line of the agent: its avatar, then the content; `gap` = the space below it (default 4x). */
+export function AgentRow(props: { children: ComponentChildren; gap?: string }) {
   return (
-    <div class="oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-flex-start oj-sm-margin-4x-bottom">
+    <div class={`oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-flex-start ${props.gap ?? "oj-sm-margin-4x-bottom"}`}>
       <AgentAvatar size="xs" class="oj-sm-margin-3x-end" />
       {props.children}
     </div>
+  );
+}
+
+/**
+ * An assistant reply as separate messages (block.ts replyParts): each run of markdown one bubble, each gnimsys-ui block
+ * its own bubble, in order. The first carries the agent's avatar, the others are indented to it; the messages of one
+ * reply sit closer together than two replies. A block's controls mount once the reply has settled and then stay mounted
+ * (`widgets.settled` may flip again while a later turn runs).
+ */
+function AssistantReply(props: { text: string; renderer: MarkdownRenderer | null; widgets?: WidgetContext; submitted: Submit[] }) {
+  const { renderer, widgets } = props;
+  const parts = useMemo(() => replyParts(props.text), [props.text]);
+  const mounted = useRef(false);
+  const mount = mounted.current || (widgets?.settled ?? false);
+  mounted.current = mount;
+  return (
+    <>
+      {parts.map((p, i) => {
+        const gap = i === parts.length - 1 ? "oj-sm-margin-4x-bottom" : "oj-sm-margin-2x-bottom";
+        const bubble = (
+          <div class={`${ASSISTANT} oj-bg-neutral-0`} data-testid="gai-bubble-assistant" data-part={p.kind}>
+            <ReplyPartContent part={p} renderer={renderer} {...(widgets !== undefined && { ctx: widgets })} submitted={props.submitted} mount={mount} />
+          </div>
+        );
+        return i === 0
+          ? <AgentRow key={p.key} gap={gap}>{bubble}</AgentRow>
+          : <div key={p.key} class={`oj-flex oj-sm-flex-wrap-nowrap oj-sm-align-items-flex-start ${AGENT_INDENT} ${gap}`}>{bubble}</div>;
+      })}
+    </>
   );
 }
 
@@ -47,8 +77,9 @@ function UserRow(props: { children: ComponentChildren }) {
 
 /**
  * User turns are plain text (a widget submit shows its readable line; the envelope stays in the sent message); assistant
- * turns are markdown sanitized by the renderer (plain text until it has loaded) with their gnimsys-ui blocks rendered by
- * WidgetHost (`widgets`; `submitted` = the submits of the user turns after this one, which make its blocks read-only).
+ * turns are markdown sanitized by the renderer (plain text until it has loaded), shown as separate messages split at their
+ * gnimsys-ui blocks, each block rendered by WidgetHost in its own bubble (`widgets`; `submitted` = the submits of the user
+ * turns after this one, which make its blocks read-only). A failed turn is one error bubble with its text as received.
  */
 export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null; widgets?: WidgetContext; submitted?: Submit[] }) {
   const { turn, renderer } = props;
@@ -88,11 +119,5 @@ export function Bubble(props: { turn: Turn; renderer: MarkdownRenderer | null; w
       </AgentRow>
     );
   }
-  return (
-    <AgentRow>
-      <div class={`${ASSISTANT} oj-bg-neutral-0`} data-testid="gai-bubble-assistant">
-        <AssistantContent text={turn.text} renderer={renderer} {...(props.widgets !== undefined && { ctx: props.widgets })} submitted={submitted} />
-      </div>
-    </AgentRow>
-  );
+  return <AssistantReply text={turn.text} renderer={renderer} {...(props.widgets !== undefined && { widgets: props.widgets })} submitted={submitted} />;
 }

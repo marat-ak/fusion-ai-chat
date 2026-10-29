@@ -1,8 +1,8 @@
 import "oj-c/progress-circle";
-import { useMemo, useRef } from "preact/hooks";
+import { useMemo } from "preact/hooks";
 import type { WidgetOverlay } from "../lib/config/types";
-import { applyOverlay, parseBlock, splitBlocks } from "../lib/widgets/block";
-import type { Segment } from "../lib/widgets/block";
+import { applyOverlay, parseBlock } from "../lib/widgets/block";
+import type { ReplyPart } from "../lib/widgets/block";
 import type { EndpointFetch } from "../lib/endpoints/EndpointFetch";
 import type { DataSourcePolicy } from "../lib/widgets/datasource";
 import type { Submit } from "../lib/widgets/submit";
@@ -29,7 +29,7 @@ function BlockView(props: { raw: string; ctx: WidgetContext; submitted: Submit[]
   const parsed = useMemo(() => parseBlock(raw), [raw]);
   if (!parsed.ok) {
     return (
-      <Banner testId="gai-widget-error" severity="error" class="oj-sm-margin-2x-top" summary={`Widget block not shown: ${parsed.reason}`}>
+      <Banner testId="gai-widget-error" severity="error" summary={`Widget block not shown: ${parsed.reason}`}>
         <pre class="gai-widget-raw oj-typography-body-xs" data-testid="gai-widget-raw">{raw}</pre>
       </Banner>
     );
@@ -37,7 +37,7 @@ function BlockView(props: { raw: string; ctx: WidgetContext; submitted: Submit[]
   const block = applyOverlay(parsed.block, ctx.overlays[parsed.block.id]);
   if (!props.mount) {
     return (
-      <div class="oj-flex oj-sm-align-items-center oj-sm-margin-2x-top" data-testid="gai-widget-pending" role="status">
+      <div class="oj-flex oj-sm-align-items-center" data-testid="gai-widget-pending" role="status">
         <oj-c-progress-circle size="sm" value={-1} aria-label="Loading form" />
       </div>
     );
@@ -50,29 +50,19 @@ function BlockView(props: { raw: string; ctx: WidgetContext; submitted: Submit[]
 }
 
 /**
- * The content of an assistant bubble (spec §5 item 5): the reply's ```gnimsys-ui blocks are taken out BEFORE the
- * markdown renders, the text around them renders as markdown (plain text until the renderer has loaded), and a WidgetHost
- * takes each block's place. A block's controls mount once the turn has settled and then stay mounted (`ctx.settled` may
- * flip again while a later turn runs); without a widget context (no chat) blocks are shown as their raw text.
+ * The content of one assistant bubble (spec §5 item 5): a reply is split at its ```gnimsys-ui blocks BEFORE the markdown
+ * renders (block.ts replyParts; Bubble.tsx shows each part as its own bubble). A text part renders as markdown (plain
+ * text until the renderer has loaded); a block part is a WidgetHost, its controls mounted once `mount` (the reply has
+ * settled once); without a widget context (no chat) a block is shown as its raw text.
  */
-export function AssistantContent(props: { text: string; renderer: MarkdownRenderer | null; ctx?: WidgetContext; submitted: Submit[] }) {
-  const { text, renderer, ctx } = props;
-  const segments = useMemo<Segment[]>(() => splitBlocks(text), [text]);
-  const mounted = useRef(false);
-  const mount = mounted.current || (ctx?.settled ?? false);
-  mounted.current = mount;
-  return (
-    <>
-      {segments.map((s, i) => {
-        if (s.kind === "block") {
-          return ctx !== undefined
-            ? <BlockView key={`b${s.index}`} raw={s.raw} ctx={ctx} submitted={props.submitted} mount={mount} />
-            : <pre key={`b${s.index}`} class="gai-widget-raw">{s.raw}</pre>;
-        }
-        return renderer
-          ? <div key={`t${i}`} class="gai-md" dangerouslySetInnerHTML={{ __html: renderer.render(s.text) }} />
-          : <div key={`t${i}`} class="oj-helper-white-space-pre-wrap">{s.text}</div>;
-      })}
-    </>
-  );
+export function ReplyPartContent(props: { part: ReplyPart; renderer: MarkdownRenderer | null; ctx?: WidgetContext; submitted: Submit[]; mount: boolean }) {
+  const { part, renderer, ctx } = props;
+  if (part.kind === "block") {
+    return ctx !== undefined
+      ? <BlockView raw={part.raw} ctx={ctx} submitted={props.submitted} mount={props.mount} />
+      : <pre class="gai-widget-raw">{part.raw}</pre>;
+  }
+  return renderer
+    ? <div class="gai-md" dangerouslySetInnerHTML={{ __html: renderer.render(part.text) }} />
+    : <div class="oj-helper-white-space-pre-wrap">{part.text}</div>;
 }
