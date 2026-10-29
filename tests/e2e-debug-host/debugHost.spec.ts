@@ -242,6 +242,73 @@ test("unknown_conversation_is_explicit", async ({ page }) => {
   await expect(page.locator("xxx-gnimsys-ai-chat")).toHaveCount(0);
 });
 
+test("agent_written_fa_and_boss_datasources_load_through_the_proxy", async ({ page }) => {
+  // The debugger allows inline datasources under "/" (the proxy is the gate), so an agent's block loads as on a VB page.
+  // Mock pod /debug "pick from fa and boss": an FA select over /fscmRestApi/resources/…/subinventories preset to 12026 and a
+  // BOSS select over the workflows object preset to PAGED_WF_02, both searchable (minChars 2).
+  await page.setViewportSize({ width: 560, height: 900 });
+  await page.goto(debuggerUrl("u1__dev1", "DRAFT"));
+  await expect(page.getByTestId("dbg-bound")).toHaveText("Workflow MOCK_WF · DRAFT · dev1");
+  await page.getByTestId("gai-composer-input").locator("textarea").fill("pick from fa and boss");
+  await page.getByTestId("gai-composer-send").locator("button").click();
+  const widget = page.getByTestId("gai-widget");
+  await expect(widget).toBeVisible();
+  const subinv = widget.getByTestId("gai-widget-field-subinv");
+  const agent = widget.getByTestId("gai-widget-field-agent");
+  await expect(subinv).not.toContainText("datasource not allowed");
+  await expect(agent).not.toContainText("datasource not allowed");
+  // Selected-value lookup (fetchByKeys): the preset values' labels come back through the proxy.
+  await expect(subinv.locator("input")).toHaveValue("Raw Materials 26");
+  await expect(agent.locator("input")).toHaveValue("Paged Agent 02");
+
+  // Server search through the proxy: FA in Fusion REST `q`, BOSS in `$filter`.
+  await subinv.locator("input").fill("Ra");
+  await expect(page.getByRole("option").first()).toHaveText("Raw Materials 2");
+  await page.getByRole("option", { name: "Raw Materials 2", exact: true }).click();
+  await agent.locator("input").fill("Agent 1");
+  await expect(page.getByRole("option").first()).toHaveText("Paged Agent 10");
+  await page.getByRole("option", { name: "Paged Agent 10", exact: true }).click();
+  await widget.getByTestId("gai-widget-button-ok").locator("button").click();
+  const messages = async (): Promise<string[]> => (await podCalls(page)).filter((c) => c.url.endsWith("/MOCK_WF/debug")).map((c) => (c.body as { message: string }).message);
+  await expect.poll(async () => (await messages()).at(-1)).toBe(
+    'OK — Pick a subinventory and an agent\n<gnimsysSubmit id="dsTargets">{"subinv":"12002","agent":"PAGED_WF_10","decision":"OK"}</gnimsysSubmit>',
+  );
+  await expect(widget).toHaveAttribute("data-submitted", "ok");
+
+  // Every datasource call went through the conversation's proxy under its target; the pod got the bound sign-in's bearer.
+  const params = (path: string): Record<string, string> => Object.fromEntries(new URL(path, "http://pod.invalid").searchParams.entries());
+  const calls = await proxyCalls(page);
+  for (const c of calls) expect([c.conversation, c.headers["x-gnimsys-pod-proxy"], c.headers.authorization]).toEqual(["u1__dev1", "1", undefined]);
+  const fa = calls.filter((c) => c.path.startsWith("/fscmRestApi/resources/11.13.18.05/subinventories?"));
+  const boss = calls.filter((c) => c.path.startsWith("/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?") && params(c.path).$fields === "workflowCode,name");
+  expect(new Set(fa.map((c) => c.target))).toEqual(new Set(["FA"]));
+  expect(new Set(boss.map((c) => c.target))).toEqual(new Set(["BOSS"]));
+  expect(fa.map((c) => params(c.path))).toContainEqual(expect.objectContaining({ q: "SubinventoryCode IN ('12026')", limit: "1" }));
+  expect(fa.map((c) => params(c.path))).toContainEqual(expect.objectContaining({ q: "Description LIKE 'Ra%'", offset: "0" }));
+  expect(boss.map((c) => params(c.path))).toContainEqual(expect.objectContaining({ $filter: "(workflowCode = 'PAGED_WF_02')", $limit: "1" }));
+  expect(boss.map((c) => params(c.path))).toContainEqual(expect.objectContaining({ $filter: "status = 'PUBLISHED' and name ~LIKE '%Agent 1%'", $offset: "0" }));
+  const pod = (await podCalls(page)).filter((c) => c.url.startsWith("/fscmRestApi/resources/11.13.18.05/subinventories?")
+    || (c.url.startsWith("/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?") && params(c.url).$fields === "workflowCode,name"));
+  expect(pod.length).toBe(fa.length + boss.length);
+  for (const c of pod) expect(c.headers.authorization).toBe("Bearer fake-pod-token");
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "test-results/debug-host-datasources.png" });
+});
+
+test("fa_tokenrelay_is_denied_by_the_proxy_and_other_fa_paths_pass", async ({ page }) => {
+  // The proxy's per-target deny paths (FA: /fscmRestApi/tokenrelay): the path itself or anything under it, any letter case,
+  // is refused 403 path-denied although FA takes any pod path; nothing reaches the pod.
+  const headers = { "X-Gnimsys-Pod-Proxy": "1" };
+  for (const path of ["/fscmRestApi/tokenrelay", "/FSCMRESTAPI/TokenRelay?scopesfq=urn:opc:resource:fusion:x:boss/", "/fscmRestApi/tokenrelay/x"]) {
+    const r = await page.request.get(`${ORIGIN}/api/pod/c/u1__dev1/FA${path}`, { headers });
+    expect([path, r.status(), r.headers()["x-gnimsys-pod-proxy-error"]]).toEqual([path, 403, "path-denied"]);
+  }
+  expect(await podCalls(page)).toEqual([]);
+  const ok = await page.request.get(`${ORIGIN}/api/pod/c/u1__dev1/FA/fscmRestApi/resources/11.13.18.05/subinventories?limit=1`, { headers });
+  expect(ok.status()).toBe(200);
+  expect((await podCalls(page)).map((c) => c.url)).toEqual(["/fscmRestApi/resources/11.13.18.05/subinventories?limit=1"]);
+});
+
 test("not_configured_turn_shows_the_proxy_reason", async ({ page }) => {
   await page.goto(debuggerUrl("u1__noconf", "PUBLISHED"));
   await expect(page.getByTestId("dbg-bound")).toHaveText("Workflow MOCK_WF · PUBLISHED · noconf");

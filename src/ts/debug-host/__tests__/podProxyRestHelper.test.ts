@@ -161,10 +161,10 @@ test("headers_the_proxy_would_drop_are_refused_before_sending", async () => {
 
 describe("prefix refusal mirrors the endpoint layer (nothing is sent)", () => {
   const outside: Array<[string, string]> = [
-    ["FA", "/api/boss/x"], ["FUAI", "/fscmRestApi/resources/x"], ["BOSS", "/api/fusion-ai/x"], ["SAASBATCH", "/api/boss/x"],
+    ["FUAI", "/fscmRestApi/resources/x"], ["BOSS", "/api/fusion-ai/x"], ["SAASBATCH", "/api/boss/x"],
     ["KM", "/api/sales-common/x"], ["SALESCOMMON", "/api/knowledge-management/x"],
     ["BOSS", "/api/boss/"], ["BOSS", "/api/boss/../../fscmRestApi/x"], ["BOSS", "/api/boss/./x"], ["BOSS", "//evil.example.com/api/boss/x"],
-    ["BOSS", "/api/boss\\x"],
+    ["BOSS", "/api/boss\\x"], ["BOSS", "/boss/data/x"], ["FA", "/"], ["FA", "/fscmRestApi/../x"],
   ];
   test.each(outside)("%s %s", async (target, path) => {
     const { helper, sent } = helperWith(() => json({}));
@@ -175,7 +175,9 @@ describe("prefix refusal mirrors the endpoint layer (nothing is sent)", () => {
   test("every_target_accepts_its_own_prefixes", async () => {
     const { helper, sent } = helperWith(() => json({}));
     const ok: Array<[string, string]> = [
-      ["FA", "/fscmRestApi/x"], ["FA", "/hcmRestApi/x"], ["FA", "/crmRestApi/x"], ["FA", "/applcoreApi/v1/x"], ["FA", "/xmlpserver/x"],
+      // FA = any pod path (the bare FA token for everything outside the scoped APIs, as Oracle's Studio CLI routes).
+      ["FA", "/fscmRestApi/resources/x"], ["FA", "/hcmRestApi/x"], ["FA", "/crmRestApi/x"], ["FA", "/applcoreApi/v1/x"], ["FA", "/xmlpserver/x"],
+      ["FA", "/any/pod/path"], ["FA", "/api/boss/x"],
       ["FUAI", "/api/fusion-ai/x"], ["BOSS", "/api/boss/x"], ["SAASBATCH", "/api/saas-batch/x"], ["KM", "/api/knowledge-management/x"],
       ["KM", "/api/ci/x"], ["SALESCOMMON", "/api/sales-common/x?q=1"],
     ];

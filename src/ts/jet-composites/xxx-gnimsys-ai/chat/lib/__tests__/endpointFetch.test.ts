@@ -18,13 +18,30 @@ const refused = async (p: Promise<unknown>): Promise<EndpointError> => {
 test("endpoint_names_and_prefixes_are_spec_4a", () => {
   expect(ENDPOINT_NAMES).toEqual(["FA", "FUAI", "BOSS", "SAASBATCH", "KM", "SALESCOMMON"]);
   expect(ENDPOINT_PREFIXES).toEqual({
-    FA: ["/fscmRestApi/", "/hcmRestApi/", "/crmRestApi/", "/applcoreApi/v1/", "/xmlpserver/"],
+    FA: ["/"],
     FUAI: ["/api/fusion-ai/"],
     BOSS: ["/api/boss/"],
     SAASBATCH: ["/api/saas-batch/"],
     KM: ["/api/knowledge-management/", "/api/ci/"],
     SALESCOMMON: ["/api/sales-common/"],
   });
+});
+
+test("fa_takes_any_pod_path_and_boss_only_api_boss", async () => {
+  // Oracle's Studio CLI routing (user decision 2026-10-29): /api/boss -> the boss token, any other path -> the bare FA token.
+  const fa = ["/fscmRestApi/resources/11.13.18.05/subinventories?q=x", "/hcmRestApi/rest/x", "/crmRestApi/x", "/xmlpserver/x", "/applcoreApi/v1/x", "/any/pod/path"];
+  const boss = ["/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$filter=x"];
+  const { endpoints, calls } = fakeEndpoints([...fa, ...boss].map(() => vb({ ok: 1 })));
+  for (const url of fa) expect((await endpoints.request("FA", url)).status).toBe(200);
+  for (const url of boss) expect((await endpoints.request("BOSS", url)).status).toBe(200);
+  expect(calls.map((c) => [c.target, c.url])).toEqual([...fa.map((u) => ["FA", u]), ...boss.map((u) => ["BOSS", u])]);
+  // Still pod paths only; BOSS keeps the canonical /api/boss/ form (the CLI's short /boss/ is not accepted).
+  const f = fakeEndpoints([]);
+  for (const url of ["/", "", "fscmRestApi/x", "//evil.example.com/x", "https://evil.example.com/x", "/fscmRestApi/../x"]) {
+    expect((await refused(f.endpoints.request("FA", url))).message).toBe(`endpoint FA refuses ${url}: the path is not under /`);
+  }
+  expect((await refused(f.endpoints.request("BOSS", "/boss/data/objects/ora/x"))).message).toBe("endpoint BOSS refuses /boss/data/objects/ora/x: the path is not under /api/boss/");
+  expect(f.calls).toEqual([]);
 });
 
 test("target_prefix_mismatch_is_refused", async () => {

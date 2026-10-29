@@ -260,7 +260,9 @@ A second build flavour of this repo's app shell, for the fusion-ai-agent UI's si
 - With a complete binding the page reads `GET <pod>_info` (`{instance, podUser?}`) and mounts the chat with
   `agent.workflowCode` / `agent.version` from the URL (PUBLISHED with `agent.publishedVia: "debug"`: the published run
   goes through `/debug` with `status: "PUBLISHED"`, so its stream carries node data as a draft's does; VB end-user pages
-  keep `/chat`), `ui.modeSwitch`, files on (`files.enabled`, 50 MB per file — within the proxy's 64 MiB
+  keep `/chat`), `ui.modeSwitch`, agent-written datasources on (`datasources: {"allowInline": true, "allowPrefixes":
+  ["/"]}`: a `gnimsys-ui` block's datasource loads as on a VB page that allows them; the proxy is the gate: its
+  targets' prefixes and deny paths, e.g. FA `/fscmRestApi/tokenrelay`), files on (`files.enabled`, 50 MB per file — within the proxy's 64 MiB
   `maxRequestBytes` — `protocol.hcmRestBase` `/hcmRestApi/rest/latest/en/11.13.18.05:9`, **`person-id="-1"`** (`DEBUG_PERSON_ID`): the
   pod refuses the conversation row without `PersonId` (HTTP 400, o:errorCode 27014), and `"-1"` is what Oracle's own
   chat client sends without a user id — a trial (bridge design §13.2): whether a file under a `"-1"` row reaches the
@@ -504,7 +506,9 @@ API (`$filter` / `$limit` / `$offset`, below), every other target = Fusion REST 
 An inline `dataSource` (one the agent wrote) is loaded only when the config's `datasources.allowInline` is `true` AND
 its `url` starts with one of `datasources.allowPrefixes`; otherwise the field shows "datasource not allowed" and the
 block submits only through its `validate: false` buttons. `target` is the endpoint name; the endpoint's own path
-prefixes apply too. A page whose agent writes BOSS datasources lists a BOSS prefix, e.g.
+prefixes apply too (as Oracle's Studio CLI routes its tokens: `FA` any pod path, `BOSS` `/api/boss/`, `FUAI`
+`/api/fusion-ai/`, `SAASBATCH` `/api/saas-batch/`, `KM` `/api/knowledge-management/` and `/api/ci/`, `SALESCOMMON`
+`/api/sales-common/`). A page whose agent writes BOSS datasources lists a BOSS prefix, e.g.
 `"datasources": { "allowInline": true, "allowPrefixes": ["/api/boss/data/objects/ora/"] }` (or one object family,
 `/api/boss/data/objects/ora/<family>/`); the `BOSS` endpoint is already in every page's endpoint map.
 

@@ -8,9 +8,12 @@
 // ANY /api/pod/c/<conversationId>/<TARGET>/<pod-path> -> the mock pod with the bound sign-in's Bearer, response piped
 // unbuffered; an unknown conversation answers 404 unknown-conversation; proxy states carry X-Gnimsys-Pod-Proxy-Error:
 // <state> and a JSON {state, message, ...} body; only the forwarded request headers reach the pod.
-// TARGETS mirrors the narrowed proxy configuration the deployment uses (each target's prefixes = the component's call
-// sites only); a target not listed answers 404 unknown-target, a path outside its target's prefixes 403 path-not-allowed
-// (as in the engine: the path must start with a prefix and be strictly longer than it).
+// TARGETS mirrors the proxy configuration the deployment uses: per target its `prefixes` (FA any pod path, BOSS
+// /api/boss/ — as Oracle's Studio CLI routes its tokens, user decision 2026-10-29; FUAI the chat's call sites) and its
+// `denyPaths` (FA: /fscmRestApi/tokenrelay). A target not listed answers 404 unknown-target; a path that equals a deny
+// path or sits under it (deny path + "/"), in any letter case, 403 path-denied whatever the prefixes allow; a path outside
+// its target's prefixes 403 path-not-allowed (as in the engine: the path must start with a prefix and be strictly longer
+// than it).
 // Conversations (all of the test user's): u1__dev1 (bound to dev1, pod user test.user), u1__nouser (bound to dev1, pod
 // user unknown), u1__unbound (no pod sign-in: 401 auth-required, _info included), u1__stale (_info answers, but the
 // sign-in is gone by the first call: 401 auth-required), u1__noconf (FUAI not configured: 424 not-configured).
@@ -25,9 +28,13 @@ const WEB = path.resolve("dist", "debug-host"); // what agent-ui's image copies
 const STATIC = "/ai-chat-debug/";
 const POD_TOKEN = "Bearer fake-pod-token";
 const TARGETS = {
-  FUAI: ["/api/fusion-ai/orchestrator/agent/v2/", "/api/fusion-ai/orchestrator/conversations/v1/"],
-  BOSS: ["/api/boss/data/objects/ora/commonFusionAI/agents/v1/"],
-  FA: ["/fscmRestApi/applcoreApi/v1/", "/hcmRestApi/resources/", "/hcmRestApi/rest/"],
+  FUAI: { prefixes: ["/api/fusion-ai/orchestrator/agent/v2/", "/api/fusion-ai/orchestrator/conversations/v1/"], denyPaths: [] },
+  BOSS: { prefixes: ["/api/boss/"], denyPaths: [] },
+  FA: { prefixes: ["/"], denyPaths: ["/fscmRestApi/tokenrelay"] },
+};
+const denied = (denyPaths, podPath) => {
+  const p = podPath.toLowerCase();
+  return denyPaths.some((d) => p === d.toLowerCase() || p.startsWith(d.toLowerCase() + "/"));
 };
 const FORWARDED = ["content-type", "accept", "accept-language", "if-match", "rest-framework-version", "effective-of"];
 const CONVERSATIONS = {
@@ -76,9 +83,10 @@ function proxy(req, res, url) {
     if (bound === null) return proxyState(res, 401, "auth-required");
     return json(res, 200, { instance: bound.instance, ...(bound.podUser !== undefined && { podUser: bound.podUser }) });
   }
-  const prefixes = TARGETS[target];
-  if (!prefixes) return proxyState(res, 404, "unknown-target");
-  if (!prefixes.some((p) => podPath.startsWith(p) && podPath.length > p.length)) return proxyState(res, 403, "path-not-allowed", { target, path: podPath });
+  const tcfg = Object.hasOwn(TARGETS, target) ? TARGETS[target] : undefined;
+  if (!tcfg) return proxyState(res, 404, "unknown-target");
+  if (denied(tcfg.denyPaths, podPath)) return proxyState(res, 403, "path-denied", { target, path: podPath });
+  if (!tcfg.prefixes.some((p) => podPath.startsWith(p) && podPath.length > p.length)) return proxyState(res, 403, "path-not-allowed", { target, path: podPath });
   if (bound === null || bound.stale) return proxyState(res, 401, "auth-required");
   if (bound.missing && target === "FUAI") return proxyState(res, 424, "not-configured", { instance: bound.instance, target, missing: bound.missing });
 

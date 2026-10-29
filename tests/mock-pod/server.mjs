@@ -21,6 +21,9 @@
 //   (a gnimsys-ui form: 24-option select + hidden + Approve/Back), "pick from datasource" (a select searched and paged
 //   through GET /fscmRestApi/resources/11.13.18.05/subinventories, 300 rows), "choose next step" (radio + checkbox +
 //   hidden + confirm button, then an invalid block); anything else -> chat-hello.sse.
+//   /debug (any other workflow than the golden ones) by message: "approve me" (as /chat), "pick from fa and boss" (a
+//   gnimsys-ui form: an FA select over /subinventories preset to 12026 + a BOSS select over the workflows object preset to
+//   PAGED_WF_02, both searchable); anything else -> chat-hello.sse.
 //   GET /fscmRestApi/anticsrf           -> { "xsrftoken": "test-xsrf" } (open; the relay requires it as x-xsrf-token)
 //   GET /fscmRestApi/tokenrelay?$mock=expired -> the next relay answers login HTML once (this call is logged)
 import http from "node:http";
@@ -410,7 +413,8 @@ const routes = [
       }
       const wf = decodeURIComponent(url.pathname.split("/")[6]);
       if (DEBUG_WORKFLOWS.has(wf)) return streamDebugTurn(res, b);
-      return streamSse(res, b.resumeInput ? "chat-resumed.sse" : b.message === "approve me" ? "chat-wait.sse" : "chat-hello.sse");
+      return streamSse(res, b.resumeInput ? "chat-resumed.sse" : b.message === "approve me" ? "chat-wait.sse"
+        : b.message === "pick from fa and boss" ? "chat-widget-targets.sse" : "chat-hello.sse");
     },
   },
   {

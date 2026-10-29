@@ -4,9 +4,13 @@ import type { DashboardRestHelper, Endpoint, VbFetchResult } from "xxx-gnimsys-d
 export type EndpointName = "FA" | "FUAI" | "BOSS" | "SAASBATCH" | "KM" | "SALESCOMMON";
 export const ENDPOINT_NAMES: readonly EndpointName[] = ["FA", "FUAI", "BOSS", "SAASBATCH", "KM", "SALESCOMMON"];
 
-/** The pod paths each endpoint may be called with (spec §4a; FA also serves BIP, `/xmlpserver/`). */
+/**
+ * The pod paths each endpoint may be called with (spec §6), as Oracle's Studio CLI routes its tokens: FA = any pod path
+ * (the bare FA token), BOSS = `/api/boss/` (the boss token), the other scoped APIs their own roots. The endpoint (VB
+ * service connection, or the debugger's pod proxy) resolves the path against the pod root.
+ */
 export const ENDPOINT_PREFIXES: Record<EndpointName, string[]> = {
-  FA: ["/fscmRestApi/", "/hcmRestApi/", "/crmRestApi/", "/applcoreApi/v1/", "/xmlpserver/"],
+  FA: ["/"],
   FUAI: ["/api/fusion-ai/"],
   BOSS: ["/api/boss/"],
   SAASBATCH: ["/api/saas-batch/"],

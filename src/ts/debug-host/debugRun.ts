@@ -9,10 +9,7 @@ import type { PodInfo } from "./podProxyRestHelper";
 
 /** The AI Studio protocol version this debugger build is tested with (the vendored aistudio CLI pins the same value). */
 export const CHECK_VERSION = "2607100";
-/**
- * The attachments' HCM REST base: the form Oracle's own chat client falls back to (and VB pages use), under the proxy's FA
- * prefix `/hcmRestApi/rest/`.
- */
+/** The attachments' HCM REST base: the form Oracle's own chat client falls back to (and VB pages use), an FA pod path. */
 export const HCM_REST_BASE = "/hcmRestApi/rest/latest/en/11.13.18.05:9";
 /**
  * The debugger's per-file limit (MB): Oracle's own (50), within the pod proxy's request bound (64 MiB, setup
@@ -84,6 +81,8 @@ export function bindingFromUrl(search: string): UrlBindingResult {
  * builders get the node data for it as for a draft; the key is only set for PUBLISHED (a DRAFT run refuses it).
  * `gnimsysUi` 1 sets `agent.additionalContext` `{ gnimsysUi: 1 }` (sent with every run-start message as
  * `parameters.additional_context`); 0 sets no additional context.
+ * Agent-written (inline) block datasources load under any pod path, as on a VB page that allows them: the conversation's
+ * pod proxy is the gate (its targets' prefixes and deny paths).
  */
 export function runConfig(binding: Pick<UrlBinding, "workflowCode" | "version" | "gnimsysUi">): Record<string, unknown> {
   return {
@@ -98,6 +97,7 @@ export function runConfig(binding: Pick<UrlBinding, "workflowCode" | "version" |
     protocol: { checkVersion: CHECK_VERSION, hcmRestBase: HCM_REST_BASE },
     ui: { modeSwitch: true },
     files: { enabled: true, maxSizeMB: MAX_FILE_MB },
+    datasources: { allowInline: true, allowPrefixes: ["/"] },
   };
 }
 

@@ -2,6 +2,7 @@
 import { bindingFromUrl, CHECK_VERSION, HCM_REST_BASE, MAX_FILE_MB, runConfig, runUser, startRun } from "../debugRun";
 import { POD_PROXY_ENDPOINTS, POD_PROXY_ERROR_HEADER } from "../podProxyRestHelper";
 import { validateConfig } from "../../jet-composites/xxx-gnimsys-ai/chat/lib/config/validate";
+import { inlineRefusal } from "../../jet-composites/xxx-gnimsys-ai/chat/lib/widgets/datasource";
 
 const O = "https://agents.example.com";
 const POD = "/api/pod/c/jane.doe__0b9d5c1e-7f43-4a51-9a63-2b0c4e1d8f20/";
@@ -132,12 +133,24 @@ test("the_config_turns_the_mode_switch_and_files_on_and_validates", () => {
     protocol: { checkVersion: CHECK_VERSION, hcmRestBase: HCM_REST_BASE },
     ui: { modeSwitch: true },
     files: { enabled: true, maxSizeMB: MAX_FILE_MB },
+    // Agent-written block datasources load as on a VB page; the pod proxy is the gate.
+    datasources: { allowInline: true, allowPrefixes: ["/"] },
   });
   const r = validateConfig(config);
   expect(r.ok && [r.config.agent.version, r.config.agent.publishedVia, r.config.ui.modeSwitch, r.config.files.enabled, r.config.files.maxSizeMB, r.config.ui.trace])
     .toEqual(["PUBLISHED", "debug", true, true, 50, undefined]);
+  // pageSize is the schema's own (not set by the host).
+  expect(r.ok && r.config.datasources).toEqual({ allowInline: true, allowPrefixes: ["/"], pageSize: 25 });
   // 50 MB per file stays under the pod proxy's 64 MiB request bound, multipart overhead included.
   expect(MAX_FILE_MB * 1024 * 1024).toBeLessThan(64 * 1024 * 1024 - 1024 * 1024);
+});
+
+test("agent_written_fa_and_boss_datasources_are_allowed_in_the_debugger", () => {
+  const r = validateConfig(runConfig({ workflowCode: "WF_1", version: "DRAFT", gnimsysUi: 1 }));
+  if (!r.ok) throw new Error("config must validate");
+  const ds = (target: "FA" | "BOSS", url: string) => ({ type: "rest" as const, target, method: "GET" as const, url });
+  expect(inlineRefusal(ds("FA", "/fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'"), r.config.datasources)).toBeNull();
+  expect(inlineRefusal(ds("BOSS", "/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$filter=name ~LIKE '%{{query}}%'"), r.config.datasources)).toBeNull();
 });
 
 test("a_draft_run_config_carries_no_published_via_and_validates", () => {
