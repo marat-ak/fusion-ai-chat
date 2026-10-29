@@ -6,7 +6,8 @@ import type { Problem } from "../config/types";
  * A select field's datasource (gnimsys-ui v1 rev 2 §2.3): the dashboard's REST datasource shape, carried inline by the
  * agent or by the config overlay `widgets[widgetId].fields[fieldId]`, served by the data pack's endpoint data provider
  * (xxx-gnimsys-data/rest/endpoint-data-provider: a JET RESTDataProvider that pages and searches on the server through
- * the page's endpoints). This module validates the shape and decides what may be loaded; the loading is the provider's.
+ * the page's endpoints, in the target's query language: BOSS = `$filter` / `$limit` / `$offset`, the others Fusion REST
+ * `q` / `limit` / `offset`). This module validates the shape and decides what may be loaded; the loading is the provider's.
  */
 export interface DataTransform { type: "lodash" | "map"; expression: string }
 export interface DataSourceDef {

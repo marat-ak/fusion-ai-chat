@@ -2,10 +2,15 @@
 import type { DataProvider } from "ojs/ojdataprovider";
 import type { Endpoint, EndpointRequestOptions } from "./index";
 
+/** The url's query language: `fa` = Fusion REST resources (`q`, `limit`, `offset`); `boss` = Business Objects (`$filter`, `$limit`, `$offset`). */
+export type EndpointDataProviderDialect = "fa" | "boss";
+
 export interface EndpointDataProviderOptions {
   /** The caller's Endpoint factory for a url of the datasource (target, headers and path checks are the caller's). */
   createEndpoint: (url: string) => Pick<Endpoint, "fetch">;
-  /** The datasource url, with `{{query}}` inside its `q` parameter for a server search. */
+  /** Required: how the url filters and pages (see the module comment). */
+  dialect: EndpointDataProviderDialect;
+  /** The datasource url, with `{{query}}` inside its filter parameter (`q` / `$filter`) for a server search. */
   url: string;
   /** Row field that is the key (the option value). */
   valueField: string;
@@ -19,12 +24,12 @@ export interface EndpointDataProviderOptions {
   dataTransform?: { type: string; expression: string };
 }
 
-export interface UrlForms { page: string; keys: string; qTemplate: string | null }
+export interface UrlForms { page: string; keys: string; filterTemplate: string | null }
 
 export function createEndpointDataProvider<K extends string | number = string | number, D = Record<string, unknown>>(
   options: EndpointDataProviderOptions,
 ): DataProvider<K, D>;
-export function urlForms(url: string): UrlForms;
+export function urlForms(url: string, dialect: EndpointDataProviderDialect): UrlForms;
 export function rowsOf(body: unknown, dataTransform?: { type: string; expression: string }): unknown[];
 export function pageOf(result: { body: unknown }, dataTransform: { type: string; expression: string } | undefined, limit: number): { data: unknown[]; hasMore: boolean; totalSize?: number };
 export function quoteForQ(text: unknown): string;

@@ -468,7 +468,8 @@ read-only when a later user turn of the conversation carries an envelope with th
 A datasource select runs on the data pack's **endpoint data provider**
 (`src/ts/jet-composites/xxx-gnimsys-data/rest/endpoint-data-provider.js`, a JET `RESTDataProvider` whose fetches go
 through the ported `Endpoint` layer, i.e. the page's `rest-helper` / `endpoint` map). The server filters and pages;
-thousands of rows are fine:
+thousands of rows are fine. The query language follows the datasource's `target`: **`BOSS`** = the Business Objects
+API (`$filter` / `$limit` / `$offset`, below), every other target = Fusion REST resources (`q` / `limit` / `offset`):
 
 - **fetchFirst / fetchByOffset**: the dropdown's text replaces `{{query}}` in the url's `q` parameter (a single quote
   doubles, Fusion `q` style), and the Endpoint appends `q`, `limit` (= config `datasources.pageSize`, default 25) and
@@ -481,16 +482,31 @@ thousands of rows are fine:
   WHOLE `q` parameter removed, plus `q=<valueField> IN ('k1','k2')` and `limit` = the number of keys:
   `/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description&q=SubinventoryCode+IN+%28%2712002%27%29&limit=1`.
   A `{{query}}` anywhere else in the url is substituted in place for pages and blanked for keys.
-- **Response**: rows = the body when it is an array, else `body.items`, else the array at
-  `dataTransform: { "type": "map", "expression": "<dotted.path>" }`; `hasMore` = `body.hasMore` when present, else "a
-  full page came back"; `totalResults` is passed through. `GET` only; `dataTransform.type: "lodash"` is accepted by the
-  schema (the dashboard shape) but never evaluated by the chat (it is code): such a field, like a `POST` datasource,
-  shows as unavailable.
+- **BOSS** (`"target": "BOSS"`, a `/api/boss/data/objects/ora/<family>/<product>/v1/$en/<object>` url): the same with
+  `$filter` in place of `q`. The dropdown's text replaces `{{query}}` in the url's `$filter` parameter (a single quote
+  doubles: a BOSS string literal), and the provider writes `$filter` (URL-encoded), `$limit` (= `datasources.pageSize`)
+  and `$offset` on the url; `$fields` and any other parameter stay as written (list the `valueField` and `labelField`
+  in `$fields`). For
+  `/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$filter=status = 'PUBLISHED' and name ~LIKE '%{{query}}%'&$fields=workflowCode,name`
+  and the text `Inv`:
+  `…/workflows?$fields=workflowCode,name&$filter=status%20%3D%20'PUBLISHED'%20and%20name%20~LIKE%20'%25Inv%25'&$limit=25&$offset=0`.
+  fetchByKeys: the url with its WHOLE `$filter` removed, plus `$filter=(<valueField> = 'k1' or <valueField> = 'k2')`
+  (a number key unquoted) and `$limit` = the number of keys:
+  `…/workflows?$fields=workflowCode,name&$filter=(workflowCode%20%3D%20'INV_WF')&$limit=1` — so the `valueField` must
+  identify a row without the url's own filter. A `$filter` without `{{query}}` stays on the page url (no server search);
+  the row count (`totalResults`) is never asked for.
+- **Response**: rows = the body when it is an array, else `body.items` (Fusion REST and BOSS collections alike), else
+  the array at `dataTransform: { "type": "map", "expression": "<dotted.path>" }`; `hasMore` = `body.hasMore` when
+  present, else "a full page came back"; `totalResults` is passed through. `GET` only; `dataTransform.type: "lodash"` is
+  accepted by the schema (the dashboard shape) but never evaluated by the chat (it is code): such a field, like a `POST`
+  datasource, shows as unavailable.
 
 An inline `dataSource` (one the agent wrote) is loaded only when the config's `datasources.allowInline` is `true` AND
 its `url` starts with one of `datasources.allowPrefixes`; otherwise the field shows "datasource not allowed" and the
 block submits only through its `validate: false` buttons. `target` is the endpoint name; the endpoint's own path
-prefixes apply too.
+prefixes apply too. A page whose agent writes BOSS datasources lists a BOSS prefix, e.g.
+`"datasources": { "allowInline": true, "allowPrefixes": ["/api/boss/data/objects/ora/"] }` (or one object family,
+`/api/boss/data/objects/ora/<family>/`); the `BOSS` endpoint is already in every page's endpoint map.
 
 The config overlay `widgets[widgetId].fields[fieldId]` gives a select field a datasource (+ `searchTemplate`) that wins
 over the block's own options or datasource (a customer-owned source is not subject to `allowInline`):

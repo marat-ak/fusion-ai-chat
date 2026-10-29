@@ -284,3 +284,109 @@ test("history_rerender_shows_a_submitted_block_read_only", async ({ page }) => {
   await expect(page.getByTestId("gai-widget")).not.toHaveAttribute("data-submitted");
   await expect(page.getByTestId("gai-widget-button-submit").locator("button")).toBeEnabled();
 });
+
+// ---- BOSS datasource (Business Objects API: $filter / $limit / $offset) -----------------------------------------------
+
+/** A mock BOSS object (no such object on a pod): the page's route serves it, the mock pod has none. */
+const BOSS_OBJECT = "/api/boss/data/objects/ora/mockFamily/mockProduct/v1/$en/subinventories";
+const BOSS_BLOCK = "```gnimsys-ui\n" + JSON.stringify({
+  v: 1, kind: "form", id: "bossSubinv", title: "Pick a subinventory",
+  fields: [{
+    id: "subinv", type: "select", label: "Subinventory", required: true,
+    dataSource: { type: "rest", target: "BOSS", method: "GET", url: `${BOSS_OBJECT}?$filter=description ~LIKE '{{query}}%'&$fields=subinventoryCode,description` },
+    valueField: "subinventoryCode", labelField: "description", searchTemplate: { minChars: 2 },
+  }],
+  buttons: [{ id: "ok", label: "OK", data: { decision: "OK" } }],
+}) + "\n```";
+const BOSS_CONFIG = { ...DS_CONFIG, datasources: { allowInline: true, allowPrefixes: ["/api/boss/data/objects/ora/"], pageSize: 10 } };
+
+/**
+ * Serves BOSS_OBJECT as a BOSS collection: 300 rows; `$filter` as the endpoint data provider writes it for BOSS
+ * (`description ~LIKE '<prefix>%'`, case-insensitive, or `(subinventoryCode = 'k1' or …)`), `$limit` / `$offset`, answer
+ * `{items, hasMore, count, limit, offset}`; anything else in `$filter` answers 400. Returns the requests' decoded query
+ * parameters.
+ */
+async function serveBossSubinventories(page: Page): Promise<Array<Record<string, string>>> {
+  const seen: Array<Record<string, string>> = [];
+  const names = ["Main Store", "Raw Materials", "Finished Goods"];
+  const rows = Array.from({ length: 300 }, (_, i) => ({ subinventoryCode: String(12001 + i), description: `${names[i % names.length]} ${i + 1}` }));
+  await page.route("**/api/boss/data/objects/ora/mockFamily/**", async (route) => {
+    const q = Object.fromEntries(new URL(route.request().url()).searchParams.entries());
+    seen.push(q);
+    let hits = rows;
+    if (q.$filter !== undefined) {
+      const like = /^description ~LIKE '(.*)%'$/.exec(q.$filter);
+      const anyOf = /^\((.*)\)$/.exec(q.$filter);
+      if (like) {
+        const prefix = like[1].replace(/''/g, "'").toLowerCase();
+        hits = rows.filter((r) => r.description.toLowerCase().startsWith(prefix));
+      } else if (anyOf) {
+        const keys = anyOf[1].split(" or ").map((c) => /^subinventoryCode = '(.*)'$/.exec(c)?.[1]?.replace(/''/g, "'"));
+        if (keys.some((k) => k === undefined)) return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: `bad $filter: ${q.$filter}` }) });
+        hits = rows.filter((r) => keys.includes(r.subinventoryCode));
+      } else {
+        return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: `bad $filter: ${q.$filter}` }) });
+      }
+    }
+    const offset = Number(q.$offset ?? 0);
+    const limit = q.$limit !== undefined ? Number(q.$limit) : hits.length;
+    const items = hits.slice(offset, offset + limit);
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({ items, hasMore: offset + items.length < hits.length, count: items.length, limit, offset }),
+    });
+  });
+  return seen;
+}
+
+test("boss_datasource_searches_with_filter_and_pages_with_limit_and_offset", async ({ page }) => {
+  // A live block (reopened from history with no submit after it) whose select reads a BOSS object: the typed text goes
+  // into $filter, the page size into $limit, the position into $offset; no Fusion REST parameter is sent.
+  const boss = await serveBossSubinventories(page);
+  await page.route("**/api/fusion-ai/orchestrator/conversations/v1/*/messages", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{ type: "AI", text: BOSS_BLOCK }] }) }));
+  await page.addInitScript((cfg) => {
+    (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = cfg;
+    (window as unknown as { __CHAT_CONVERSATION_ID__: string }).__CHAT_CONVERSATION_ID__ = "boss-live";
+  }, BOSS_CONFIG);
+  await page.goto("/");
+  const field = page.getByTestId("gai-widget-field-subinv");
+  await expect(page.getByTestId("gai-widget")).toBeVisible();
+  await expect(field).not.toContainText("datasource not allowed");
+
+  const input = field.locator("input");
+  await input.click();
+  await expect(page.getByRole("option").first()).toHaveText("Main Store 1");
+  expect(boss[0]).toEqual({ $filter: "description ~LIKE '%'", $fields: "subinventoryCode,description", $limit: "10", $offset: "0" });
+
+  await input.fill("Ra");
+  await expect(page.getByRole("option").first()).toHaveText("Raw Materials 2");
+  expect(boss.some((q) => q.$filter === "description ~LIKE 'Ra%'" && q.$limit === "10" && q.$offset === "0")).toBe(true);
+  for (const q of boss) expect([q.q, q.limit, q.offset, q.totalResults]).toEqual([undefined, undefined, undefined, undefined]);
+  await page.getByRole("option", { name: "Raw Materials 2", exact: true }).click();
+
+  await page.getByTestId("gai-widget-button-ok").locator("button").click();
+  await expect.poll(async () => (await chatMessages(page)).at(-1)).toBe('OK — Pick a subinventory\n<gnimsysSubmit id="bossSubinv">{"subinv":"12002","decision":"OK"}</gnimsysSubmit>');
+  await expect(page.getByTestId("gai-widget")).toHaveAttribute("data-submitted", "ok");
+  await expect(field).toContainText("Raw Materials 2");
+});
+
+test("boss_datasource_select_rerendered_from_history_fetches_the_label_by_key", async ({ page }) => {
+  // Read-only from history: the label comes from fetchByKeys, an or-chain $filter on the url without its own $filter.
+  const boss = await serveBossSubinventories(page);
+  await page.route("**/api/fusion-ai/orchestrator/conversations/v1/*/messages", (route) => {
+    const items = [{ type: "USER", text: 'OK — Pick a subinventory\n<gnimsysSubmit id="bossSubinv">{"subinv":"12002","decision":"OK"}</gnimsysSubmit>' }, { type: "AI", text: BOSS_BLOCK }];
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items }) });
+  });
+  await page.addInitScript((cfg) => {
+    (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = cfg;
+    (window as unknown as { __CHAT_CONVERSATION_ID__: string }).__CHAT_CONVERSATION_ID__ = "boss-history";
+  }, BOSS_CONFIG);
+  await page.goto("/");
+  const widget = page.getByTestId("gai-widget");
+  await expect(widget).toHaveAttribute("data-submitted", "ok");
+  await expect(widget.getByTestId("gai-widget-field-subinv")).toContainText("Raw Materials 2");
+  const byKeys = boss.filter((q) => q.$filter?.startsWith("("));
+  expect(byKeys.length).toBeGreaterThanOrEqual(1);
+  expect(byKeys[0]).toEqual({ $fields: "subinventoryCode,description", $filter: "(subinventoryCode = '12002')", $limit: "1" });
+});

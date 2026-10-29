@@ -1,28 +1,34 @@
 /**
  * Endpoint data provider: a JET RESTDataProvider served by the pack's Endpoint layer (dashboard-rest-helper), for
- * selects whose options come from a Fusion REST datasource (gnimsys-ui block v1 rev 2 §2.3; agent-app contract §6
- * "JET DataProvider adapter"). Declarative: the datasource shape says what to call, the provider pages and filters
- * on the server.
+ * selects whose options come from a Fusion REST or a Business Objects (BOSS) datasource (gnimsys-ui block v1 rev 2
+ * §2.3; agent-app contract §6 "JET DataProvider adapter"). Declarative: the datasource shape says what to call, the
+ * provider pages and filters on the server.
  *
  *   createEndpointDataProvider({
  *     createEndpoint: (url) => endpoint,   // the caller's Endpoint factory (target, headers, path checks are its own)
+ *     dialect: "fa",                       // the url's query language: "fa" (Fusion REST) or "boss" (Business Objects)
  *     url: "/fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'&fields=SubinventoryCode,Description",
  *     valueField: "SubinventoryCode", labelField: "Description",
  *     pageSize: 25, searchTemplate: { minChars: 1, debounceMs: 250 }, dataTransform: { type: "map", expression: "items" }
  *   })
  *
- * fetchFirst / fetchByOffset: the dropdown's text goes into the url's `{{query}}` placeholder — quoted for a Fusion `q`
- * clause (a single quote doubles) — and the Endpoint appends `q`, `limit` (the configured page size; a component asking
- * for more iterates the pages), `offset` and `totalResults` as query parameters (URLSearchParams-encoded). Typed text shorter than
- * `minChars` answers an empty page without a request; a request waits `debounceMs` and is dropped (empty page) when
- * newer text arrives meanwhile. A url without `{{query}}` is paged the same way with no server search.
- * fetchByKeys: `q=<valueField> IN ('k1','k2')` (quotes doubled in the keys) on the same url with its WHOLE `q`
- * parameter removed and `limit` = the number of keys. The placeholder lives in the url's `q` parameter: that parameter
- * is taken off the url and passed as the `q` option (so the Endpoint encodes it); a `{{query}}` anywhere else in the
- * url is substituted in place (URL-encoded).
- * Response: the rows are the body when it is an array, else `body.items`, else the array at `dataTransform.expression`
- * (type `map`, a dotted path); `hasMore` = `body.hasMore` when it is a boolean, else "a full page came back";
- * `totalSize` = `body.totalResults` when it is a number. The `lodash` transform type is never evaluated here.
+ * The dialect names the url's filter parameter and how a page is asked for:
+ * - `fa` (Fusion REST resources): filter `q`; the Endpoint appends `q`, `limit`, `offset` and `totalResults` as query
+ *   parameters (URLSearchParams-encoded); fetchByKeys = `q=<valueField> IN ('k1','k2')`.
+ * - `boss` (Business Objects API, `/api/boss/data/objects/…`): filter `$filter`; the Endpoint knows only the Fusion
+ *   REST names, so the provider writes `$filter` (encodeURIComponent), `$limit` and `$offset` on the url itself (no row
+ *   count is asked for); fetchByKeys = `$filter=(<valueField> = 'k1' or <valueField> = 'k2')` (a number key unquoted).
+ * fetchFirst / fetchByOffset: the dropdown's text goes into the url's `{{query}}` placeholder — quoted for a string
+ * literal of either filter (a single quote doubles) — with `limit` = the configured page size (a component asking for
+ * more iterates the pages) and `offset`. Typed text shorter than `minChars` answers an empty page without a request; a
+ * request waits `debounceMs` and is dropped (empty page) when newer text arrives meanwhile. A url without `{{query}}`
+ * is paged the same way with no server search (a filter parameter without the placeholder stays on the url).
+ * fetchByKeys: the keys clause on the same url with its WHOLE filter parameter removed and `limit` = the number of keys.
+ * The placeholder lives in the url's filter parameter: that parameter is taken off the url and sent filled as above; a
+ * `{{query}}` anywhere else in the url is substituted in place (URL-encoded) for pages and blanked for keys.
+ * Response (both dialects): the rows are the body when it is an array, else `body.items`, else the array at
+ * `dataTransform.expression` (type `map`, a dotted path); `hasMore` = `body.hasMore` when it is a boolean, else "a full
+ * page came back"; `totalSize` = `body.totalResults` when it is a number. The `lodash` transform type is never evaluated.
  */
 define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
     'use strict';
@@ -31,10 +37,22 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
 
     const QUERY = '{{query}}';
     const DEFAULTS = { pageSize: 25, minChars: 1, debounceMs: 250 };
+    /** The filter parameter of each dialect (see the module comment). */
+    const FILTER_PARAM = { fa: 'q', boss: '$filter' };
 
-    /** A single quote doubles inside a Fusion `q` string literal. */
+    /** A single quote doubles inside a Fusion `q` or a BOSS `$filter` string literal. */
     function quoteForQ(text) {
         return String(text).replace(/'/g, "''");
+    }
+
+    /** A key as a BOSS `$filter` literal: a number as is, anything else a quoted string. */
+    function bossLiteral(key) {
+        return typeof key === 'number' ? String(key) : "'" + quoteForQ(key) + "'";
+    }
+
+    /** The url with raw `key=value` pairs appended. */
+    function withParams(url, pairs) {
+        return url + (url.includes('?') ? '&' : '?') + pairs.join('&');
     }
 
     /** The url split into its path and its query parameters (raw `key=value` pairs, as written). */
@@ -58,21 +76,28 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
         }
     }
 
-    const isQ = (pair) => pair === 'q' || pair.startsWith('q=');
+    /** The dialect's filter parameter name; throws for anything but `fa` / `boss`. */
+    function filterParam(dialect) {
+        if (!Object.prototype.hasOwnProperty.call(FILTER_PARAM, dialect)) throw new Error('createEndpointDataProvider needs dialect "fa" or "boss"');
+        return FILTER_PARAM[dialect];
+    }
 
     /**
-     * The three url forms of a datasource url: `page` = the url without its placeholder-carrying `q` (kept as the
-     * `qTemplate` option), `keys` = the url without any `q` at all, plus the `q` template (null without a placeholder).
+     * The three url forms of a datasource url in its dialect: `page` = the url without its placeholder-carrying filter
+     * parameter (`q` / `$filter`), `keys` = the url without any filter parameter at all, plus the filter template (null
+     * without a placeholder).
      */
-    function urlForms(url) {
+    function urlForms(url, dialect) {
+        const name = filterParam(dialect);
+        const isFilter = (pair) => pair === name || pair.startsWith(name + '=');
         const { path, params } = splitUrl(url);
-        const qPair = params.find((p) => isQ(p) && p.includes(QUERY));
-        const qTemplate = qPair === undefined ? null : paramValue(qPair);
+        const filterPair = params.find((p) => isFilter(p) && p.includes(QUERY));
+        const filterTemplate = filterPair === undefined ? null : paramValue(filterPair);
         return {
-            page: joinUrl(path, params.filter((p) => p !== qPair)),
-            keys: joinUrl(path, params.filter((p) => !isQ(p))).split(QUERY).join(''),
-            qTemplate,
-            // a url whose `q` has no placeholder keeps that `q` on the page url (no server search)
+            page: joinUrl(path, params.filter((p) => p !== filterPair)),
+            keys: joinUrl(path, params.filter((p) => !isFilter(p))).split(QUERY).join(''),
+            filterTemplate,
+            // a url whose filter has no placeholder keeps that filter on the page url (no server search)
         };
     }
 
@@ -117,8 +142,9 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
     }
 
     function createEndpointDataProvider(options) {
-        const { createEndpoint, url, valueField, labelField, dataTransform } = options;
+        const { createEndpoint, dialect, url, valueField, labelField, dataTransform } = options;
         if (typeof createEndpoint !== 'function') throw new Error('createEndpointDataProvider needs createEndpoint(url)');
+        filterParam(dialect);
         if (typeof url !== 'string' || url === '') throw new Error('createEndpointDataProvider needs a url');
         if (typeof valueField !== 'string' || valueField === '') throw new Error('createEndpointDataProvider needs valueField');
         if (typeof labelField !== 'string' || labelField === '') throw new Error('createEndpointDataProvider needs labelField');
@@ -126,7 +152,7 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
         const search = options.searchTemplate || {};
         const minChars = Number.isInteger(search.minChars) && search.minChars >= 0 ? search.minChars : DEFAULTS.minChars;
         const debounceMs = Number.isInteger(search.debounceMs) && search.debounceMs >= 0 ? search.debounceMs : DEFAULTS.debounceMs;
-        const forms = urlForms(url);
+        const forms = urlForms(url, dialect);
         let seq = 0; // the newest text fetch; older ones still waiting out the debounce are dropped
 
         async function fetchPage({ fetchParameters }) {
@@ -142,12 +168,18 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
                 if (mine !== seq) return { data: [], hasMore: false };
             }
             const quoted = quoteForQ(text);
+            const filter = forms.filterTemplate === null ? null : forms.filterTemplate.split(QUERY).join(quoted);
+            const pageUrl = forms.page.split(QUERY).join(encodeURIComponent(quoted));
+            if (dialect === 'boss') {
+                const pairs = filter === null ? [] : ['$filter=' + encodeURIComponent(filter)];
+                const result = await createEndpoint(withParams(pageUrl, [...pairs, '$limit=' + size, '$offset=' + offset])).fetch();
+                return pageOf(result, dataTransform, size);
+            }
             const query = {};
-            if (forms.qTemplate !== null) query.q = forms.qTemplate.split(QUERY).join(quoted);
+            if (filter !== null) query.q = filter;
             query.limit = size;
             query.offset = offset;
             if (fetchParameters.includeFilteredRowCount === 'enabled') query.totalResults = true;
-            const pageUrl = forms.page.split(QUERY).join(encodeURIComponent(quoted));
             const result = await createEndpoint(pageUrl).fetch(query);
             return pageOf(result, dataTransform, size);
         }
@@ -155,6 +187,11 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
         async function fetchByKeys({ fetchParameters }) {
             const keys = Array.from(fetchParameters.keys || []);
             if (keys.length === 0) return { data: [], hasMore: false };
+            if (dialect === 'boss') {
+                const anyOf = '(' + keys.map((k) => valueField + ' = ' + bossLiteral(k)).join(' or ') + ')';
+                const result = await createEndpoint(withParams(forms.keys, ['$filter=' + encodeURIComponent(anyOf), '$limit=' + keys.length])).fetch();
+                return pageOf(result, dataTransform, keys.length);
+            }
             const clause = valueField + ' IN (' + keys.map((k) => "'" + quoteForQ(k) + "'").join(',') + ')';
             const result = await createEndpoint(forms.keys).fetch({ q: clause, limit: keys.length });
             return pageOf(result, dataTransform, keys.length);

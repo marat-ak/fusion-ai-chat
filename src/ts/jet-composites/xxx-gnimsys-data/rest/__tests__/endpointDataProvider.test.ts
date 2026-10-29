@@ -21,7 +21,7 @@ stubAmd("ojs/ojrestdataprovider", { RESTDataProvider: FakeRestDataProvider });
 
 type Mod = {
   createEndpointDataProvider(o: Record<string, unknown>): FakeRestDataProvider;
-  urlForms(url: string): { page: string; keys: string; qTemplate: string | null };
+  urlForms(url: string, dialect: string): { page: string; keys: string; filterTemplate: string | null };
   rowsOf(body: unknown, t?: { type: string; expression: string }): unknown[];
   pageOf(result: { body: unknown }, t: { type: string; expression: string } | undefined, limit: number): Page;
   quoteForQ(t: unknown): string;
@@ -60,27 +60,51 @@ function provider(bodies: unknown[], extra: Record<string, unknown> = {}, url = 
   const rest = new DashboardRestHelper(vb.helper, { FA: "faConn" });
   const dp = mod.createEndpointDataProvider({
     createEndpoint: (u: string) => rest.createEndpoint({ target: "FA", url: u }),
-    url, valueField: "SubinventoryCode", labelField: "Description", searchTemplate: { debounceMs: 0 }, ...extra,
+    dialect: "fa", url, valueField: "SubinventoryCode", labelField: "Description", searchTemplate: { debounceMs: 0 }, ...extra,
   });
   return { hooks: dp.options.restHelper, options: dp.options, urls: vb.urls };
+}
+
+/** A BOSS datasource over the pack's real Endpoint (target BOSS), as WidgetHost builds it for `"target": "BOSS"`. */
+const BOSS_WORKFLOWS = "/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows";
+const BOSS_URL = `${BOSS_WORKFLOWS}?$filter=status = 'PUBLISHED' and name ~LIKE '%{{query}}%'&$fields=workflowCode,name`;
+function bossProvider(bodies: unknown[], extra: Record<string, unknown> = {}, url = BOSS_URL) {
+  const vb = fakeVb(bodies);
+  const rest = new DashboardRestHelper(vb.helper, { BOSS: "bossConn" });
+  const dp = mod.createEndpointDataProvider({
+    createEndpoint: (u: string) => rest.createEndpoint({ target: "BOSS", url: u }),
+    dialect: "boss", url, valueField: "workflowCode", labelField: "name", searchTemplate: { debounceMs: 0 }, ...extra,
+  });
+  return { hooks: dp.options.restHelper, urls: vb.urls };
 }
 
 const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ SubinventoryCode: String(12001 + i), Description: `Raw Materials ${i + 1}` }));
 
 describe("urlForms", () => {
   test("the_q_parameter_carrying_the_placeholder_leaves_the_page_url_and_fetchByKeys_drops_any_q", () => {
-    expect(mod.urlForms(KRN_URL)).toEqual({
+    expect(mod.urlForms(KRN_URL, "fa")).toEqual({
       page: "/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description",
       keys: "/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description",
-      qTemplate: "Description LIKE '{{query}}%'",
+      filterTemplate: "Description LIKE '{{query}}%'",
     });
     // No placeholder: the url's own q stays for pages (no server search), fetchByKeys still replaces it.
-    expect(mod.urlForms("/x/y?q=Status='ACTIVE'&limit=5")).toEqual({ page: "/x/y?q=Status='ACTIVE'&limit=5", keys: "/x/y?limit=5", qTemplate: null });
-    expect(mod.urlForms("/x/y")).toEqual({ page: "/x/y", keys: "/x/y", qTemplate: null });
+    expect(mod.urlForms("/x/y?q=Status='ACTIVE'&limit=5", "fa")).toEqual({ page: "/x/y?q=Status='ACTIVE'&limit=5", keys: "/x/y?limit=5", filterTemplate: null });
+    expect(mod.urlForms("/x/y", "fa")).toEqual({ page: "/x/y", keys: "/x/y", filterTemplate: null });
     // A placeholder outside q is substituted in place on pages and blanked for keys.
-    expect(mod.urlForms("/x/{{query}}/y?a=1")).toEqual({ page: "/x/{{query}}/y?a=1", keys: "/x//y?a=1", qTemplate: null });
+    expect(mod.urlForms("/x/{{query}}/y?a=1", "fa")).toEqual({ page: "/x/{{query}}/y?a=1", keys: "/x//y?a=1", filterTemplate: null });
     // An encoded q template decodes.
-    expect(mod.urlForms("/x?q=Description%20LIKE%20'{{query}}%25'").qTemplate).toBe("Description LIKE '{{query}}%'");
+    expect(mod.urlForms("/x?q=Description%20LIKE%20'{{query}}%25'", "fa").filterTemplate).toBe("Description LIKE '{{query}}%'");
+  });
+
+  test("boss_the_filter_parameter_is_$filter", () => {
+    expect(mod.urlForms(BOSS_URL, "boss")).toEqual({
+      page: `${BOSS_WORKFLOWS}?$fields=workflowCode,name`,
+      keys: `${BOSS_WORKFLOWS}?$fields=workflowCode,name`,
+      filterTemplate: "status = 'PUBLISHED' and name ~LIKE '%{{query}}%'",
+    });
+    // No placeholder: the url's own $filter stays for pages, fetchByKeys replaces it; q is just another parameter here.
+    expect(mod.urlForms("/x?$filter=status = 'A'&q=z", "boss")).toEqual({ page: "/x?$filter=status = 'A'&q=z", keys: "/x?q=z", filterTemplate: null });
+    expect(() => mod.urlForms("/x", "odata")).toThrow('createEndpointDataProvider needs dialect "fa" or "boss"');
   });
 });
 
@@ -188,9 +212,57 @@ describe("response mapping", () => {
   });
 
   test("required_options_are_checked", () => {
-    expect(() => mod.createEndpointDataProvider({ url: "/x", valueField: "a", labelField: "b" })).toThrow("needs createEndpoint(url)");
-    expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), url: "", valueField: "a", labelField: "b" })).toThrow("needs a url");
-    expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), url: "/x", valueField: "", labelField: "b" })).toThrow("needs valueField");
-    expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), url: "/x", valueField: "a" })).toThrow("needs labelField");
+    expect(() => mod.createEndpointDataProvider({ dialect: "fa", url: "/x", valueField: "a", labelField: "b" })).toThrow("needs createEndpoint(url)");
+    expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), dialect: "fa", url: "", valueField: "a", labelField: "b" })).toThrow("needs a url");
+    expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), dialect: "fa", url: "/x", valueField: "", labelField: "b" })).toThrow("needs valueField");
+    expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), dialect: "fa", url: "/x", valueField: "a" })).toThrow("needs labelField");
+    // The dialect is required: nothing is assumed about the url's query language.
+    expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), url: "/x", valueField: "a", labelField: "b" })).toThrow('needs dialect "fa" or "boss"');
+    expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), dialect: "BOSS", url: "/x", valueField: "a", labelField: "b" })).toThrow('needs dialect "fa" or "boss"');
+  });
+});
+
+describe("BOSS dialect", () => {
+  const WF = (n: number) => Array.from({ length: n }, (_, i) => ({ workflowCode: `WF_${i + 1}`, name: `Invoice flow ${i + 1}` }));
+
+  test("typed_text_goes_into_$filter_quoted_and_the_provider_writes_$limit_$offset_on_the_url", async () => {
+    const p = bossProvider([{ items: WF(2), hasMore: true, count: 2, limit: 25, offset: 0 }]);
+    const page = await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "O'Ne" }, size: 25, offset: 0 } });
+    expect(p.urls).toEqual([`${BASE}${BOSS_WORKFLOWS}?$fields=workflowCode,name&$filter=status%20%3D%20'PUBLISHED'%20and%20name%20~LIKE%20'%25O''Ne%25'&$limit=25&$offset=0`]);
+    expect(decodeURIComponent(p.urls[0])).toBe(`${BASE}${BOSS_WORKFLOWS}?$fields=workflowCode,name&$filter=status = 'PUBLISHED' and name ~LIKE '%O''Ne%'&$limit=25&$offset=0`);
+    // BOSS answers {items, hasMore, count, limit, offset}: the rows are items, hasMore is the body's.
+    expect(page).toEqual({ data: WF(2), hasMore: true });
+  });
+
+  test("no_fusion_rest_parameters_and_no_row_count_on_a_boss_url", async () => {
+    const p = bossProvider([{ items: [] }], { pageSize: 10 });
+    await p.hooks.fetchByOffset({ fetchParameters: { offset: 30, includeFilteredRowCount: "enabled" } });
+    const u = new URL(p.urls[0]);
+    expect([...u.searchParams.keys()]).toEqual(["$fields", "$filter", "$limit", "$offset"]);
+    expect([u.searchParams.get("$filter"), u.searchParams.get("$limit"), u.searchParams.get("$offset")]).toEqual(["status = 'PUBLISHED' and name ~LIKE '%%'", "10", "30"]);
+  });
+
+  test("a_boss_url_without_a_placeholder_keeps_its_$filter_and_has_no_search", async () => {
+    const p = bossProvider([{ items: WF(25), hasMore: false }], {}, `${BOSS_WORKFLOWS}?$filter=status = 'PUBLISHED'&$fields=workflowCode,name`);
+    const page = await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "zz" } } });
+    expect(p.urls).toEqual([`${BASE}${BOSS_WORKFLOWS}?$filter=status = 'PUBLISHED'&$fields=workflowCode,name&$limit=25&$offset=0`]);
+    expect(page.hasMore).toBe(false);
+  });
+
+  test("keys_become_an_or_chain_$filter_on_the_url_without_its_$filter_numbers_unquoted", async () => {
+    const p = bossProvider([{ items: WF(2), hasMore: false }]);
+    const page = await p.hooks.fetchByKeys({ fetchParameters: { keys: new Set<unknown>(["WF_1", "O'K", 42]) } });
+    expect(p.urls).toEqual([`${BASE}${BOSS_WORKFLOWS}?$fields=workflowCode,name&$filter=(workflowCode%20%3D%20'WF_1'%20or%20workflowCode%20%3D%20'O''K'%20or%20workflowCode%20%3D%2042)&$limit=3`]);
+    expect(page).toEqual({ data: WF(2), hasMore: false });
+  });
+
+  test("a_placeholder_outside_$filter_is_substituted_url_encoded_and_blanked_for_keys", async () => {
+    const p = bossProvider([{ items: [] }, { items: [] }], {}, "/api/boss/data/objects/ora/x/y/v1/$en/orgs/{{query}}/rows");
+    await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "a b" } } });
+    await p.hooks.fetchByKeys({ fetchParameters: { keys: new Set(["k"]) } });
+    expect(p.urls).toEqual([
+      `${BASE}/api/boss/data/objects/ora/x/y/v1/$en/orgs/a%20b/rows?$limit=25&$offset=0`,
+      `${BASE}/api/boss/data/objects/ora/x/y/v1/$en/orgs//rows?$filter=(workflowCode%20%3D%20'k')&$limit=1`,
+    ]);
   });
 });
