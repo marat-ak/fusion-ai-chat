@@ -4,7 +4,7 @@
   (`npm run build:debug-host`; scripts/hooks/debug-host.js puts it in place of src/index.html). The build lands in
   dist/debug-host/, which agent-ui serves under /ai-chat-debug/ on the fusion-ai-agent vhost; shown in the agent UI's
   side panel. Every asset URL is relative.
-  The agent chat binds the run through the URL: ?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED.
+  The agent chat binds the run through the URL: ?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED&gnimsysUi=1|0.
   Two tabs: Chat (the component) and Run (the Run Inspector, rendered by Preact into #dbg-run, outside Knockout).
 -->
 <html lang="en-us">

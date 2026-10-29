@@ -1,6 +1,6 @@
 // What the debugger page hands to <xxx-gnimsys-ai-chat> (spec §17, §17.1; bridge design §4.1). Pure: the agent chat opens
 // the page bound to one workflow run through the URL
-//   /ai-chat-debug/?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED
+//   /ai-chat-debug/?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED&gnimsysUi=1|0
 // and this module reads the binding, asks the conversation's proxy for its pod user (`GET <pod>_info`) and builds the
 // chat's props. The page's view model (hostController.ts) only shows the outcome. There is no picker and no input: a
 // missing or invalid parameter is an explicit "open the debugger from the chat" outcome, and nothing is requested.
@@ -23,8 +23,14 @@ export const MAX_FILE_MB = 50;
 export type RunVersion = "PUBLISHED" | "DRAFT";
 const VERSIONS: readonly RunVersion[] = ["DRAFT", "PUBLISHED"];
 
-/** The page's URL parameters: all three required, nothing else accepted. */
-export const URL_PARAMS = ["pod", "workflow", "version"] as const;
+/** The page's URL parameters: all four required, nothing else accepted. */
+export const URL_PARAMS = ["pod", "workflow", "version", "gnimsysUi"] as const;
+
+/**
+ * Whether the run is told it talks to a chat that renders gnimsys-ui blocks: 1 = every run-start message carries
+ * `parameters.additional_context` `{"gnimsysUi":1}`; 0 = no additional context at all (the run looks like Oracle's own chat).
+ */
+export type GnimsysUi = 0 | 1;
 
 /** One workflow run as the agent chat bound it. */
 export interface UrlBinding {
@@ -32,6 +38,7 @@ export interface UrlBinding {
   pod: string;
   workflowCode: string;
   version: RunVersion;
+  gnimsysUi: GnimsysUi;
 }
 
 export type UrlBindingResult = { ok: true; binding: UrlBinding } | { ok: false; problems: string[] };
@@ -59,9 +66,14 @@ export function bindingFromUrl(search: string): UrlBindingResult {
   if (version !== undefined && !(VERSIONS as readonly string[]).includes(version)) {
     problems.push(`version: must be DRAFT or PUBLISHED (got ${shown(version)})`);
   }
+  const gnimsysUi = one("gnimsysUi");
+  if (gnimsysUi !== undefined && gnimsysUi !== "0" && gnimsysUi !== "1") problems.push(`gnimsysUi: must be 0 or 1 (got ${shown(gnimsysUi)})`);
   if (unknown.length > 0) problems.push(`unknown parameter${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}`);
   if (problems.length > 0) return { ok: false, problems };
-  return { ok: true, binding: { pod: pod as string, workflowCode: (workflow as string).trim(), version: version as RunVersion } };
+  return {
+    ok: true,
+    binding: { pod: pod as string, workflowCode: (workflow as string).trim(), version: version as RunVersion, gnimsysUi: gnimsysUi === "1" ? 1 : 0 },
+  };
 }
 
 /**
@@ -70,11 +82,16 @@ export function bindingFromUrl(search: string): UrlBindingResult {
  * not the chat's.
  * A PUBLISHED run goes through Studio's `/debug` too (`agent.publishedVia: "debug"`, `status: "PUBLISHED"`), so agent
  * builders get the node data for it as for a draft; the key is only set for PUBLISHED (a DRAFT run refuses it).
+ * `gnimsysUi` 1 sets `agent.additionalContext` `{ gnimsysUi: 1 }` (sent with every run-start message as
+ * `parameters.additional_context`); 0 sets no additional context.
  */
-export function runConfig(binding: { workflowCode: string; version: RunVersion }): Record<string, unknown> {
+export function runConfig(binding: Pick<UrlBinding, "workflowCode" | "version" | "gnimsysUi">): Record<string, unknown> {
   return {
     mode: "chat",
-    agent: { workflowCode: binding.workflowCode, version: binding.version, ...(binding.version === "PUBLISHED" && { publishedVia: "debug" }) },
+    agent: {
+      workflowCode: binding.workflowCode, version: binding.version, ...(binding.version === "PUBLISHED" && { publishedVia: "debug" }),
+      ...(binding.gnimsysUi === 1 && { additionalContext: { gnimsysUi: 1 } }),
+    },
     // The component still requires auth.kind until the endpoint slice removes it; every call here goes through the
     // proxy rest helper, never through fusionShell.
     auth: { kind: "fusionShell" },

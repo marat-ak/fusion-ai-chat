@@ -250,8 +250,11 @@ A second build flavour of this repo's app shell, for the fusion-ai-agent UI's si
 - Page `debug-host/index.html` instead of `src/index.html`, entry `src/ts/debug-host/root.ts` instead of `src/ts/root.ts`:
   the rest helper is fixed per build (the dev mock's modules are removed from this output).
 - Bound from its URL only, no picker and no inputs: the agent chat opens it as
-  `/ai-chat-debug/?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED`. All three are required;
-  `pod` must be the conversation-scoped proxy base (`^/api/pod/c/[^/?#]+/$`, unchanged by the URL parser); a parameter
+  `/ai-chat-debug/?pod=/api/pod/c/<conversationId>/&workflow=<code>&version=DRAFT|PUBLISHED&gnimsysUi=1|0`. All four are
+  required; `pod` must be the conversation-scoped proxy base (`^/api/pod/c/[^/?#]+/$`, unchanged by the URL parser);
+  `gnimsysUi` is exactly `1` (the chat sets `agent.additionalContext` `{"gnimsysUi": 1}`, so every run-start message
+  carries `parameters.additional_context` `"{\"gnimsysUi\":1}"`) or `0` (no additional context: the run looks like
+  Oracle's own chat; the chat still renders any `gnimsys-ui` block it receives); a parameter
   missing, repeated or invalid, or an unknown one, shows the panel "Open the debugger from the chat — ask the agent to
   debug a workflow" naming the problem, and nothing is requested (the agent UI's header button opens the bare page).
 - With a complete binding the page reads `GET <pod>_info` (`{instance, podUser?}`) and mounts the chat with

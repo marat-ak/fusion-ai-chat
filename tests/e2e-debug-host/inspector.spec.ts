@@ -19,7 +19,7 @@ const debugCalls = async (page: Page): Promise<PodCall[]> => (await podCalls(pag
 const isVersionRead = (c: ProxyCall): boolean => c.target === "BOSS" && decodeURIComponent(c.path).includes("$fields=workflowCode,status,version&");
 
 const debuggerUrl = (workflow = "WIZARD_WF", conversation = "u1__dev1"): string =>
-  `/ai-chat-debug/?pod=/api/pod/c/${conversation}/&workflow=${workflow}&version=DRAFT`;
+  `/ai-chat-debug/?pod=/api/pod/c/${conversation}/&workflow=${workflow}&version=DRAFT&gnimsysUi=1`;
 
 type Scope = Page | FrameLocator;
 
