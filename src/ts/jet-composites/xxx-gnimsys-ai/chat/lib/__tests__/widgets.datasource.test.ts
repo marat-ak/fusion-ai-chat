@@ -3,7 +3,7 @@ import type { DataSourceDef } from "../widgets/datasource";
 import type { Problem } from "../config/types";
 import { validateConfig } from "../config/validate";
 
-const ds: DataSourceDef = { type: "rest", target: "FA", method: "GET", url: "/fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'" };
+const ds: DataSourceDef = { type: "rest", target: "FA", method: "GET", url: "/fscmRestApi/resources/11.13.18.05/subinventories?q=OrganizationCode='M1'" };
 const policy = { allowInline: true, allowPrefixes: ["/fscmRestApi/resources/"], pageSize: 25 };
 
 describe("datasource gating (D7)", () => {
@@ -52,10 +52,12 @@ describe("validateDataSource", () => {
     const problems: Problem[] = [];
     expect(validateSourceFields({ valueField: "Code", labelField: "Name", searchTemplate: { minChars: 2 } }, "f", problems)).toEqual({ valueField: "Code", labelField: "Name", searchTemplate: { minChars: 2 } });
     expect(validateSourceFields({ valueField: "Code", labelField: "Name" }, "f", problems)).toEqual({ valueField: "Code", labelField: "Name" });
+    expect(validateSourceFields({ valueField: "Code", labelField: "Name", searchField: "Alias" }, "f", problems)).toEqual({ valueField: "Code", labelField: "Name", searchField: "Alias" });
     expect(problems).toEqual([]);
-    validateSourceFields({ valueField: "", labelField: "Name", searchTemplate: { debounceMs: 1.5, x: 1 } }, "f", problems);
+    validateSourceFields({ valueField: "", labelField: "Name", searchField: 3, searchTemplate: { debounceMs: 1.5, x: 1 } }, "f", problems);
     expect(problems.map((p) => `${p.path}: ${p.message}`)).toEqual([
       "f.valueField: must be a non-empty string",
+      "f.searchField: must be a non-empty string",
       "f.searchTemplate.x: unknown key",
       "f.searchTemplate.debounceMs: must be a non-negative integer",
     ]);
@@ -76,8 +78,8 @@ describe("config datasources + widgets overlay", () => {
   });
 
   test("a_valid_overlay_is_carried_as_the_widget_datasource", () => {
-    const r = validateConfig({ ...min, widgets: { destSubinv: { fields: { subinv: { dataSource: ds, valueField: "Code", labelField: "Name", searchTemplate: { minChars: 2 } } } } } });
-    expect(r.ok && r.config.widgets).toEqual({ destSubinv: { fields: { subinv: { dataSource: ds, valueField: "Code", labelField: "Name", searchTemplate: { minChars: 2 } } } } });
+    const r = validateConfig({ ...min, widgets: { destSubinv: { fields: { subinv: { dataSource: ds, valueField: "Code", labelField: "Name", searchField: "Alias", searchTemplate: { minChars: 2 } } } } } });
+    expect(r.ok && r.config.widgets).toEqual({ destSubinv: { fields: { subinv: { dataSource: ds, valueField: "Code", labelField: "Name", searchField: "Alias", searchTemplate: { minChars: 2 } } } } });
   });
 
   test("overlay_problems_are_config_errors", () => {

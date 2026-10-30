@@ -123,10 +123,14 @@ describe("parseBlock", () => {
     expect(b.fields[2]).toMatchObject({ type: "select", multi: true, value: ["x"] });
   });
 
-  test("select_from_a_datasource_with_a_search_template", () => {
-    const ds = { type: "rest", target: "FA", method: "GET", url: "/fscmRestApi/resources/x?q=Name LIKE '{{query}}%'" };
-    const b = ok({ v: 1, kind: "form", id: "d", buttons, fields: [{ id: "s", type: "select", dataSource: ds, valueField: "Code", labelField: "Name", searchTemplate: { minChars: 2, debounceMs: 100 } }] });
-    expect(b.fields[0]).toMatchObject({ type: "select", source: { dataSource: { target: "FA", url: ds.url }, valueField: "Code", labelField: "Name", searchTemplate: { minChars: 2, debounceMs: 100 }, fromConfig: false } });
+  test("select_from_a_datasource_with_a_search_field_and_template", () => {
+    const ds = { type: "rest", target: "FA", method: "GET", url: "/fscmRestApi/resources/x?q=Status='A'" };
+    const b = ok({ v: 1, kind: "form", id: "d", buttons, fields: [{ id: "s", type: "select", dataSource: ds, valueField: "Code", labelField: "Name", searchField: "Alias", searchTemplate: { minChars: 2, debounceMs: 100 } }] });
+    expect(b.fields[0]).toMatchObject({ type: "select", source: { dataSource: { target: "FA", url: ds.url }, valueField: "Code", labelField: "Name", searchField: "Alias", searchTemplate: { minChars: 2, debounceMs: 100 }, fromConfig: false } });
+    expect(reason({ v: 1, kind: "form", id: "d", buttons, fields: [{ id: "s", type: "select", dataSource: ds, valueField: "Code", labelField: "Name", searchField: "" }] }))
+      .toContain("fields[0].searchField: must be a non-empty string");
+    expect(reason({ v: 1, kind: "form", id: "d", buttons, fields: [{ id: "s", type: "select", options: [{ value: 1, label: "1" }], searchField: "Name" }] }))
+      .toContain("fields[0]: options and dataSource are both present");
     expect(reason({ v: 1, kind: "form", id: "d", buttons, fields: [{ id: "s", type: "select", dataSource: ds, valueField: "Code", labelField: "Name", searchTemplate: { minChars: -1 } }] }))
       .toContain("fields[0].searchTemplate.minChars: must be a non-negative integer");
     expect(reason({ v: 1, kind: "form", id: "d", buttons, fields: [{ id: "s", type: "select", dataSource: ds, valueField: "Code", labelField: "Name", searchTemplate: { param: "q" } }] }))
@@ -184,7 +188,7 @@ describe("parseBlock", () => {
 });
 
 describe("applyOverlay", () => {
-  const ds = { dataSource: { type: "rest" as const, target: "FA" as const, method: "GET" as const, url: "/fscmRestApi/resources/subinventories?q=Name LIKE '{{query}}%'" }, valueField: "Code", labelField: "Name", searchTemplate: { minChars: 3 } };
+  const ds = { dataSource: { type: "rest" as const, target: "FA" as const, method: "GET" as const, url: "/fscmRestApi/resources/subinventories?q=OrganizationCode='M1'" }, valueField: "Code", labelField: "Name", searchTemplate: { minChars: 3 } };
 
   test("the_overlay_datasource_replaces_the_inline_options", () => {
     const b = applyOverlay(ok(subinv), { fields: { subinv: ds } });

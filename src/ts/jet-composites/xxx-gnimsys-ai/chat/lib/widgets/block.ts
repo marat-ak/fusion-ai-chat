@@ -196,7 +196,7 @@ function validateField(v: unknown, path: string, problems: Problem[]): Field | u
   }
 
   const allowed = ["id", "type", "label", "required", "value", "help", "options"];
-  if (type === "select") allowed.push("multi", "dataSource", "valueField", "labelField", "searchTemplate");
+  if (type === "select") allowed.push("multi", "dataSource", "valueField", "labelField", "searchField", "searchTemplate");
   for (const k of Object.keys(v)) if (!allowed.includes(k)) bad(k, "unknown key");
   if (v.label !== undefined && typeof v.label !== "string") bad("label", "must be a string");
   if (v.required !== undefined && typeof v.required !== "boolean") bad("required", "must be a boolean");
@@ -229,7 +229,8 @@ function validateField(v: unknown, path: string, problems: Problem[]): Field | u
 
   // select: options inline or a datasource (dataSource + valueField + labelField), exactly one of them
   const hasOptions = v.options !== undefined;
-  const hasSource = v.dataSource !== undefined || v.valueField !== undefined || v.labelField !== undefined || v.searchTemplate !== undefined;
+  const hasSource = v.dataSource !== undefined || v.valueField !== undefined || v.labelField !== undefined || v.searchField !== undefined
+    || v.searchTemplate !== undefined;
   if (hasOptions === hasSource) bad("", hasOptions ? "options and dataSource are both present" : "needs options or a dataSource with valueField and labelField");
   let options: Option[] | undefined;
   let source: (DataSourceOptions & { fromConfig: boolean }) | undefined;

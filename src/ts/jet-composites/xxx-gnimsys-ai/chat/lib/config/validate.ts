@@ -213,7 +213,8 @@ export function validateConfig(input: unknown): ValidateResult {
   const pageSize = posNum(ds, "pageSize", "datasources.pageSize", 25);
   if (ds?.pageSize !== undefined && !Number.isInteger(ds.pageSize)) bad("datasources.pageSize", "must be an integer");
 
-  // widgets: the gnimsys-ui overlay widgets[widgetId].fields[fieldId] = { dataSource, valueField, labelField } (D7)
+  // widgets: the gnimsys-ui overlay widgets[widgetId].fields[fieldId] = { dataSource, valueField, labelField, searchField?,
+  // searchTemplate? } (D7)
   const widgets: Record<string, WidgetOverlay> = {};
   if (input.widgets !== undefined) {
     if (!isObj(input.widgets)) bad("widgets", "must be an object");
@@ -229,7 +230,7 @@ export function validateConfig(input: unknown): ValidateResult {
           const fp = `${wp}.fields.${fid}`;
           if (!ID_RE.test(fid)) bad(fp, "field id must match [A-Za-z0-9_-]{1,64}");
           if (!isObj(f)) { bad(fp, "must be an object"); continue; }
-          for (const k of Object.keys(f)) if (!["dataSource", "valueField", "labelField", "searchTemplate"].includes(k)) bad(join(fp, k), "unknown key");
+          for (const k of Object.keys(f)) if (!["dataSource", "valueField", "labelField", "searchField", "searchTemplate"].includes(k)) bad(join(fp, k), "unknown key");
           const ds = validateDataSource(f.dataSource, `${fp}.dataSource`, invalid);
           const names = validateSourceFields(f, fp, invalid);
           if (ds !== undefined && names !== undefined) fields[fid] = { dataSource: ds, ...names };

@@ -1,31 +1,37 @@
 /**
  * Endpoint data provider: a JET RESTDataProvider served by the pack's Endpoint layer (dashboard-rest-helper), for
  * selects whose options come from a Fusion REST or a Business Objects (BOSS) datasource (gnimsys-ui block v1 rev 2
- * §2.3; agent-app contract §6 "JET DataProvider adapter"). Declarative: the datasource shape says what to call, the
- * provider pages and filters on the server.
+ * §2.3; agent-app contract §6 "JET DataProvider adapter"). Declarative: the datasource shape says what to call and which
+ * attribute is searched; the provider writes every filter itself and pages and searches on the server.
  *
  *   createEndpointDataProvider({
- *     createEndpoint: (url) => endpoint,   // the caller's Endpoint factory (target, headers, path checks are its own)
- *     dialect: "fa",                       // the url's query language: "fa" (Fusion REST) or "boss" (Business Objects)
- *     url: "/fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'&fields=SubinventoryCode,Description",
- *     valueField: "SubinventoryCode", labelField: "Description",
+ *     createEndpoint: (url, headers) => endpoint, // the caller's Endpoint factory (target and path checks are its own)
+ *     dialect: "fa",                              // the url's query language: "fa" (Fusion REST) or "boss" (Business Objects)
+ *     url: "/fscmRestApi/resources/11.13.18.05/subinventories?q=OrganizationCode='M1'&fields=SubinventoryCode,Description",
+ *     headers: {},                                // the datasource's own request headers (optional)
+ *     valueField: "SubinventoryCode", labelField: "Description", searchField: "Description",
  *     pageSize: 25, searchTemplate: { minChars: 1, debounceMs: 250 }, dataTransform: { type: "map", expression: "items" }
  *   })
  *
- * The dialect names the url's filter parameter and how a page is asked for:
- * - `fa` (Fusion REST resources): filter `q`; the Endpoint appends `q`, `limit`, `offset` and `totalResults` as query
- *   parameters (URLSearchParams-encoded); fetchByKeys = `q=<valueField> IN ('k1','k2')`.
- * - `boss` (Business Objects API, `/api/boss/data/objects/…`): filter `$filter`; the Endpoint knows only the Fusion
- *   REST names, so the provider writes `$filter` (encodeURIComponent), `$limit` and `$offset` on the url itself (no row
- *   count is asked for); fetchByKeys = `$filter=(<valueField> = 'k1' or <valueField> = 'k2')` (a number key unquoted).
- * fetchFirst / fetchByOffset: the dropdown's text goes into the url's `{{query}}` placeholder — quoted for a string
- * literal of either filter (a single quote doubles) — with `limit` = the configured page size (a component asking for
- * more iterates the pages) and `offset`. Typed text shorter than `minChars` answers an empty page without a request; a
- * request waits `debounceMs` and is dropped (empty page) when newer text arrives meanwhile. A url without `{{query}}`
- * is paged the same way with no server search (a filter parameter without the placeholder stays on the url).
- * fetchByKeys: the keys clause on the same url with its WHOLE filter parameter removed and `limit` = the number of keys.
- * The placeholder lives in the url's filter parameter: that parameter is taken off the url and sent filled as above; a
- * `{{query}}` anywhere else in the url is substituted in place (URL-encoded) for pages and blanked for keys.
+ * The url carries FIXED filters only, in the dialect's filter parameter (`q` / `$filter`): the provider takes that
+ * parameter off the url (decoded when it decodes) and writes the whole filter of every request:
+ * - fetchFirst / fetchByOffset without typed text: the fixed filter alone (none = no filter): the paged list.
+ * - with typed text: `(<fixed filter>) and <search clause>` (the clause alone without a fixed filter), on the searched
+ *   attribute = `searchField`, else `labelField`, a case-insensitive "contains":
+ *     fa:   UPPER(<attribute>) LIKE '%<TEXT>%'   (TEXT = the typed text upper-cased; a single quote doubles)
+ *     boss: <attribute> ~LIKE '%<text>%'          (a single quote doubles; ~LIKE is case-insensitive)
+ *   Text shorter than `minChars` answers an empty page without a request; a request waits `debounceMs` and is dropped
+ *   (empty page) when newer text arrives meanwhile. `limit` = the configured page size (a component asking for more
+ *   iterates the pages), `offset` = the asked position.
+ * - fetchByKeys: the keys clause alone (the fixed filter dropped, so valueField must identify a row by itself), `limit` =
+ *   the number of keys: fa `q=<valueField> IN ('k1','k2')`; boss `$filter=(<valueField> = 'k1' or <valueField> = 'k2')`
+ *   (a number key unquoted).
+ * Encoding: fa sends `q`, `limit`, `offset` (and `totalResults` when the row count is asked for) through the Endpoint's
+ * query object, which appends them URLSearchParams-encoded (`%` -> `%25`); boss writes `$filter` (encodeURIComponent),
+ * `$limit` and `$offset` on the url itself (the Endpoint knows only the Fusion REST names; no row count is asked for).
+ * Headers: the fa filters are Fusion REST expression syntax (UPPER, LIKE, IN, and), which needs REST-Framework-Version 2
+ * or later: the provider sends `REST-Framework-Version: 4` with the datasource's headers unless they set it themselves; a
+ * value of theirs below 2 is refused (the provider throws: the field shows it), never overridden.
  * Response (both dialects): the rows are the body when it is an array, else `body.items`, else the array at
  * `dataTransform.expression` (type `map`, a dotted path); `hasMore` = `body.hasMore` when it is a boolean, else "a full
  * page came back"; `totalSize` = `body.totalResults` when it is a number. The `lodash` transform type is never evaluated.
@@ -35,10 +41,12 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
     // ojs/ojrestdataprovider is an ES-style AMD module: its class is the named export.
     const RESTDataProvider = ojrestdataprovider.RESTDataProvider;
 
-    const QUERY = '{{query}}';
     const DEFAULTS = { pageSize: 25, minChars: 1, debounceMs: 250 };
     /** The filter parameter of each dialect (see the module comment). */
     const FILTER_PARAM = { fa: 'q', boss: '$filter' };
+    /** The Fusion REST framework version the fa filters are written for (expression syntax needs 2 or later). */
+    const FRAMEWORK_HEADER = 'REST-Framework-Version';
+    const FA_FRAMEWORK_VERSION = '4';
 
     /** A single quote doubles inside a Fusion `q` or a BOSS `$filter` string literal. */
     function quoteForQ(text) {
@@ -83,22 +91,46 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
     }
 
     /**
-     * The three url forms of a datasource url in its dialect: `page` = the url without its placeholder-carrying filter
-     * parameter (`q` / `$filter`), `keys` = the url without any filter parameter at all, plus the filter template (null
-     * without a placeholder).
+     * A datasource url in its dialect: `url` = the url without its filter parameter (`q` / `$filter`), `fixedFilter` =
+     * that parameter's value, decoded (null without one). Two filter parameters are refused (which one would be meant).
      */
     function urlForms(url, dialect) {
         const name = filterParam(dialect);
         const isFilter = (pair) => pair === name || pair.startsWith(name + '=');
         const { path, params } = splitUrl(url);
-        const filterPair = params.find((p) => isFilter(p) && p.includes(QUERY));
-        const filterTemplate = filterPair === undefined ? null : paramValue(filterPair);
-        return {
-            page: joinUrl(path, params.filter((p) => p !== filterPair)),
-            keys: joinUrl(path, params.filter((p) => !isFilter(p))).split(QUERY).join(''),
-            filterTemplate,
-            // a url whose filter has no placeholder keeps that filter on the page url (no server search)
-        };
+        const filters = params.filter(isFilter);
+        if (filters.length > 1) throw new Error('the datasource url has ' + filters.length + ' ' + name + ' parameters (one fixed filter at most)');
+        const value = filters.length === 1 ? paramValue(filters[0]) : '';
+        return { url: joinUrl(path, params.filter((p) => !isFilter(p))), fixedFilter: value === '' ? null : value };
+    }
+
+    /** The search clause on `attribute` for typed `text` (see the module comment). */
+    function searchClause(dialect, attribute, text) {
+        return dialect === 'fa'
+            ? 'UPPER(' + attribute + ") LIKE '%" + quoteForQ(text.toUpperCase()) + "%'"
+            : attribute + " ~LIKE '%" + quoteForQ(text) + "%'";
+    }
+
+    /** The fixed filter and the search clause together: `(<fixed>) and <clause>`, either alone, or null for neither. */
+    function combine(fixedFilter, clause) {
+        if (clause === null) return fixedFilter;
+        return fixedFilter === null ? clause : '(' + fixedFilter + ') and ' + clause;
+    }
+
+    /**
+     * The request headers of a dialect: the datasource's own, plus `REST-Framework-Version: 4` for fa unless they set it;
+     * a version of theirs below 2 cannot carry the fa filters and is refused (thrown), never overridden.
+     */
+    function requestHeaders(dialect, headers) {
+        const own = { ...(headers || {}) };
+        if (dialect !== 'fa') return own;
+        const name = Object.keys(own).find((k) => k.toLowerCase() === FRAMEWORK_HEADER.toLowerCase());
+        if (name === undefined) return { ...own, [FRAMEWORK_HEADER]: FA_FRAMEWORK_VERSION };
+        const version = Number(own[name]);
+        if (!(Number.isInteger(version) && version >= 2)) {
+            throw new Error('the datasource header ' + name + ': ' + own[name] + ' cannot carry the search filter (Fusion REST expression syntax needs version 2 or later)');
+        }
+        return own;
     }
 
     /** A dotted path (`a.b.0`) into a JSON value; undefined when a step is missing. */
@@ -142,12 +174,15 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
     }
 
     function createEndpointDataProvider(options) {
-        const { createEndpoint, dialect, url, valueField, labelField, dataTransform } = options;
-        if (typeof createEndpoint !== 'function') throw new Error('createEndpointDataProvider needs createEndpoint(url)');
+        const { createEndpoint, dialect, url, valueField, labelField, searchField, dataTransform } = options;
+        if (typeof createEndpoint !== 'function') throw new Error('createEndpointDataProvider needs createEndpoint(url, headers)');
         filterParam(dialect);
         if (typeof url !== 'string' || url === '') throw new Error('createEndpointDataProvider needs a url');
         if (typeof valueField !== 'string' || valueField === '') throw new Error('createEndpointDataProvider needs valueField');
         if (typeof labelField !== 'string' || labelField === '') throw new Error('createEndpointDataProvider needs labelField');
+        if (searchField !== undefined && (typeof searchField !== 'string' || searchField === '')) throw new Error('createEndpointDataProvider: searchField must be a non-empty string');
+        const searched = searchField !== undefined ? searchField : labelField;
+        const headers = requestHeaders(dialect, options.headers);
         const pageSize = Number.isInteger(options.pageSize) && options.pageSize > 0 ? options.pageSize : DEFAULTS.pageSize;
         const search = options.searchTemplate || {};
         const minChars = Number.isInteger(search.minChars) && search.minChars >= 0 ? search.minChars : DEFAULTS.minChars;
@@ -167,12 +202,10 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
                 await new Promise((resolve) => setTimeout(resolve, debounceMs));
                 if (mine !== seq) return { data: [], hasMore: false };
             }
-            const quoted = quoteForQ(text);
-            const filter = forms.filterTemplate === null ? null : forms.filterTemplate.split(QUERY).join(quoted);
-            const pageUrl = forms.page.split(QUERY).join(encodeURIComponent(quoted));
+            const filter = combine(forms.fixedFilter, text === '' ? null : searchClause(dialect, searched, text));
             if (dialect === 'boss') {
                 const pairs = filter === null ? [] : ['$filter=' + encodeURIComponent(filter)];
-                const result = await createEndpoint(withParams(pageUrl, [...pairs, '$limit=' + size, '$offset=' + offset])).fetch();
+                const result = await createEndpoint(withParams(forms.url, [...pairs, '$limit=' + size, '$offset=' + offset]), headers).fetch();
                 return pageOf(result, dataTransform, size);
             }
             const query = {};
@@ -180,7 +213,7 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
             query.limit = size;
             query.offset = offset;
             if (fetchParameters.includeFilteredRowCount === 'enabled') query.totalResults = true;
-            const result = await createEndpoint(pageUrl).fetch(query);
+            const result = await createEndpoint(forms.url, headers).fetch(query);
             return pageOf(result, dataTransform, size);
         }
 
@@ -189,17 +222,17 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
             if (keys.length === 0) return { data: [], hasMore: false };
             if (dialect === 'boss') {
                 const anyOf = '(' + keys.map((k) => valueField + ' = ' + bossLiteral(k)).join(' or ') + ')';
-                const result = await createEndpoint(withParams(forms.keys, ['$filter=' + encodeURIComponent(anyOf), '$limit=' + keys.length])).fetch();
+                const result = await createEndpoint(withParams(forms.url, ['$filter=' + encodeURIComponent(anyOf), '$limit=' + keys.length]), headers).fetch();
                 return pageOf(result, dataTransform, keys.length);
             }
             const clause = valueField + ' IN (' + keys.map((k) => "'" + quoteForQ(k) + "'").join(',') + ')';
-            const result = await createEndpoint(forms.keys).fetch({ q: clause, limit: keys.length });
+            const result = await createEndpoint(forms.url, headers).fetch({ q: clause, limit: keys.length });
             return pageOf(result, dataTransform, keys.length);
         }
 
         return new RESTDataProvider({
             keyAttributes: valueField,
-            textFilterAttributes: [labelField],
+            textFilterAttributes: [searched],
             capabilities: {
                 fetchByKeys: { implementation: 'lookup' },
                 fetchByOffset: { implementation: 'randomAccess' },
@@ -209,5 +242,5 @@ define(['ojs/ojrestdataprovider'], function (ojrestdataprovider) {
         });
     }
 
-    return { createEndpointDataProvider, urlForms, rowsOf, pageOf, quoteForQ, DEFAULTS };
+    return { createEndpointDataProvider, urlForms, searchClause, requestHeaders, rowsOf, pageOf, quoteForQ, DEFAULTS, FA_FRAMEWORK_VERSION };
 });

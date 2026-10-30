@@ -21,8 +21,11 @@ export interface DataSourceDef {
 }
 /** Typed-text search of a datasource select: `minChars` (default 1) and `debounceMs` (default 250). */
 export interface SearchTemplate { minChars?: number; debounceMs?: number }
-/** A field's option source: the datasource plus the row fields that become the option value and label. */
-export interface DataSourceOptions { dataSource: DataSourceDef; valueField: string; labelField: string; searchTemplate?: SearchTemplate }
+/**
+ * A field's option source: the datasource plus the row fields that become the option value and label, and the attribute
+ * the typed text searches (`searchField`, default `labelField`).
+ */
+export interface DataSourceOptions { dataSource: DataSourceDef; valueField: string; labelField: string; searchField?: string; searchTemplate?: SearchTemplate }
 export interface Option { value: string | number; label: string; description?: string }
 /** Config `datasources` (D7): whether an agent may carry a datasource inline, under which pod paths, and the page size. */
 export interface DataSourcePolicy { allowInline: boolean; allowPrefixes: string[]; pageSize: number }
@@ -69,11 +72,17 @@ export function validateDataSource(v: unknown, path: string, problems: Problem[]
   };
 }
 
-/** The `valueField` / `labelField` pair and the optional `searchTemplate` next to a datasource; problems go under `path`. */
+/**
+ * The `valueField` / `labelField` pair, the optional `searchField` and the optional `searchTemplate` next to a datasource;
+ * problems go under `path`.
+ */
 export function validateSourceFields(o: Record<string, unknown>, path: string, problems: Problem[]): Omit<DataSourceOptions, "dataSource"> | undefined {
   let ok = true;
   for (const k of ["valueField", "labelField"] as const) {
     if (typeof o[k] !== "string" || o[k] === "") { problems.push({ path: `${path}.${k}`, message: "must be a non-empty string" }); ok = false; }
+  }
+  if (o.searchField !== undefined && (typeof o.searchField !== "string" || o.searchField === "")) {
+    problems.push({ path: `${path}.searchField`, message: "must be a non-empty string" }); ok = false;
   }
   let searchTemplate: SearchTemplate | undefined;
   if (o.searchTemplate !== undefined) {
@@ -87,7 +96,11 @@ export function validateSourceFields(o: Record<string, unknown>, path: string, p
       if (ok) searchTemplate = { ...(s.minChars !== undefined && { minChars: s.minChars as number }), ...(s.debounceMs !== undefined && { debounceMs: s.debounceMs as number }) };
     }
   }
-  return ok ? { valueField: o.valueField as string, labelField: o.labelField as string, ...(searchTemplate !== undefined && { searchTemplate }) } : undefined;
+  return ok ? {
+    valueField: o.valueField as string, labelField: o.labelField as string,
+    ...(o.searchField !== undefined && { searchField: o.searchField as string }),
+    ...(searchTemplate !== undefined && { searchTemplate }),
+  } : undefined;
 }
 
 /**

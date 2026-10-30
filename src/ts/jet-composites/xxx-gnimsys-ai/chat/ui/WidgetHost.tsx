@@ -45,13 +45,16 @@ function resolveSelect(f: SelectField, deps: WidgetHostDeps): Resolved {
   const ds = source.dataSource;
   try {
     const data = EndpointDataProvider.createEndpointDataProvider<Scalar, Option>({
-      createEndpoint: (url) => deps.endpoints.endpoint(ds.target, url, ds.headers),
+      // The provider sends the datasource's headers plus what its filters need (REST-Framework-Version for Fusion REST).
+      createEndpoint: (url, headers) => deps.endpoints.endpoint(ds.target, url, headers),
       // BOSS filters and pages with $filter / $limit / $offset; every other target is served as Fusion REST (q / limit /
       // offset), as before.
       dialect: ds.target === "BOSS" ? "boss" : "fa",
       url: ds.url,
+      ...(ds.headers !== undefined && { headers: ds.headers }),
       valueField: source.valueField,
       labelField: source.labelField,
+      ...(source.searchField !== undefined && { searchField: source.searchField }),
       pageSize: deps.policy.pageSize,
       ...(source.searchTemplate !== undefined && { searchTemplate: source.searchTemplate }),
       ...(ds.dataTransform !== undefined && { dataTransform: ds.dataTransform }),

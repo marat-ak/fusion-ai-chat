@@ -401,15 +401,15 @@ carries the 24-option version):
 ````
 
 A select whose options come from a Fusion REST datasource (the dashboard datasource shape; `valueField` / `labelField`
-name the row fields; `{{query}}` inside the url's `q` parameter is the server search the dropdown's text goes into;
-`searchTemplate` = `minChars` (default 1) and `debounceMs` (default 250)):
+name the row fields; the url carries fixed filters only, never a placeholder — the chat writes the search itself, on
+`searchField` (default `labelField`); `searchTemplate` = `minChars` (default 1) and `debounceMs` (default 250)):
 
 ````markdown
 ```gnimsys-ui
 { "v": 1, "kind": "form", "id": "pickSubinv", "title": "Pick a subinventory",
   "fields": [ { "id": "subinv", "type": "select", "label": "Subinventory", "required": true,
     "dataSource": { "type": "rest", "target": "FA", "method": "GET",
-                    "url": "/fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'&fields=SubinventoryCode,Description" },
+                    "url": "/fscmRestApi/resources/11.13.18.05/subinventories?q=OrganizationCode='M1'&fields=SubinventoryCode,Description" },
     "valueField": "SubinventoryCode", "labelField": "Description", "searchTemplate": { "minChars": 2 } } ],
   "buttons": [ { "id": "ok", "label": "OK", "data": { "decision": "OK" } }, { "id": "back", "label": "Back", "validate": false, "data": { "decision": "BACK" } } ] }
 ```
@@ -475,30 +475,38 @@ through the ported `Endpoint` layer, i.e. the page's `rest-helper` / `endpoint` 
 thousands of rows are fine. The query language follows the datasource's `target`: **`BOSS`** = the Business Objects
 API (`$filter` / `$limit` / `$offset`, below), every other target = Fusion REST resources (`q` / `limit` / `offset`):
 
-- **fetchFirst / fetchByOffset**: the dropdown's text replaces `{{query}}` in the url's `q` parameter (a single quote
-  doubles, Fusion `q` style), and the Endpoint appends `q`, `limit` (= config `datasources.pageSize`, default 25) and
-  `offset`. For the example url above and the text `Ra`:
-  `/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description&q=Description+LIKE+%27Ra%25%27&limit=25&offset=0`.
+The datasource `url` carries FIXED filters only (Fusion REST `q`, BOSS `$filter`; one at most), never a placeholder: an
+AI Studio RETURN node evaluates `{{…}}` in its output, so a placeholder never survives to the chat. The provider takes
+the url's filter parameter off (decoded) and writes the whole filter of every request itself; the typed text searches
+the attribute `searchField`, else `labelField`, as a case-insensitive "contains".
+
+- **fetchFirst / fetchByOffset** (Fusion REST): without typed text `q` = the fixed filter alone (none: no `q`, the plain
+  paged list); with text `q=(<fixed filter>) and UPPER(<searched attribute>) LIKE '%<TEXT>%'` (TEXT = the text
+  upper-cased, a single quote doubled; the clause alone without a fixed filter). The Endpoint appends `q`, `limit`
+  (= config `datasources.pageSize`, default 25) and `offset` URLSearchParams-encoded (every `%` reaches the pod as
+  `%25`). For the example url above and the text `Ra`:
+  `/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description&q=%28OrganizationCode%3D%27M1%27%29+and+UPPER%28Description%29+LIKE+%27%25RA%25%27&limit=25&offset=0`.
   Text shorter than `minChars` answers an empty list without a request; a request waits `debounceMs` and is dropped
-  when newer text arrives meanwhile. A url without `{{query}}` is still paged (its own `q`, if any, stays) with no
-  server search — for small lists only. Do not put `limit` / `offset` in the url.
-- **fetchByKeys** (the selected value's label, the chips of a multi-select, the read-only block): the url with its
-  WHOLE `q` parameter removed, plus `q=<valueField> IN ('k1','k2')` and `limit` = the number of keys:
-  `/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description&q=SubinventoryCode+IN+%28%2712002%27%29&limit=1`.
-  A `{{query}}` anywhere else in the url is substituted in place for pages and blanked for keys.
+  when newer text arrives meanwhile. Do not put `limit` / `offset` in the url; write a `%` inside a fixed filter as `%25`.
+- **REST-Framework-Version**: the Fusion REST filters are expression syntax (`UPPER`, `LIKE`, `IN`, `and`), which needs
+  framework version 2 or later. Every Fusion REST datasource request carries `REST-Framework-Version: 4` unless the
+  datasource's `headers` set it; a version of their own (2 or later) is kept as written, a lower one is refused (the
+  field shows why) — never overridden.
+- **fetchByKeys** (the selected value's label, the chips of a multi-select, the read-only block): the keys clause alone
+  (the fixed filter dropped), `q=<valueField> IN ('k1','k2')` and `limit` = the number of keys:
+  `/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description&q=SubinventoryCode+IN+%28%2712002%27%29&limit=1`
+  — so the `valueField` must identify a row by itself.
 - **BOSS** (`"target": "BOSS"`, a `/api/boss/data/objects/ora/<family>/<product>/v1/$en/<object>` url): the same with
-  `$filter` in place of `q`. The dropdown's text replaces `{{query}}` in the url's `$filter` parameter (a single quote
-  doubles: a BOSS string literal), and the provider writes `$filter` (URL-encoded), `$limit` (= `datasources.pageSize`)
-  and `$offset` on the url; `$fields` and any other parameter stay as written (list the `valueField` and `labelField`
-  in `$fields`). For
-  `/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$filter=status = 'PUBLISHED' and name ~LIKE '%{{query}}%'&$fields=workflowCode,name`
+  `$filter` in place of `q` and the clause `<searched attribute> ~LIKE '%<text>%'` (a single quote doubled; `~LIKE` is
+  case-insensitive); the provider writes `$filter` (URL-encoded), `$limit` (= `datasources.pageSize`) and `$offset` on
+  the url; `$fields` and any other parameter stay as written (list the `valueField` and `labelField` in `$fields`). No
+  framework header. For
+  `/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$filter=status = 'PUBLISHED'&$fields=workflowCode,name`
   and the text `Inv`:
-  `…/workflows?$fields=workflowCode,name&$filter=status%20%3D%20'PUBLISHED'%20and%20name%20~LIKE%20'%25Inv%25'&$limit=25&$offset=0`.
-  fetchByKeys: the url with its WHOLE `$filter` removed, plus `$filter=(<valueField> = 'k1' or <valueField> = 'k2')`
-  (a number key unquoted) and `$limit` = the number of keys:
-  `…/workflows?$fields=workflowCode,name&$filter=(workflowCode%20%3D%20'INV_WF')&$limit=1` — so the `valueField` must
-  identify a row without the url's own filter. A `$filter` without `{{query}}` stays on the page url (no server search);
-  the row count (`totalResults`) is never asked for.
+  `…/workflows?$fields=workflowCode,name&$filter=(status%20%3D%20'PUBLISHED')%20and%20name%20~LIKE%20'%25Inv%25'&$limit=25&$offset=0`.
+  fetchByKeys: `$filter=(<valueField> = 'k1' or <valueField> = 'k2')` (a number key unquoted, the fixed filter dropped)
+  and `$limit` = the number of keys: `…/workflows?$fields=workflowCode,name&$filter=(workflowCode%20%3D%20'INV_WF')&$limit=1`.
+  The row count (`totalResults`) is never asked for.
 - **Response**: rows = the body when it is an array, else `body.items` (Fusion REST and BOSS collections alike), else
   the array at `dataTransform: { "type": "map", "expression": "<dotted.path>" }`; `hasMore` = `body.hasMore` when
   present, else "a full page came back"; `totalResults` is passed through. `GET` only; `dataTransform.type: "lodash"` is
@@ -514,7 +522,7 @@ prefixes apply too (as Oracle's Studio CLI routes its tokens: `FA` any pod path,
 `"datasources": { "allowInline": true, "allowPrefixes": ["/api/boss/data/objects/ora/"] }` (or one object family,
 `/api/boss/data/objects/ora/<family>/`); the `BOSS` endpoint is already in every page's endpoint map.
 
-The config overlay `widgets[widgetId].fields[fieldId]` gives a select field a datasource (+ `searchTemplate`) that wins
+The config overlay `widgets[widgetId].fields[fieldId]` gives a select field a datasource (+ `searchField`, `searchTemplate`) that wins
 over the block's own options or datasource (a customer-owned source is not subject to `allowInline`):
 
 ```json
@@ -523,8 +531,8 @@ over the block's own options or datasource (a customer-owned source is not subje
   "destSubinv": {
     "fields": {
       "subinv": {
-        "dataSource": { "type": "rest", "target": "FA", "method": "GET", "url": "/fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'" },
-        "valueField": "SubinventoryCode", "labelField": "Description", "searchTemplate": { "minChars": 2 }
+        "dataSource": { "type": "rest", "target": "FA", "method": "GET", "url": "/fscmRestApi/resources/11.13.18.05/subinventories?q=OrganizationCode='M1'" },
+        "valueField": "SubinventoryCode", "labelField": "Description", "searchField": "SubinventoryCode", "searchTemplate": { "minChars": 2 }
       }
     }
   }

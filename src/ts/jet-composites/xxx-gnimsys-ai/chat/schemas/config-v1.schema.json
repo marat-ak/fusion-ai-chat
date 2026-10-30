@@ -142,6 +142,7 @@
                 "dataSource": { "$ref": "https://gnimsys.com/schemas/ai-chat/gnimsys-ui-v1.json#/$defs/dataSource" },
                 "valueField": { "type": "string", "minLength": 1 },
                 "labelField": { "type": "string", "minLength": 1 },
+                "searchField": { "type": "string", "minLength": 1 },
                 "searchTemplate": { "$ref": "https://gnimsys.com/schemas/ai-chat/gnimsys-ui-v1.json#/$defs/searchTemplate" }
               }
             }

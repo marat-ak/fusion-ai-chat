@@ -37,7 +37,7 @@ const XSRF = "test-xsrf";
 const ETAG = '"1"';
 const SSE_GAP_MS = 20;
 const BOSS = "/api/boss/data/objects/ora/commonFusionAI/agents/v1/\\$en";
-const RECORDED_HEADERS = ["authorization", "content-type", "accept", "if-match", "x-xsrf-token", "cache-control"];
+const RECORDED_HEADERS = ["authorization", "content-type", "accept", "if-match", "x-xsrf-token", "cache-control", "rest-framework-version"];
 
 const state = {
   conversations: JSON.parse(fixture("conversations.json")),
@@ -153,7 +153,8 @@ const NOXY = (() => {
 const DEBUG_TURNS = ["debug-wizard-turn1.sse", "debug-wizard-turn2.sse"];
 
 // The widget datasource rows: 300 subinventories 12001..12300, descriptions cycling through 24 names ("Raw Materials 2"
-// = code 12002, "Raw Materials 26" = 12026, …), so a typed prefix narrows the list and a page of 25 never holds it all.
+// = code 12002, "Raw Materials 26" = 12026, …), so a typed text narrows the list and a page of 25 never holds it all;
+// OrganizationCode "M1" on every row (a fixed filter for the datasource urls to carry).
 const SUBINV_NAMES = [
   "Main Store", "Raw Materials", "Finished Goods", "Quarantine", "Returns", "Spare Parts", "Consignment", "Packaging",
   "Staging In", "Staging Out", "Line 1 Floor Stock", "Line 2 Floor Stock", "Line 3 Floor Stock", "Tooling", "Maintenance", "Samples",
@@ -162,7 +163,78 @@ const SUBINV_NAMES = [
 const SUBINVENTORIES = Array.from({ length: 300 }, (_, i) => ({
   SubinventoryCode: String(12001 + i),
   Description: `${SUBINV_NAMES[i % SUBINV_NAMES.length]} ${i + 1}`,
+  OrganizationCode: "M1",
 }));
+
+// FA_QUERY: the Fusion REST `q` expression subset the chat sends (REST-Framework-Version 2 or later): comparisons
+// `Field = 'v'`, `Field LIKE 'p'` / `UPPER(Field) LIKE 'P'` (% = any text, case-sensitive as on the pod: UPPER makes it
+// case-insensitive), `Field IN ('a','b')`, joined by `and` / `or` (and binds tighter) with parentheses. Returns a row
+// predicate; throws on anything else.
+function parseFaQuery(text) {
+  const tokens = [];
+  const re = /\s*(\(|\)|,|'(?:[^']|'')*'|=|[A-Za-z_][A-Za-z0-9_]*)/gy;
+  let at = 0;
+  while (at < text.length) {
+    re.lastIndex = at;
+    const m = re.exec(text);
+    if (m === null) {
+      if (text.slice(at).trim() === "") break;
+      throw new Error(`unexpected input at ${at}: ${text.slice(at, at + 20)}`);
+    }
+    tokens.push(m[1]);
+    at = re.lastIndex;
+  }
+  let i = 0;
+  const peek = () => tokens[i];
+  const take = (want) => {
+    const t = tokens[i++];
+    if (want !== undefined && t !== want) throw new Error(`expected ${want}, got ${t}`);
+    return t;
+  };
+  const literal = () => {
+    const t = take();
+    if (t === undefined || !t.startsWith("'")) throw new Error(`expected a string, got ${t}`);
+    return t.slice(1, -1).replace(/''/g, "'");
+  };
+  const comparison = () => {
+    let upper = false;
+    let field = take();
+    if (field === "UPPER") { upper = true; take("("); field = take(); take(")"); }
+    const read = (row) => (upper ? String(row[field] ?? "").toUpperCase() : row[field]);
+    const op = take();
+    if (op === "=") { const v = literal(); return (row) => read(row) === v; }
+    if (op === "LIKE") {
+      const escape = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const pattern = new RegExp("^" + literal().split("%").map(escape).join(".*") + "$");
+      return (row) => typeof read(row) === "string" && pattern.test(read(row));
+    }
+    if (op === "IN") {
+      take("(");
+      const vs = [literal()];
+      while (peek() === ",") { take(","); vs.push(literal()); }
+      take(")");
+      return (row) => vs.includes(read(row));
+    }
+    throw new Error(`unknown operator ${op}`);
+  };
+  const factor = () => {
+    if (peek() === "(") { take("("); const e = expr(); take(")"); return e; }
+    return comparison();
+  };
+  const term = () => {
+    let left = factor();
+    while (peek() === "and") { take(); const l = left; const r = factor(); left = (row) => l(row) && r(row); }
+    return left;
+  };
+  function expr() {
+    let left = term();
+    while (peek() === "or") { take(); const l = left; const r = term(); left = (row) => l(row) || r(row); }
+    return left;
+  }
+  const result = expr();
+  if (i !== tokens.length) throw new Error(`unexpected ${tokens[i]}`);
+  return result;
+}
 const DEBUG_WORKFLOWS = new Set(["WIZARD_WF", "NOXY_WF"]);
 
 // BOSS workflows: MOCK_WF (PUBLISHED + DRAFT), a template, a hidden row, a customization row (sourceWorkflowCode set),
@@ -371,24 +443,22 @@ const routes = [
   },
   {
     // The widget datasource (chat-widget-datasource.sse and the overlay e2e): a Fusion REST collection of SUBINVENTORIES
-    // (300 rows), filtered by `q` as the endpoint data provider writes it (`Description LIKE '<prefix>%'`, case-insensitive,
-    // or `SubinventoryCode IN ('k1','k2')`), paged by `limit`/`offset` (no limit = every match), `hasMore`, and
-    // `totalResults` when asked for. `fields` is ignored (whole rows come back).
+    // (300 rows), filtered by `q` as the endpoint data provider writes it (FA_QUERY expressions: the fixed filter, the
+    // search clause `UPPER(Description) LIKE '%TEXT%'`, both joined by `and`, `SubinventoryCode IN ('k1','k2')`), paged by
+    // `limit`/`offset` (no limit = every match), `hasMore`, and `totalResults` when asked for. As on the pod, the
+    // expression syntax needs REST-Framework-Version 2 or later: a q without it answers 400. `fields` is ignored (whole
+    // rows come back).
     method: "GET", path: /^\/fscmRestApi\/resources\/11\.13\.18\.05\/subinventories$/,
-    handle: ({ res, url }) => {
+    handle: ({ req, res, url }) => {
       const q = url.searchParams.get("q");
       let match = () => true;
       if (q !== null) {
-        const like = /^Description LIKE '(.*)%'$/.exec(q);
-        const within = /^SubinventoryCode IN \((.*)\)$/.exec(q);
-        if (like) {
-          const prefix = like[1].replace(/''/g, "'").toLowerCase();
-          match = (r) => r.Description.toLowerCase().startsWith(prefix);
-        } else if (within) {
-          const keys = new Set(within[1].split(",").map((k) => k.trim().replace(/^'|'$/g, "").replace(/''/g, "'")));
-          match = (r) => keys.has(r.SubinventoryCode);
-        } else {
-          return json(res, 400, { detail: `mock pod: unsupported subinventories q: ${q}` });
+        const version = Number(req.headers["rest-framework-version"] ?? 1);
+        if (!(version >= 2)) return json(res, 400, { detail: `mock pod: q expression syntax needs REST-Framework-Version 2 or later (got ${version})` });
+        try {
+          match = parseFaQuery(q);
+        } catch (e) {
+          return json(res, 400, { detail: `mock pod: unsupported subinventories q: ${q} (${e.message})` });
         }
       }
       const hits = SUBINVENTORIES.filter(match);

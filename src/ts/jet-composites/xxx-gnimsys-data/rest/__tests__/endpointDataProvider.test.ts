@@ -21,27 +21,32 @@ stubAmd("ojs/ojrestdataprovider", { RESTDataProvider: FakeRestDataProvider });
 
 type Mod = {
   createEndpointDataProvider(o: Record<string, unknown>): FakeRestDataProvider;
-  urlForms(url: string, dialect: string): { page: string; keys: string; filterTemplate: string | null };
+  urlForms(url: string, dialect: string): { url: string; fixedFilter: string | null };
+  searchClause(dialect: string, attribute: string, text: string): string;
+  requestHeaders(dialect: string, headers?: Record<string, string>): Record<string, string>;
   rowsOf(body: unknown, t?: { type: string; expression: string }): unknown[];
   pageOf(result: { body: unknown }, t: { type: string; expression: string } | undefined, limit: number): Page;
   quoteForQ(t: unknown): string;
   DEFAULTS: { pageSize: number; minChars: number; debounceMs: number };
+  FA_FRAMEWORK_VERSION: string;
 };
 const mod = loadAmd("xxx-gnimsys-data/rest/endpoint-data-provider") as Mod;
 const DashboardRestHelper = loadAmd("xxx-gnimsys-data/rest/dashboard-rest-helper") as new (h: unknown, m: Record<string, string>) => { createEndpoint(c: object): { fetch(o?: object): Promise<unknown> } };
 
 const BASE = "https://pod.example.com/fa";
-const KRN_URL = "/fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'&fields=SubinventoryCode,Description";
+/** A fixed filter on the url (no placeholder): the provider adds the search clause itself. */
+const KRN_URL = "/fscmRestApi/resources/11.13.18.05/subinventories?q=OrganizationCode='M1'&fields=SubinventoryCode,Description";
 
-/** A fake VB RestHelper: records every final request url, answers the queued bodies. */
+/** A fake VB RestHelper: records every final request url and its headers, answers the queued bodies. */
 function fakeVb(bodies: unknown[]) {
   const urls: string[] = [];
+  const headers: Array<Record<string, string>> = [];
   const queue = [...bodies];
   const helper = {
     get() {
       let fns: { body: (c: { url: string; endpointDefinition: { url: string } }) => { url: string } } | undefined;
       const chain = {
-        initConfiguration() { return chain; },
+        initConfiguration(c: { headers: Record<string, string> }) { headers.push(c.headers); return chain; },
         requestTransformationFunctions(f: typeof fns) { fns = f; return chain; },
         fetch() {
           const c = { url: BASE, endpointDefinition: { url: BASE } };
@@ -52,82 +57,100 @@ function fakeVb(bodies: unknown[]) {
       return chain;
     },
   };
-  return { helper, urls };
+  return { helper, urls, headers };
 }
 
 function provider(bodies: unknown[], extra: Record<string, unknown> = {}, url = KRN_URL) {
   const vb = fakeVb(bodies);
   const rest = new DashboardRestHelper(vb.helper, { FA: "faConn" });
   const dp = mod.createEndpointDataProvider({
-    createEndpoint: (u: string) => rest.createEndpoint({ target: "FA", url: u }),
+    createEndpoint: (u: string, headers: Record<string, string>) => rest.createEndpoint({ target: "FA", url: u, headers }),
     dialect: "fa", url, valueField: "SubinventoryCode", labelField: "Description", searchTemplate: { debounceMs: 0 }, ...extra,
   });
-  return { hooks: dp.options.restHelper, options: dp.options, urls: vb.urls };
+  return { hooks: dp.options.restHelper, options: dp.options, urls: vb.urls, headers: vb.headers };
 }
+
+/** The decoded query parameters of a recorded url, in order. */
+const paramsOf = (u: string): Array<[string, string]> => [...new URL(u).searchParams.entries()];
 
 /** A BOSS datasource over the pack's real Endpoint (target BOSS), as WidgetHost builds it for `"target": "BOSS"`. */
 const BOSS_WORKFLOWS = "/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows";
-const BOSS_URL = `${BOSS_WORKFLOWS}?$filter=status = 'PUBLISHED' and name ~LIKE '%{{query}}%'&$fields=workflowCode,name`;
+const BOSS_URL = `${BOSS_WORKFLOWS}?$filter=status = 'PUBLISHED'&$fields=workflowCode,name`;
 function bossProvider(bodies: unknown[], extra: Record<string, unknown> = {}, url = BOSS_URL) {
   const vb = fakeVb(bodies);
   const rest = new DashboardRestHelper(vb.helper, { BOSS: "bossConn" });
   const dp = mod.createEndpointDataProvider({
-    createEndpoint: (u: string) => rest.createEndpoint({ target: "BOSS", url: u }),
+    createEndpoint: (u: string, headers: Record<string, string>) => rest.createEndpoint({ target: "BOSS", url: u, headers }),
     dialect: "boss", url, valueField: "workflowCode", labelField: "name", searchTemplate: { debounceMs: 0 }, ...extra,
   });
-  return { hooks: dp.options.restHelper, urls: vb.urls };
+  return { hooks: dp.options.restHelper, urls: vb.urls, headers: vb.headers };
 }
 
 const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ SubinventoryCode: String(12001 + i), Description: `Raw Materials ${i + 1}` }));
 
 describe("urlForms", () => {
-  test("the_q_parameter_carrying_the_placeholder_leaves_the_page_url_and_fetchByKeys_drops_any_q", () => {
+  test("the_fixed_q_leaves_the_url_decoded_and_a_url_without_q_has_none", () => {
     expect(mod.urlForms(KRN_URL, "fa")).toEqual({
-      page: "/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description",
-      keys: "/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description",
-      filterTemplate: "Description LIKE '{{query}}%'",
+      url: "/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description", fixedFilter: "OrganizationCode='M1'",
     });
-    // No placeholder: the url's own q stays for pages (no server search), fetchByKeys still replaces it.
-    expect(mod.urlForms("/x/y?q=Status='ACTIVE'&limit=5", "fa")).toEqual({ page: "/x/y?q=Status='ACTIVE'&limit=5", keys: "/x/y?limit=5", filterTemplate: null });
-    expect(mod.urlForms("/x/y", "fa")).toEqual({ page: "/x/y", keys: "/x/y", filterTemplate: null });
-    // A placeholder outside q is substituted in place on pages and blanked for keys.
-    expect(mod.urlForms("/x/{{query}}/y?a=1", "fa")).toEqual({ page: "/x/{{query}}/y?a=1", keys: "/x//y?a=1", filterTemplate: null });
-    // An encoded q template decodes.
-    expect(mod.urlForms("/x?q=Description%20LIKE%20'{{query}}%25'", "fa").filterTemplate).toBe("Description LIKE '{{query}}%'");
+    expect(mod.urlForms("/x/y?limit=5", "fa")).toEqual({ url: "/x/y?limit=5", fixedFilter: null });
+    expect(mod.urlForms("/x/y", "fa")).toEqual({ url: "/x/y", fixedFilter: null });
+    expect(mod.urlForms("/x?q=", "fa")).toEqual({ url: "/x", fixedFilter: null });
+    // An encoded q decodes; a raw % that does not decode stays as written.
+    expect(mod.urlForms("/x?q=Name%20LIKE%20'A%25'", "fa").fixedFilter).toBe("Name LIKE 'A%'");
+    expect(mod.urlForms("/x?q=Name LIKE '%%'", "fa").fixedFilter).toBe("Name LIKE '%%'");
+    // {{...}} is nothing special: it is part of the fixed filter as written.
+    expect(mod.urlForms("/x?q=Name='{{query}}'", "fa").fixedFilter).toBe("Name='{{query}}'");
+    expect(() => mod.urlForms("/x?q=a=1&q=b=2", "fa")).toThrow("the datasource url has 2 q parameters (one fixed filter at most)");
   });
 
   test("boss_the_filter_parameter_is_$filter", () => {
-    expect(mod.urlForms(BOSS_URL, "boss")).toEqual({
-      page: `${BOSS_WORKFLOWS}?$fields=workflowCode,name`,
-      keys: `${BOSS_WORKFLOWS}?$fields=workflowCode,name`,
-      filterTemplate: "status = 'PUBLISHED' and name ~LIKE '%{{query}}%'",
-    });
-    // No placeholder: the url's own $filter stays for pages, fetchByKeys replaces it; q is just another parameter here.
-    expect(mod.urlForms("/x?$filter=status = 'A'&q=z", "boss")).toEqual({ page: "/x?$filter=status = 'A'&q=z", keys: "/x?q=z", filterTemplate: null });
+    expect(mod.urlForms(BOSS_URL, "boss")).toEqual({ url: `${BOSS_WORKFLOWS}?$fields=workflowCode,name`, fixedFilter: "status = 'PUBLISHED'" });
+    // q is just another parameter here.
+    expect(mod.urlForms("/x?$filter=status = 'A'&q=z", "boss")).toEqual({ url: "/x?q=z", fixedFilter: "status = 'A'" });
     expect(() => mod.urlForms("/x", "odata")).toThrow('createEndpointDataProvider needs dialect "fa" or "boss"');
+  });
+
+  test("the_search_clause_is_a_case_insensitive_contains_on_the_searched_attribute", () => {
+    expect(mod.searchClause("fa", "Supplier", "o'neil 50%")).toBe("UPPER(Supplier) LIKE '%O''NEIL 50%%'");
+    expect(mod.searchClause("boss", "name", "o'neil")).toBe("name ~LIKE '%o''neil%'");
   });
 });
 
 describe("fetchFirst", () => {
-  test("typed_text_goes_into_the_q_clause_quoted_and_the_endpoint_appends_q_limit_offset", async () => {
+  test("typed_text_is_and_ed_to_the_fixed_q_upper_cased_and_the_endpoint_appends_q_limit_offset_encoded", async () => {
     const p = provider([{ items: rows(3), hasMore: false }]);
     const page = await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "Ra" }, size: 25, offset: 0 } });
-    expect(p.urls).toEqual([`${BASE}/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description&q=Description+LIKE+%27Ra%25%27&limit=25&offset=0`]);
+    expect(p.urls).toEqual([`${BASE}/fscmRestApi/resources/11.13.18.05/subinventories?fields=SubinventoryCode,Description&q=%28OrganizationCode%3D%27M1%27%29+and+UPPER%28Description%29+LIKE+%27%25RA%25%27&limit=25&offset=0`]);
+    expect(paramsOf(p.urls[0])).toEqual([["fields", "SubinventoryCode,Description"], ["q", "(OrganizationCode='M1') and UPPER(Description) LIKE '%RA%'"], ["limit", "25"], ["offset", "0"]]);
     expect(page).toEqual({ data: rows(3), hasMore: false });
   });
 
-  test("a_single_quote_in_the_text_doubles_and_the_default_page_size_is_25", async () => {
-    const p = provider([{ items: [] }]);
-    await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "O'Neil" } } });
-    expect(p.urls[0]).toContain("q=Description+LIKE+%27O%27%27Neil%25%27&limit=25&offset=0");
+  test("without_a_fixed_q_the_clause_is_the_whole_q_a_single_quote_doubles_and_every_percent_is_encoded", async () => {
+    const p = provider([{ items: [] }], {}, "/fscmRestApi/resources/11.13.18.05/subinventories");
+    await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "O'Neil 5%" } } });
+    expect(p.urls[0]).toBe(`${BASE}/fscmRestApi/resources/11.13.18.05/subinventories?q=UPPER%28Description%29+LIKE+%27%25O%27%27NEIL+5%25%25%27&limit=25&offset=0`);
+    expect(p.urls[0]).not.toMatch(/%(?![0-9A-F]{2})/);
     expect(mod.DEFAULTS).toEqual({ pageSize: 25, minChars: 1, debounceMs: 250 });
   });
 
-  test("no_text_fetches_the_first_page_with_an_empty_query_and_pageSize_from_the_config", async () => {
+  test("searchField_is_the_searched_attribute_when_given", async () => {
+    const p = provider([{ items: [] }], { searchField: "SubinventoryCode" });
+    await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "120" } } });
+    expect(new URL(p.urls[0]).searchParams.get("q")).toBe("(OrganizationCode='M1') and UPPER(SubinventoryCode) LIKE '%120%'");
+    expect(p.options.textFilterAttributes).toEqual(["SubinventoryCode"]);
+    expect(() => provider([], { searchField: "" })).toThrow("searchField must be a non-empty string");
+  });
+
+  test("no_text_fetches_the_page_with_the_fixed_q_only_and_pageSize_from_the_config", async () => {
     const p = provider([{ items: rows(10), hasMore: true, totalResults: 300 }], { pageSize: 10 });
     const page = await p.hooks.fetchFirst({ fetchParameters: { offset: 20 } });
-    expect(p.urls[0]).toContain("q=Description+LIKE+%27%25%27&limit=10&offset=20");
+    expect(paramsOf(p.urls[0])).toEqual([["fields", "SubinventoryCode,Description"], ["q", "OrganizationCode='M1'"], ["limit", "10"], ["offset", "20"]]);
     expect(page).toEqual({ data: rows(10), hasMore: true, totalSize: 300 });
+    // No fixed q and no text: no q at all (the plain paged list).
+    const bare = provider([{ items: [] }], {}, "/fscmRestApi/resources/x");
+    await bare.hooks.fetchFirst({ fetchParameters: {} });
+    expect(bare.urls).toEqual([`${BASE}/fscmRestApi/resources/x?limit=25&offset=0`]);
   });
 
   test("totalResults_is_asked_for_when_the_fetch_wants_the_row_count", async () => {
@@ -151,20 +174,23 @@ describe("fetchFirst", () => {
     expect(stale).toEqual({ data: [], hasMore: false });
     expect(fresh.data).toEqual(rows(1));
     expect(p.urls).toHaveLength(1);
-    expect(p.urls[0]).toContain("%27Ra%25%27");
+    expect(p.urls[0]).toContain("%27%25RA%25%27");
   });
 
-  test("a_url_without_a_placeholder_is_paged_with_its_own_q_kept_and_no_search", async () => {
-    const p = provider([rows(25)], {}, "/fscmRestApi/resources/x?q=Status='A'");
-    const page = await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "zz" }, size: 25 } });
-    expect(p.urls).toEqual([`${BASE}/fscmRestApi/resources/x?q=Status='A'&limit=25&offset=0`]);
-    expect(page).toEqual({ data: rows(25), hasMore: true }); // a full page with no hasMore in the body
-  });
-
-  test("a_placeholder_outside_q_is_substituted_url_encoded", async () => {
-    const p = provider([[]], {}, "/fscmRestApi/resources/orgs/{{query}}/subinventories");
-    await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "a b'c" } } });
-    expect(p.urls[0]).toBe(`${BASE}/fscmRestApi/resources/orgs/a%20b''c/subinventories?limit=25&offset=0`);
+  test("every_fa_request_carries_rest_framework_version_4_unless_the_datasource_sets_2_or_later", async () => {
+    const p = provider([{ items: [] }, { items: [] }], { headers: { "Effective-Of": "x" } });
+    await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "a" } } });
+    await p.hooks.fetchByKeys({ fetchParameters: { keys: new Set(["k"]) } });
+    expect(p.headers).toEqual([{ "Effective-Of": "x", "REST-Framework-Version": "4" }, { "Effective-Of": "x", "REST-Framework-Version": "4" }]);
+    expect(mod.FA_FRAMEWORK_VERSION).toBe("4");
+    // The datasource's own version (2 or later) is kept as written; a lower one is refused, never overridden.
+    expect(mod.requestHeaders("fa", { "rest-framework-version": "6" })).toEqual({ "rest-framework-version": "6" });
+    expect(() => mod.requestHeaders("fa", { "REST-Framework-Version": "1" }))
+      .toThrow("the datasource header REST-Framework-Version: 1 cannot carry the search filter (Fusion REST expression syntax needs version 2 or later)");
+    expect(() => provider([], { headers: { "REST-Framework-Version": "1" } })).toThrow("cannot carry the search filter");
+    // BOSS: the datasource's headers as they are.
+    expect(mod.requestHeaders("boss", { a: "1" })).toEqual({ a: "1" });
+    expect(mod.requestHeaders("boss")).toEqual({});
   });
 });
 
@@ -204,7 +230,7 @@ describe("response mapping", () => {
     expect(mod.quoteForQ("it's")).toBe("it''s");
   });
 
-  test("the_provider_is_keyed_by_valueField_filters_by_labelField_and_declares_lookup_and_text_filter", () => {
+  test("the_provider_is_keyed_by_valueField_searches_labelField_by_default_and_declares_lookup_and_text_filter", () => {
     const p = provider([]);
     expect(p.options.keyAttributes).toBe("SubinventoryCode");
     expect(p.options.textFilterAttributes).toEqual(["Description"]);
@@ -212,7 +238,7 @@ describe("response mapping", () => {
   });
 
   test("required_options_are_checked", () => {
-    expect(() => mod.createEndpointDataProvider({ dialect: "fa", url: "/x", valueField: "a", labelField: "b" })).toThrow("needs createEndpoint(url)");
+    expect(() => mod.createEndpointDataProvider({ dialect: "fa", url: "/x", valueField: "a", labelField: "b" })).toThrow("needs createEndpoint(url, headers)");
     expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), dialect: "fa", url: "", valueField: "a", labelField: "b" })).toThrow("needs a url");
     expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), dialect: "fa", url: "/x", valueField: "", labelField: "b" })).toThrow("needs valueField");
     expect(() => mod.createEndpointDataProvider({ createEndpoint: () => ({}), dialect: "fa", url: "/x", valueField: "a" })).toThrow("needs labelField");
@@ -225,28 +251,29 @@ describe("response mapping", () => {
 describe("BOSS dialect", () => {
   const WF = (n: number) => Array.from({ length: n }, (_, i) => ({ workflowCode: `WF_${i + 1}`, name: `Invoice flow ${i + 1}` }));
 
-  test("typed_text_goes_into_$filter_quoted_and_the_provider_writes_$limit_$offset_on_the_url", async () => {
+  test("typed_text_is_and_ed_to_the_fixed_$filter_and_the_provider_writes_$limit_$offset_on_the_url", async () => {
     const p = bossProvider([{ items: WF(2), hasMore: true, count: 2, limit: 25, offset: 0 }]);
     const page = await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "O'Ne" }, size: 25, offset: 0 } });
-    expect(p.urls).toEqual([`${BASE}${BOSS_WORKFLOWS}?$fields=workflowCode,name&$filter=status%20%3D%20'PUBLISHED'%20and%20name%20~LIKE%20'%25O''Ne%25'&$limit=25&$offset=0`]);
-    expect(decodeURIComponent(p.urls[0])).toBe(`${BASE}${BOSS_WORKFLOWS}?$fields=workflowCode,name&$filter=status = 'PUBLISHED' and name ~LIKE '%O''Ne%'&$limit=25&$offset=0`);
+    expect(p.urls).toEqual([`${BASE}${BOSS_WORKFLOWS}?$fields=workflowCode,name&$filter=(status%20%3D%20'PUBLISHED')%20and%20name%20~LIKE%20'%25O''Ne%25'&$limit=25&$offset=0`]);
+    expect(decodeURIComponent(p.urls[0])).toBe(`${BASE}${BOSS_WORKFLOWS}?$fields=workflowCode,name&$filter=(status = 'PUBLISHED') and name ~LIKE '%O''Ne%'&$limit=25&$offset=0`);
+    expect(p.urls[0]).not.toMatch(/%(?![0-9A-F]{2})/);
     // BOSS answers {items, hasMore, count, limit, offset}: the rows are items, hasMore is the body's.
     expect(page).toEqual({ data: WF(2), hasMore: true });
+    expect(p.headers).toEqual([{}]);
   });
 
-  test("no_fusion_rest_parameters_and_no_row_count_on_a_boss_url", async () => {
+  test("no_text_sends_the_fixed_$filter_alone_and_no_fusion_rest_parameters_or_row_count", async () => {
     const p = bossProvider([{ items: [] }], { pageSize: 10 });
     await p.hooks.fetchByOffset({ fetchParameters: { offset: 30, includeFilteredRowCount: "enabled" } });
     const u = new URL(p.urls[0]);
     expect([...u.searchParams.keys()]).toEqual(["$fields", "$filter", "$limit", "$offset"]);
-    expect([u.searchParams.get("$filter"), u.searchParams.get("$limit"), u.searchParams.get("$offset")]).toEqual(["status = 'PUBLISHED' and name ~LIKE '%%'", "10", "30"]);
+    expect([u.searchParams.get("$filter"), u.searchParams.get("$limit"), u.searchParams.get("$offset")]).toEqual(["status = 'PUBLISHED'", "10", "30"]);
   });
 
-  test("a_boss_url_without_a_placeholder_keeps_its_$filter_and_has_no_search", async () => {
-    const p = bossProvider([{ items: WF(25), hasMore: false }], {}, `${BOSS_WORKFLOWS}?$filter=status = 'PUBLISHED'&$fields=workflowCode,name`);
-    const page = await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "zz" } } });
-    expect(p.urls).toEqual([`${BASE}${BOSS_WORKFLOWS}?$filter=status = 'PUBLISHED'&$fields=workflowCode,name&$limit=25&$offset=0`]);
-    expect(page.hasMore).toBe(false);
+  test("searchField_and_no_fixed_$filter", async () => {
+    const p = bossProvider([{ items: [] }], { searchField: "workflowCode" }, `${BOSS_WORKFLOWS}?$fields=workflowCode,name`);
+    await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "inv" } } });
+    expect(new URL(p.urls[0]).searchParams.get("$filter")).toBe("workflowCode ~LIKE '%inv%'");
   });
 
   test("keys_become_an_or_chain_$filter_on_the_url_without_its_$filter_numbers_unquoted", async () => {
@@ -254,15 +281,5 @@ describe("BOSS dialect", () => {
     const page = await p.hooks.fetchByKeys({ fetchParameters: { keys: new Set<unknown>(["WF_1", "O'K", 42]) } });
     expect(p.urls).toEqual([`${BASE}${BOSS_WORKFLOWS}?$fields=workflowCode,name&$filter=(workflowCode%20%3D%20'WF_1'%20or%20workflowCode%20%3D%20'O''K'%20or%20workflowCode%20%3D%2042)&$limit=3`]);
     expect(page).toEqual({ data: WF(2), hasMore: false });
-  });
-
-  test("a_placeholder_outside_$filter_is_substituted_url_encoded_and_blanked_for_keys", async () => {
-    const p = bossProvider([{ items: [] }, { items: [] }], {}, "/api/boss/data/objects/ora/x/y/v1/$en/orgs/{{query}}/rows");
-    await p.hooks.fetchFirst({ fetchParameters: { filterCriterion: { text: "a b" } } });
-    await p.hooks.fetchByKeys({ fetchParameters: { keys: new Set(["k"]) } });
-    expect(p.urls).toEqual([
-      `${BASE}/api/boss/data/objects/ora/x/y/v1/$en/orgs/a%20b/rows?$limit=25&$offset=0`,
-      `${BASE}/api/boss/data/objects/ora/x/y/v1/$en/orgs//rows?$filter=(workflowCode%20%3D%20'k')&$limit=1`,
-    ]);
   });
 });

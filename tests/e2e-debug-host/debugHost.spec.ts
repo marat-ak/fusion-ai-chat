@@ -284,13 +284,17 @@ test("agent_written_fa_and_boss_datasources_load_through_the_proxy", async ({ pa
   expect(new Set(fa.map((c) => c.target))).toEqual(new Set(["FA"]));
   expect(new Set(boss.map((c) => c.target))).toEqual(new Set(["BOSS"]));
   expect(fa.map((c) => params(c.path))).toContainEqual(expect.objectContaining({ q: "SubinventoryCode IN ('12026')", limit: "1" }));
-  expect(fa.map((c) => params(c.path))).toContainEqual(expect.objectContaining({ q: "Description LIKE 'Ra%'", offset: "0" }));
+  expect(fa.map((c) => params(c.path))).toContainEqual(expect.objectContaining({ q: "(OrganizationCode='M1') and UPPER(Description) LIKE '%RA%'", offset: "0" }));
+  // Every generated % reached the proxy encoded (%25), never raw.
+  for (const c of [...fa, ...boss]) expect([c.path, /%(?![0-9A-Fa-f]{2})/.test(c.path)]).toEqual([c.path, false]);
   expect(boss.map((c) => params(c.path))).toContainEqual(expect.objectContaining({ $filter: "(workflowCode = 'PAGED_WF_02')", $limit: "1" }));
-  expect(boss.map((c) => params(c.path))).toContainEqual(expect.objectContaining({ $filter: "status = 'PUBLISHED' and name ~LIKE '%Agent 1%'", $offset: "0" }));
+  expect(boss.map((c) => params(c.path))).toContainEqual(expect.objectContaining({ $filter: "(status = 'PUBLISHED') and name ~LIKE '%Agent 1%'", $offset: "0" }));
   const pod = (await podCalls(page)).filter((c) => c.url.startsWith("/fscmRestApi/resources/11.13.18.05/subinventories?")
     || (c.url.startsWith("/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?") && params(c.url).$fields === "workflowCode,name"));
   expect(pod.length).toBe(fa.length + boss.length);
   for (const c of pod) expect(c.headers.authorization).toBe("Bearer fake-pod-token");
+  // The FA calls carry the framework version their expression syntax needs (through the proxy); BOSS calls none.
+  for (const c of pod) expect([c.url.split("?")[0], c.headers["rest-framework-version"]]).toEqual([c.url.split("?")[0], c.url.startsWith("/fscmRestApi/") ? "4" : undefined]);
   await page.waitForTimeout(500);
   await page.screenshot({ path: "test-results/debug-host-datasources.png" });
 });

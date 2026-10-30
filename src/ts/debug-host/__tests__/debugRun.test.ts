@@ -149,8 +149,8 @@ test("agent_written_fa_and_boss_datasources_are_allowed_in_the_debugger", () => 
   const r = validateConfig(runConfig({ workflowCode: "WF_1", version: "DRAFT", gnimsysUi: 1 }));
   if (!r.ok) throw new Error("config must validate");
   const ds = (target: "FA" | "BOSS", url: string) => ({ type: "rest" as const, target, method: "GET" as const, url });
-  expect(inlineRefusal(ds("FA", "/fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'"), r.config.datasources)).toBeNull();
-  expect(inlineRefusal(ds("BOSS", "/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$filter=name ~LIKE '%{{query}}%'"), r.config.datasources)).toBeNull();
+  expect(inlineRefusal(ds("FA", "/fscmRestApi/resources/11.13.18.05/subinventories?q=OrganizationCode='M1'"), r.config.datasources)).toBeNull();
+  expect(inlineRefusal(ds("BOSS", "/api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$filter=status = 'PUBLISHED'"), r.config.datasources)).toBeNull();
 });
 
 test("a_draft_run_config_carries_no_published_via_and_validates", () => {

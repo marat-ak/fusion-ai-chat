@@ -95,7 +95,7 @@
       }
     },
     "dataSource": {
-      "description": "The dashboard REST datasource shape, served by a JET DataProvider (xxx-gnimsys-data/rest/endpoint-data-provider) through the page's endpoints, in the target's query language. Fusion REST (every target but BOSS, e.g. FA /fscmRestApi/resources/...): fetchFirst substitutes the dropdown's typed text into the url's {{query}} placeholder (inside its q parameter; single quotes doubled) and appends limit (config datasources.pageSize, default 25) and offset; fetchByKeys sends q=<valueField> IN ('k1','k2') on the url with its whole q parameter removed. BOSS (Business Objects API, /api/boss/data/objects/ora/<family>/<product>/v1/$en/<object>): the same with the placeholder inside $filter (single quotes doubled), $limit and $offset written on the url (no row count asked for); fetchByKeys sends $filter=(<valueField> = 'k1' or <valueField> = 'k2') (number keys unquoted) on the url with its whole $filter removed, so valueField must identify a row without the url's own filter. Response rows = the body when it is an array, else body.items, else the array at dataTransform.expression (map); hasMore / totalResults are read from the body. GET only. Inline (in a block) only when the config's datasources.allowInline is true and url starts with one of datasources.allowPrefixes; the config overlay widgets[widgetId].fields[fieldId] wins over it.",
+      "description": "The dashboard REST datasource shape, served by a JET DataProvider (xxx-gnimsys-data/rest/endpoint-data-provider) through the page's endpoints, in the target's query language. The url carries FIXED filters only (no placeholder): the chat writes every request's filter itself. Fusion REST (every target but BOSS, e.g. FA /fscmRestApi/resources/...): the url's q (if any) is the fixed filter; without typed text a page is q=<fixed filter>; with typed text q=(<fixed filter>) and UPPER(<searched attribute>) LIKE '%<TEXT>%' (TEXT = the typed text upper-cased, single quotes doubled: a case-insensitive contains; the clause alone without a fixed filter); limit (config datasources.pageSize, default 25) and offset are appended; every Fusion REST request carries REST-Framework-Version: 4 unless headers set it (a value below 2 is refused: the expression syntax needs 2 or later); fetchByKeys sends q=<valueField> IN ('k1','k2') without the fixed filter. BOSS (Business Objects API, /api/boss/data/objects/ora/<family>/<product>/v1/$en/<object>): the same with $filter, the clause <searched attribute> ~LIKE '%<text>%' (single quotes doubled), $limit and $offset written on the url (no row count asked for); fetchByKeys sends $filter=(<valueField> = 'k1' or <valueField> = 'k2') (number keys unquoted) without the fixed filter, so valueField must identify a row by itself. The searched attribute is the select's searchField, else its labelField. Response rows = the body when it is an array, else body.items, else the array at dataTransform.expression (map); hasMore / totalResults are read from the body. GET only. Inline (in a block) only when the config's datasources.allowInline is true and url starts with one of datasources.allowPrefixes; the config overlay widgets[widgetId].fields[fieldId] wins over it.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -131,7 +131,7 @@
         "url": {
           "type": "string",
           "pattern": "^/",
-          "description": "Pod path; {{query}} inside its filter parameter is the server search: q for Fusion REST, e.g. /fscmRestApi/resources/11.13.18.05/subinventories?q=Description LIKE '{{query}}%'&fields=SubinventoryCode,Description; $filter for BOSS, e.g. /api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$filter=status = 'PUBLISHED' and name ~LIKE '%{{query}}%'&$fields=workflowCode,name. Do not put limit/offset ($limit/$offset) in it (the provider appends them)."
+          "description": "Pod path with fixed filters only, never a placeholder (an AI Studio RETURN evaluates {{...}} in its output). Fusion REST: a fixed q (e.g. /fscmRestApi/resources/11.13.18.05/subinventories?q=OrganizationCode='M1'&fields=SubinventoryCode,Description, or no q at all); BOSS: a fixed $filter (e.g. /api/boss/data/objects/ora/commonFusionAI/agents/v1/$en/workflows?$filter=status = 'PUBLISHED'&$fields=workflowCode,name). A % inside a fixed filter is written %25. One filter parameter at most. Do not put limit/offset ($limit/$offset) in it (the provider appends them)."
         },
         "headers": {
           "type": "object",
@@ -207,7 +207,7 @@
       ]
     },
     "selectField": {
-      "description": "oj-c-select-single, or oj-c-select-multiple when multi. Options inline OR from a datasource (dataSource + valueField + labelField), never both or neither.",
+      "description": "oj-c-select-single, or oj-c-select-multiple when multi. Options inline OR from a datasource (dataSource + valueField + labelField, optional searchField + searchTemplate), never both or neither.",
       "allOf": [
         {
           "$ref": "#/$defs/fieldBase"
@@ -262,7 +262,12 @@
             "labelField": {
               "type": "string",
               "minLength": 1,
-              "description": "Row field that becomes the option label (what the dropdown shows and the server search filters by)."
+              "description": "Row field that becomes the option label (what the dropdown shows; also the searched attribute without searchField)."
+            },
+            "searchField": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The attribute the typed text searches (a case-insensitive contains, see dataSource); default labelField. Fusion REST: an attribute of the resource (UPPER(<searchField>) must be valid in its q); BOSS: a field of the object."
             },
             "searchTemplate": {
               "$ref": "#/$defs/searchTemplate"
@@ -288,6 +293,11 @@
                   {
                     "required": [
                       "labelField"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "searchField"
                     ]
                   },
                   {
