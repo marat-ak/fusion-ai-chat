@@ -1,7 +1,7 @@
 import { ARTIFACT_VERSIONS as VERSIONS, CHAT_MODES, IMPLEMENTED_MODES, PUBLISHED_VIA } from "./types";
 import type { ArtifactVersion, ChatConfig, ChatMode, Problem, PublishedVia, RunSettings, ValidateResult, WidgetOverlay } from "./types";
 import { ID_RE } from "../widgets/block";
-import { validateDataSource, validateSourceFields } from "../widgets/datasource";
+import { checkSource, validateDataSource, validateSourceFields } from "../widgets/datasource";
 import type { DataSourceOptions } from "../widgets/datasource";
 export type { ChatConfig, Problem, ValidateResult } from "./types";
 
@@ -233,7 +233,10 @@ export function validateConfig(input: unknown): ValidateResult {
           for (const k of Object.keys(f)) if (!["dataSource", "valueField", "labelField", "searchField", "searchTemplate"].includes(k)) bad(join(fp, k), "unknown key");
           const ds = validateDataSource(f.dataSource, `${fp}.dataSource`, invalid);
           const names = validateSourceFields(f, fp, invalid);
-          if (ds !== undefined && names !== undefined) fields[fid] = { dataSource: ds, ...names };
+          if (ds !== undefined && names !== undefined) {
+            fields[fid] = { dataSource: ds, ...names };
+            checkSource(fields[fid], fp, invalid);
+          }
         }
         widgets[wid] = { fields };
       }

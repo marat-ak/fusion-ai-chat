@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "jetVersion": "^19.0.0",
   "displayName": "Endpoint layer",
-  "description": "DashboardRestHelper and its logger (AMD JavaScript moved from the dashboard pack; typings in index.d.ts), the VB stream provider, and the endpoint data provider (a JET RESTDataProvider over an Endpoint, for datasource-backed selects).",
+  "description": "DashboardRestHelper and its logger (AMD JavaScript moved from the dashboard pack; typings in index.d.ts), the VB stream provider, the endpoint data provider (a JET RESTDataProvider over an Endpoint, for datasource-backed selects) and the report data provider (a JET RESTDataProvider that runs a BI Publisher report through an Endpoint, for report-backed selects).",
   "dependencies": {
     "xxx-gnimsys-data-libs": "0.1.0"
   }

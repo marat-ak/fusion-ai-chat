@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://gnimsys.com/schemas/ai-chat/gnimsys-ui-v1.json",
   "title": "gnimsys-ui block v1",
-  "description": "The JSON inside a fenced ```gnimsys-ui block of an AI Agent Studio reply, rendered by xxx-gnimsys-ai-chat as a form (contract 2026-10-26 rev 2). Every button submits the block's values plus its own data as ONE user message: '<button label> — <title>' (the label alone without a title), a newline, then <gnimsysSubmit id=\"<id>\">{\"<fieldId>\": <value>, ..., <button data>}</gnimsysSubmit> with every field (hidden included), option values never labels, null for an unset single value and [] for an unset multi value, and the clicked button's data merged on top (button keys win). The workflow parses it with /<gnimsysSubmit id=\"([^\"]+)\">(.*?)</gnimsysSubmit>/, JSON.parse of group 2, and routes on the button data (e.g. decision).",
+  "description": "The JSON inside a fenced ```gnimsys-ui block of an AI Agent Studio reply, rendered by xxx-gnimsys-ai-chat as a form (contract 2026-10-26 rev 2). Every button submits the block's values plus its own data as ONE user message: '<button label> — <title>' (the label alone without a title), a newline, then <gnimsysSubmit id=\"<id>\">{\"<fieldId>\": <value>, ..., <button data>}</gnimsysSubmit> with every field (hidden included), option values never labels, null for an unset single value and [] for an unset multi value, and the clicked button's data merged on top (button keys win). Rev 5: a select with submit item carries its whole selected row instead (an object, null when unset; multi: an array of objects in selection order, [] when unset). The workflow parses it with /<gnimsysSubmit id=\"([^\"]+)\">(.*?)</gnimsysSubmit>/, JSON.parse of group 2, and routes on the button data (e.g. decision).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -74,6 +74,50 @@
         }
       }
     },
+    "rowOption": {
+      "description": "Rev 5: an inline option of a select that shows a table (collectionTemplateTable) or submits items (submit item): a row whose value and label are required and whose other fields (scalars, booleans, null) are table cells and part of the submitted item.",
+      "type": "object",
+      "required": [
+        "value",
+        "label"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/scalar",
+          "description": "The option's key; unique within the field."
+        },
+        "label": {
+          "type": "string",
+          "description": "What the input shows once picked."
+        }
+      },
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ]
+      }
+    },
+    "tableColumn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field"
+      ],
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The row field the column shows (unique within the table): a report column, a REST row field, or an inline option's field (value, label or its own)."
+        },
+        "headerText": {
+          "type": "string",
+          "description": "The column header; default the field."
+        }
+      }
+    },
     "describedOption": {
       "type": "object",
       "additionalProperties": false,
@@ -95,6 +139,124 @@
       }
     },
     "dataSource": {
+      "description": "A select's datasource: the dashboard REST shape (type rest) or a BI Publisher report (type BIPReport, rev 5).",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/restDataSource"
+        },
+        {
+          "$ref": "#/$defs/reportDataSource"
+        }
+      ]
+    },
+    "reportDataSource": {
+      "description": "Rev 5: a BI Publisher report as a select's options, the dashboard's BIPReport datasource in its explicit form (no auto-discovery), served by a JET DataProvider (xxx-gnimsys-data/rest/report-data-provider) through the page's FA endpoint. Each run is POST /xmlpserver/services/ExternalReportWSSService (SOAP 1.2 runReport, Content-Type application/soap+xml; charset=utf-8, attributeFormat xml, sizeOfDataChunkDownload -1) with the fixed parameters, plus searchParam = the typed text as typed ('' when nothing is typed) when searchParam is given. The rows are the recordSelector elements inside the first recordsetSelector element of the report's data XML (reportBytes); a row's field = its child element named after the column (absent = null; BIP leaves NULL values out); type 2 = a number, otherwise text. With searchParam every distinct typed text is one report run (searchTemplate minChars / debounceMs apply) and the report does the matching; without it the report runs once and the typed text filters its rows in the chat (case-insensitive contains on the select's searchField, else labelField). Rows are paged in the chat (config datasources.pageSize). fetchByKeys (the selected value's label) answers from the rows seen so far, else from the unsearched run. No {{...}} anywhere: an AI Studio RETURN evaluates it. Inline (in a block) only when the config's datasources.allowInline is true and datasources.allowPrefixes holds a prefix of /xmlpserver/services/ExternalReportWSSService (e.g. /xmlpserver/); the config overlay widgets[widgetId].fields[fieldId] may carry one too. valueField, labelField and searchField are columns (checked by the component); searchField does not apply with searchParam, searchTemplate needs searchParam.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "target",
+        "reportName",
+        "recordsetSelector",
+        "recordSelector",
+        "columns"
+      ],
+      "properties": {
+        "type": {
+          "const": "BIPReport"
+        },
+        "target": {
+          "const": "FA",
+          "description": "The endpoint (service connection) the report service is called through; the service is a pod path of FA."
+        },
+        "reportName": {
+          "type": "string",
+          "pattern": "^/.+\\.xdo$",
+          "description": "The report's absolute catalog path, e.g. /Custom/Gnimsys/LOV/SUPPLIER_SITES.xdo."
+        },
+        "recordsetSelector": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The element that wraps the rows (the data model's root, e.g. DATA_DS)."
+        },
+        "recordSelector": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The element of one row (the data set's group, e.g. G_1)."
+        },
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/reportColumn"
+          },
+          "description": "The row fields read from each row element (names unique); a row is exactly these fields."
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reportParameter"
+          },
+          "description": "Fixed parameter values sent with every run (names unique, not the searchParam)."
+        },
+        "searchParam": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The report parameter that takes the dropdown's typed text (bound declaratively: never a template); not one of parameters."
+        }
+      }
+    },
+    "reportColumn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The column as the data model names it (its element name; a name that is not an XML name is matched in BIP's _xHHHH_ form)."
+        },
+        "type": {
+          "enum": [
+            1,
+            2
+          ],
+          "description": "1 = text (also without type; dates come as the report writes them), 2 = number (an empty element is null)."
+        }
+      }
+    },
+    "reportParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/scalar"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/scalar"
+              }
+            }
+          ],
+          "description": "The value as the report expects it (sent as text); an array = a multi-value parameter (one value item each)."
+        }
+      }
+    },
+    "restDataSource": {
       "description": "The dashboard REST datasource shape, served by a JET DataProvider (xxx-gnimsys-data/rest/endpoint-data-provider) through the page's endpoints, in the target's query language. The url carries FIXED filters only (no placeholder): the chat writes every request's filter itself. Fusion REST (every target but BOSS, e.g. FA /fscmRestApi/resources/...): the url's q (if any) is the fixed filter; without typed text a page is q=<fixed filter>; with typed text q=(<fixed filter>) and UPPER(<searched attribute>) LIKE '%<TEXT>%' (TEXT = the typed text upper-cased, single quotes doubled: a case-insensitive contains; the clause alone without a fixed filter); limit (config datasources.pageSize, default 25) and offset are appended; every Fusion REST request carries REST-Framework-Version: 4 unless headers set it (a value below 2 is refused: the expression syntax needs 2 or later); fetchByKeys sends q=<valueField> IN ('k1','k2') without the fixed filter. BOSS (Business Objects API, /api/boss/data/objects/ora/<family>/<product>/v1/$en/<object>): the same with $filter, the clause <searched attribute> ~LIKE '%<text>%' (single quotes doubled), $limit and $offset written on the url (no row count asked for); fetchByKeys sends $filter=(<valueField> = 'k1' or <valueField> = 'k2') (number keys unquoted) without the fixed filter, so valueField must identify a row by itself. The searched attribute is the select's searchField, else its labelField. Response rows = the body when it is an array, else body.items, else the array at dataTransform.expression (map); hasMore / totalResults are read from the body. GET only. Inline (in a block) only when the config's datasources.allowInline is true and url starts with one of datasources.allowPrefixes; the config overlay widgets[widgetId].fields[fieldId] wins over it.",
       "type": "object",
       "additionalProperties": false,
@@ -207,10 +369,49 @@
       ]
     },
     "selectField": {
-      "description": "oj-c-select-single, or oj-c-select-multiple when multi. Options inline OR from a datasource (dataSource + valueField + labelField, optional searchField + searchTemplate), never both or neither.",
+      "description": "oj-c-select-single, or oj-c-select-multiple when multi. Options inline OR from a datasource (dataSource + valueField + labelField, optional searchField + searchTemplate), never both or neither. Rev 5: collectionTemplateTable shows the dropdown as a table (single: a row click / Enter picks; multi: the row selection is the value); submit item makes the envelope carry the whole selected row(s) instead of the value(s); an inline option is a row (more fields allowed) when either is present.",
       "allOf": [
         {
           "$ref": "#/$defs/fieldBase"
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "collectionTemplateTable"
+                ]
+              },
+              {
+                "required": [
+                  "submit"
+                ],
+                "properties": {
+                  "submit": {
+                    "const": "item"
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "options": {
+                "items": {
+                  "$ref": "#/$defs/rowOption"
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "options": {
+                "items": {
+                  "$ref": "#/$defs/option"
+                }
+              }
+            }
+          }
         },
         {
           "type": "object",
@@ -227,6 +428,22 @@
               "type": "boolean",
               "default": false
             },
+            "collectionTemplateTable": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/tableColumn"
+              },
+              "description": "Rev 5 (the dashboard's collectionTemplateTable, as an ordered array): the dropdown shows an oj-c-table of these columns over the select's rows (the typed text highlighted); the input still shows labelField (inline: label) once picked. Fields are checked against a report's columns and against inline options; a REST row's fields are not known to the chat."
+            },
+            "submit": {
+              "enum": [
+                "value",
+                "item"
+              ],
+              "default": "value",
+              "description": "Rev 5: what the envelope carries for this field. value (default): the option value (key), an array of them for multi. item: the whole selected row as the select's data has it (a report row = its columns; a REST row = every field the resource returned; an inline option = value, label and its other fields), one object for single (null when unset), an array of objects in selection order for multi ([] when unset). value presets stay keys either way."
+            },
             "value": {
               "oneOf": [
                 {
@@ -242,14 +459,12 @@
                   }
                 }
               ],
-              "description": "Scalar (single) or array (multi)."
+              "description": "Scalar (single) or array (multi): option values (keys), also with submit item."
             },
             "options": {
               "type": "array",
               "minItems": 1,
-              "items": {
-                "$ref": "#/$defs/option"
-              }
+              "description": "Inline options: {value, label} each, or rows (rowOption) when the select has collectionTemplateTable or submit item."
             },
             "dataSource": {
               "$ref": "#/$defs/dataSource"
@@ -267,7 +482,7 @@
             "searchField": {
               "type": "string",
               "minLength": 1,
-              "description": "The attribute the typed text searches (a case-insensitive contains, see dataSource); default labelField. Fusion REST: an attribute of the resource (UPPER(<searchField>) must be valid in its q); BOSS: a field of the object."
+              "description": "The attribute the typed text searches (a case-insensitive contains, see dataSource); default labelField. Fusion REST: an attribute of the resource (UPPER(<searchField>) must be valid in its q); BOSS: a field of the object; BIPReport without searchParam: the column the chat filters the report's rows on (not allowed with searchParam: the report searches)."
             },
             "searchTemplate": {
               "$ref": "#/$defs/searchTemplate"
@@ -480,7 +695,7 @@
     "searchTemplate": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Typed-text search of a datasource select: minChars (default 1) before a request is made, debounceMs (default 250) between the last keystroke and the request.",
+      "description": "Typed-text search of a datasource select: minChars (default 1) before a request is made, debounceMs (default 250) between the last keystroke and the request. A BIPReport datasource takes it only with searchParam (without it the typed text filters locally, no request).",
       "properties": {
         "minChars": {
           "type": "integer",

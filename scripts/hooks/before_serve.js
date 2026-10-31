@@ -38,12 +38,12 @@ module.exports = function (configObj) {
         configObj.preMiddleware = [
           createProxyMiddleware({
             target: 'http://localhost:8787',
-            pathFilter: ['/api', '/fscmRestApi', '/hcmRestApi'],
+            pathFilter: ['/api', '/fscmRestApi', '/hcmRestApi', '/xmlpserver'],
             changeOrigin: false,
             ws: false,
           }),
         ];
-        console.log('[Hook] MOCK_POD=1: proxying /api, /fscmRestApi, /hcmRestApi to http://localhost:8787');
+        console.log('[Hook] MOCK_POD=1: proxying /api, /fscmRestApi, /hcmRestApi, /xmlpserver to http://localhost:8787');
       }
 
       // Pass the Express instance (with CORS) to the JET tooling

@@ -187,6 +187,66 @@ describe("parseBlock", () => {
   });
 });
 
+describe("rev 5: dropdown table, item submit, report datasource", () => {
+  const report = {
+    type: "BIPReport", target: "FA", reportName: "/Custom/Gnimsys/LOV/SUPPLIER_SITES.xdo", recordsetSelector: "DATA_DS", recordSelector: "G_1",
+    columns: [{ name: "VENDOR_SITE_ID", type: 2 }, { name: "VENDOR_NAME" }, { name: "SITE_CODE" }, { name: "SITE_LABEL" }],
+    parameters: [{ name: "P_BU_NAME", value: "US1" }], searchParam: "P_SEARCH",
+  };
+  const site = {
+    id: "site", type: "select", dataSource: report, valueField: "VENDOR_SITE_ID", labelField: "SITE_LABEL",
+    collectionTemplateTable: [{ field: "VENDOR_NAME", headerText: "Supplier" }, { field: "SITE_CODE" }], submit: "item",
+  };
+  const form = (...fields: unknown[]) => ({ v: 1, kind: "form", id: "f", buttons, fields });
+
+  test("a_report_select_with_a_table_and_item_submit_parses", () => {
+    expect(ok(form(site)).fields[0]).toEqual({
+      id: "site", type: "select", required: false, multi: false, value: null, submit: "item",
+      collectionTemplateTable: [{ field: "VENDOR_NAME", headerText: "Supplier" }, { field: "SITE_CODE" }],
+      source: { dataSource: report, valueField: "VENDOR_SITE_ID", labelField: "SITE_LABEL", fromConfig: false },
+    });
+  });
+
+  test("submit_defaults_to_value_and_takes_value_or_item_only", () => {
+    expect(ok(subinv).fields[0]).toMatchObject({ type: "select", submit: "value" });
+    expect(reason(form({ ...site, submit: "row" }))).toContain('fields[0].submit: must be "value" or "item"');
+    expect(reason({ ...subinv, fields: [{ id: "r", type: "radio", submit: "item", options: [{ value: 1, label: "1" }] }] })).toContain("fields[0].submit: unknown key");
+  });
+
+  test("inline_options_are_rows_only_with_a_table_or_item_submit", () => {
+    const rows = [{ value: "S1", label: "Smith — NYC", supplier: "Smith", site: "NYC", active: true, city: null }];
+    const withTable = ok(form({ id: "s", type: "select", options: rows, collectionTemplateTable: [{ field: "supplier" }, { field: "site" }] })).fields[0];
+    expect(withTable).toMatchObject({ options: rows, submit: "value" });
+    expect(ok(form({ id: "s", type: "select", options: rows, submit: "item" })).fields[0]).toMatchObject({ options: rows, submit: "item" });
+    // A plain select keeps {value, label} only; a row field must be a scalar, boolean or null.
+    expect(reason(form({ id: "s", type: "select", options: rows }))).toContain("fields[0].options[0].supplier: unknown key");
+    expect(reason(form({ id: "s", type: "select", submit: "item", options: [{ value: 1, label: "1", nested: { a: 1 } }] })))
+      .toContain("fields[0].options[0].nested: must be a string, number, boolean or null (a row field)");
+  });
+
+  test("table_columns_are_checked_where_the_row_fields_are_known", () => {
+    expect(reason(form({ ...site, collectionTemplateTable: [{ field: "CITY" }] }))).toContain('fields[0].collectionTemplateTable[0].field: "CITY" is not one of the report\'s columns');
+    expect(reason(form({ id: "s", type: "select", options: [{ value: 1, label: "1" }], collectionTemplateTable: [{ field: "site" }] })))
+      .toContain('fields[0].collectionTemplateTable[0].field: "site" is not a field of any option');
+    expect(reason(form({ ...site, collectionTemplateTable: [] }))).toContain("fields[0].collectionTemplateTable: must be a non-empty array of { field, headerText? }");
+    expect(reason(form({ ...site, collectionTemplateTable: [{ field: "VENDOR_NAME" }, { field: "VENDOR_NAME" }] }))).toContain('collectionTemplateTable[1].field: duplicate column field "VENDOR_NAME"');
+    expect(reason(form({ ...site, collectionTemplateTable: [{ field: "VENDOR_NAME", width: 3 }] }))).toContain("collectionTemplateTable[0].width: unknown key");
+    // A REST row's fields are not known here: any field is accepted.
+    const rest = { type: "rest", target: "FA", method: "GET", url: "/fscmRestApi/resources/x" };
+    expect(ok(form({ id: "s", type: "select", dataSource: rest, valueField: "Code", labelField: "Name", collectionTemplateTable: [{ field: "Anything" }] })).fields[0])
+      .toMatchObject({ collectionTemplateTable: [{ field: "Anything" }] });
+  });
+
+  test("a_report_source_names_its_columns_and_the_search_keys_that_apply", () => {
+    expect(reason(form({ ...site, valueField: "VENDOR_ID" }))).toContain('fields[0].valueField: "VENDOR_ID" is not one of the report\'s columns');
+    expect(reason(form({ ...site, searchField: "SITE_CODE" }))).toContain("fields[0].searchField: does not apply with dataSource.searchParam (the report searches)");
+    const { searchParam: _s, ...local } = report;
+    expect(ok(form({ ...site, dataSource: local, searchField: "SITE_CODE" })).fields[0]).toMatchObject({ source: { searchField: "SITE_CODE" } });
+    expect(reason(form({ ...site, dataSource: local, searchTemplate: { minChars: 2 } }))).toContain("fields[0].searchTemplate: needs dataSource.searchParam");
+    expect(ok(form({ ...site, searchTemplate: { minChars: 2 } })).fields[0]).toMatchObject({ source: { searchTemplate: { minChars: 2 } } });
+  });
+});
+
 describe("applyOverlay", () => {
   const ds = { dataSource: { type: "rest" as const, target: "FA" as const, method: "GET" as const, url: "/fscmRestApi/resources/subinventories?q=OrganizationCode='M1'" }, valueField: "Code", labelField: "Name", searchTemplate: { minChars: 3 } };
 

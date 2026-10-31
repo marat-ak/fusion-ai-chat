@@ -299,6 +299,40 @@ test("agent_written_fa_and_boss_datasources_load_through_the_proxy", async ({ pa
   await page.screenshot({ path: "test-results/debug-host-datasources.png" });
 });
 
+test("agent_written_report_datasource_runs_through_the_proxy_fa_target", async ({ page }) => {
+  // Mock pod /debug "pick supplier site": a single select over the SUPPLIER_SITES report searched by its P_SEARCH, shown
+  // as a table, submitting the whole row; the runReport POST goes through the conversation's proxy under FA.
+  await page.goto(debuggerUrl("u1__dev1", "DRAFT"));
+  await expect(page.getByTestId("dbg-bound")).toHaveText("Workflow MOCK_WF · DRAFT · dev1");
+  await page.getByTestId("gai-composer-input").locator("textarea").fill("pick supplier site");
+  await page.getByTestId("gai-composer-send").locator("button").click();
+  const widget = page.getByTestId("gai-widget");
+  await expect(widget).toBeVisible();
+  const site = widget.getByTestId("gai-widget-field-site");
+  await expect(site).not.toContainText("datasource not allowed");
+  await site.locator("input").fill("smith");
+  await expect(page.getByRole("columnheader")).toHaveText(["Supplier", "Number", "Site", "City"]);
+  await page.getByRole("gridcell", { name: "CHI-01" }).click();
+  await expect(site.locator("input")).toHaveValue("Smith & Sons — CHI-01");
+  await widget.getByTestId("gai-widget-button-ok").locator("button").click();
+  const messages = async (): Promise<string[]> => (await podCalls(page)).filter((c) => c.url.endsWith("/MOCK_WF/debug")).map((c) => (c.body as { message: string }).message);
+  await expect.poll(async () => (await messages()).at(-1)).toBe(
+    'OK — Pick the supplier site\n<gnimsysSubmit id="supplierSite">{"site":{"VENDOR_SITE_ID":400002,"VENDOR_NAME":"Smith & Sons","VENDOR_NUMBER":"S1001",'
+    + '"VENDOR_SITE_CODE":"CHI-01","CITY":"Chicago","SITE_LABEL":"Smith & Sons — CHI-01"},"notify":[],"decision":"OK"}</gnimsysSubmit>',
+  );
+
+  // Every report run: POST through the conversation's proxy under FA to the report service, the SOAP content type
+  // forwarded; the pod got the bound sign-in's bearer and the runReport body with the typed text in P_SEARCH.
+  const runs = (await proxyCalls(page)).filter((c) => c.path === "/xmlpserver/services/ExternalReportWSSService");
+  expect(runs.length).toBeGreaterThanOrEqual(1);
+  for (const c of runs) expect([c.method, c.conversation, c.target, c.headers["content-type"]]).toEqual(["POST", "u1__dev1", "FA", "application/soap+xml; charset=utf-8"]);
+  const pod = (await podCalls(page)).filter((c) => c.url === "/xmlpserver/services/ExternalReportWSSService");
+  expect(pod.length).toBe(runs.length);
+  for (const c of pod) expect([c.method, c.headers.authorization, c.headers["content-type"]]).toEqual(["POST", "Bearer fake-pod-token", "application/soap+xml; charset=utf-8"]);
+  expect(pod.some((c) => String(c.body).includes("<pub:name>P_SEARCH</pub:name><pub:values><pub:item>smith</pub:item></pub:values>"))).toBe(true);
+  expect(pod.every((c) => String(c.body).includes("<pub:reportAbsolutePath>/Custom/Gnimsys/LOV/SUPPLIER_SITES.xdo</pub:reportAbsolutePath>"))).toBe(true);
+});
+
 test("fa_tokenrelay_is_denied_by_the_proxy_and_other_fa_paths_pass", async ({ page }) => {
   // The proxy's per-target deny paths (FA: /fscmRestApi/tokenrelay): the path itself or anything under it, any letter case,
   // is refused 403 path-denied although FA takes any pod path; nothing reaches the pod.

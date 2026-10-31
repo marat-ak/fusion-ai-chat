@@ -1,4 +1,4 @@
-import { inlineRefusal, sourceRefusal, validateDataSource, validateSourceFields } from "../widgets/datasource";
+import { BIP_SERVICE_PATH, checkSource, inlineRefusal, podPathOf, sourceRefusal, validateDataSource, validateSourceFields } from "../widgets/datasource";
 import type { DataSourceDef } from "../widgets/datasource";
 import type { Problem } from "../config/types";
 import { validateConfig } from "../config/validate";
@@ -39,7 +39,7 @@ describe("validateDataSource", () => {
   });
 
   test("refuses_other_types_targets_methods_urls_and_keys", () => {
-    expect(check({ ...ds, type: "sql" })).toContain('ds.type: must be "rest"');
+    expect(check({ ...ds, type: "sql" })).toContain('ds.type: must be "rest" or "BIPReport"');
     expect(check({ ...ds, target: "OTHER" })).toContain("ds.target: must be one of FA, FUAI, BOSS, SAASBATCH, KM, SALESCOMMON");
     expect(check({ ...ds, method: "FETCH" })).toContain("ds.method: must be one of GET, POST, PUT, PATCH, DELETE");
     expect(check({ ...ds, url: "https://evil.example.com/x" })).toContain("ds.url: must be a pod path starting with /");
@@ -61,6 +61,80 @@ describe("validateDataSource", () => {
       "f.searchTemplate.x: unknown key",
       "f.searchTemplate.debounceMs: must be a non-negative integer",
     ]);
+  });
+});
+
+describe("BIPReport datasource (rev 5)", () => {
+  const report: DataSourceDef = {
+    type: "BIPReport", target: "FA", reportName: "/Custom/Gnimsys/LOV/SUPPLIER_SITES.xdo", recordsetSelector: "DATA_DS", recordSelector: "G_1",
+    columns: [{ name: "VENDOR_SITE_ID", type: 2 }, { name: "SITE_LABEL" }, { name: "SITE_CODE", type: 1 }],
+    parameters: [{ name: "P_BU_NAME", value: "US1" }, { name: "P_TYPES", value: ["A", 2] }], searchParam: "P_SEARCH",
+  };
+  const check = (v: unknown): string[] => {
+    const problems: Problem[] = [];
+    validateDataSource(v, "ds", problems);
+    return problems.map((p) => `${p.path}: ${p.message}`);
+  };
+
+  test("accepts_the_explicit_report_shape", () => {
+    const problems: Problem[] = [];
+    expect(validateDataSource(report, "ds", problems)).toEqual(report);
+    expect(problems).toEqual([]);
+    const { parameters: _p, searchParam: _s, ...bare } = report;
+    expect(validateDataSource(bare, "ds", problems)).toEqual(bare);
+  });
+
+  test("every_required_input_is_explicit_and_checked", () => {
+    const { reportName: _r, ...noPath } = report;
+    expect(check(noPath)).toContain("ds.reportName: must be the report's absolute catalog path, /…/NAME.xdo");
+    expect(check({ ...report, reportName: "Custom/x.xdo" })).toContain("ds.reportName: must be the report's absolute catalog path, /…/NAME.xdo");
+    const { target: _t, ...noTarget } = report;
+    expect(check(noTarget)).toContain('ds.target: must be "FA" (the report service is a pod path of the FA endpoint)');
+    expect(check({ ...report, target: "BOSS" })).toContain('ds.target: must be "FA" (the report service is a pod path of the FA endpoint)');
+    expect(check({ ...report, recordSelector: "" })).toContain("ds.recordSelector: must be a non-empty string");
+    expect(check({ ...report, columns: [] })).toContain("ds.columns: must be a non-empty array");
+    expect(check({ ...report, columns: [{ name: "A", type: 12 }] })).toContain("ds.columns[0].type: must be 1 (text) or 2 (number)");
+    expect(check({ ...report, columns: [{ name: "A" }, { name: "A" }] })).toContain('ds.columns[1].name: duplicate column "A"');
+    expect(check({ ...report, parameters: [{ name: "P" }] })).toContain("ds.parameters[0].value: must be a string, a number or a non-empty array of them");
+    expect(check({ ...report, parameters: [{ name: "P", value: [] }] })).toContain("ds.parameters[0].value: must be a string, a number or a non-empty array of them");
+    expect(check({ ...report, parameters: [{ name: "P", value: "a", defaultValue: "b" }] })).toContain("ds.parameters[0].defaultValue: unknown key");
+    expect(check({ ...report, parameters: [{ name: "P", value: "a" }, { name: "P", value: "b" }] })).toContain('ds.parameters[1].name: duplicate parameter "P"');
+    expect(check({ ...report, searchParam: "P_BU_NAME" })).toContain('ds.searchParam: "P_BU_NAME" is also a fixed parameter');
+    // The dashboard's discovery / sql / tree keys are not part of the chat's shape.
+    expect(check({ ...report, datasetName: "G_1" })).toContain("ds.datasetName: unknown key");
+    expect(check({ ...report, filterMode: "server" })).toContain("ds.filterMode: unknown key");
+    expect(check({ ...report, type: "sql" })).toContain('ds.type: must be "rest" or "BIPReport"');
+  });
+
+  test("an_inline_report_is_gated_on_the_report_service_path", () => {
+    expect(podPathOf(report)).toBe(BIP_SERVICE_PATH);
+    expect(inlineRefusal(report, { ...policy, allowPrefixes: ["/fscmRestApi/resources/"] }))
+      .toBe("datasource not allowed: report /Custom/Gnimsys/LOV/SUPPLIER_SITES.xdo runs through /xmlpserver/services/ExternalReportWSSService, which is not under datasources.allowPrefixes");
+    expect(inlineRefusal(report, { ...policy, allowPrefixes: ["/xmlpserver/"] })).toBeNull();
+    expect(inlineRefusal(report, { ...policy, allowInline: false, allowPrefixes: ["/xmlpserver/"] })).toBe("datasource not allowed: datasources.allowInline is off");
+    expect(sourceRefusal(report)).toBeNull();
+  });
+
+  test("check_source_rules", () => {
+    const problems: Problem[] = [];
+    checkSource({ dataSource: report, valueField: "VENDOR_SITE_ID", labelField: "SITE_LABEL" }, "f", problems);
+    expect(problems).toEqual([]);
+    checkSource({ dataSource: report, valueField: "ID", labelField: "SITE_LABEL", searchField: "SITE_CODE" }, "f", problems);
+    checkSource({ dataSource: { ...report, searchParam: undefined } as DataSourceDef, valueField: "VENDOR_SITE_ID", labelField: "SITE_LABEL", searchTemplate: {} }, "g", problems);
+    checkSource({ dataSource: ds, valueField: "anything", labelField: "goes", searchField: "x" }, "h", problems);
+    expect(problems.map((p) => `${p.path}: ${p.message}`)).toEqual([
+      'f.valueField: "ID" is not one of the report\'s columns',
+      "f.searchField: does not apply with dataSource.searchParam (the report searches)",
+      "g.searchTemplate: needs dataSource.searchParam (without it the typed text filters the report's rows locally, no request)",
+    ]);
+  });
+
+  test("a_config_overlay_may_carry_a_report_and_its_rules_are_config_errors", () => {
+    const min = { mode: "chat", agent: { workflowCode: "WF_1" }, auth: { kind: "fusionShell" }, protocol: { checkVersion: "2607100" } };
+    const r = validateConfig({ ...min, widgets: { w: { fields: { f: { dataSource: report, valueField: "VENDOR_SITE_ID", labelField: "SITE_LABEL" } } } } });
+    expect(r.ok && r.config.widgets).toEqual({ w: { fields: { f: { dataSource: report, valueField: "VENDOR_SITE_ID", labelField: "SITE_LABEL" } } } });
+    const bad = validateConfig({ ...min, widgets: { w: { fields: { f: { dataSource: report, valueField: "VENDOR_SITE_ID", labelField: "NAME" } } } } });
+    expect(bad.ok ? [] : bad.problems.map((p) => `${p.path}: ${p.message}`)).toContain('widgets.w.fields.f.labelField: "NAME" is not one of the report\'s columns');
   });
 });
 

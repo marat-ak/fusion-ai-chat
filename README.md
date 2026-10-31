@@ -428,6 +428,41 @@ A radio choice (option `description` renders under the label, like the engine's 
 ```
 ````
 
+A select over a BI Publisher report (rev 5), its dropdown a table, submitting the whole picked row (`submit: "item"`) —
+the supplier and the site in one pick; plus a multi select over the same report (run once, filtered in the chat):
+
+````markdown
+```gnimsys-ui
+{ "v": 1, "kind": "form", "id": "supplierSite", "title": "Pick the supplier site",
+  "fields": [
+    { "id": "site", "type": "select", "label": "Supplier site", "required": true,
+      "dataSource": { "type": "BIPReport", "target": "FA", "reportName": "/Custom/Gnimsys/LOV/SUPPLIER_SITES.xdo",
+                      "recordsetSelector": "DATA_DS", "recordSelector": "G_1",
+                      "columns": [ { "name": "VENDOR_SITE_ID", "type": 2 }, { "name": "VENDOR_NAME" }, { "name": "VENDOR_NUMBER" },
+                                   { "name": "VENDOR_SITE_CODE" }, { "name": "CITY" }, { "name": "SITE_LABEL" } ],
+                      "parameters": [ { "name": "P_BU_NAME", "value": "US1 Business Unit" } ],
+                      "searchParam": "P_SEARCH" },
+      "valueField": "VENDOR_SITE_ID", "labelField": "SITE_LABEL", "searchTemplate": { "minChars": 2 },
+      "collectionTemplateTable": [ { "field": "VENDOR_NAME", "headerText": "Supplier" }, { "field": "VENDOR_NUMBER", "headerText": "Number" },
+                                   { "field": "VENDOR_SITE_CODE", "headerText": "Site" }, { "field": "CITY", "headerText": "City" } ],
+      "submit": "item" },
+    { "id": "notify", "type": "select", "multi": true, "label": "Also notify",
+      "dataSource": { "type": "BIPReport", "target": "FA", "reportName": "/Custom/Gnimsys/LOV/SUPPLIER_SITES.xdo",
+                      "recordsetSelector": "DATA_DS", "recordSelector": "G_1",
+                      "columns": [ { "name": "VENDOR_SITE_ID", "type": 2 }, { "name": "VENDOR_NAME" }, { "name": "VENDOR_SITE_CODE" }, { "name": "SITE_LABEL" } ],
+                      "parameters": [ { "name": "P_BU_NAME", "value": "US1 Business Unit" } ] },
+      "valueField": "VENDOR_SITE_ID", "labelField": "SITE_LABEL", "searchField": "VENDOR_SITE_CODE",
+      "collectionTemplateTable": [ { "field": "VENDOR_NAME", "headerText": "Supplier" }, { "field": "VENDOR_SITE_CODE", "headerText": "Site" } ],
+      "submit": "item" } ],
+  "buttons": [ { "id": "ok", "label": "OK", "data": { "decision": "OK" } }, { "id": "back", "label": "Back", "validate": false, "data": { "decision": "BACK" } } ] }
+```
+````
+
+Inline options can be rows too — when the select has `collectionTemplateTable` or `submit: "item"`, an option may carry
+more fields (strings, numbers, booleans, `null`) next to `value` and `label` (a CODE node's candidates):
+`"options": [ { "value": "C1", "label": "Smith & Sons — NYC-01", "supplier": "Smith & Sons", "site": "NYC-01", "taxId": "11-111" } ]`
+with `"collectionTemplateTable": [ { "field": "supplier", "headerText": "Supplier" }, { "field": "site", "headerText": "Site" } ]`.
+
 A checkbox list + hidden turn state + three buttons (one with an inline confirmation):
 
 ````markdown
@@ -450,6 +485,17 @@ makes a button refuse to submit while a `required` field is empty, `validate: fa
 there; `confirm` asks "<confirm> — OK / Cancel" inline first. Every button submits the same values plus its own `data`
 — there is no non-submitting button.
 
+Select keys of rev 5 (all optional; a block without them behaves as before):
+
+- `collectionTemplateTable`: `[ { "field": "<row field>", "headerText"?: "<header>" }, … ]` (≥ 1, each field once; the
+  dashboard's key, written as an ordered array). The dropdown is an `oj-c-table` of these columns over the select's rows
+  (the select's `collectionTemplate` slot; the typed text is highlighted in every cell): a single select picks a row on
+  click / Enter, a multi select's value is the table's row selection (checkboxes). The input still shows `labelField`
+  (inline: `label`). A field must be a report column (report source) or a field of some option (inline options); a REST
+  row's fields are not known to the chat, so a wrong one shows an empty column.
+- `submit`: `"value"` (default: the option value, as before) or `"item"` (the whole selected row, see below). `value`
+  presets stay keys either way.
+
 ### The submit envelope
 
 One click = ONE user message: the readable line (`<button label> — <title>`, the label alone without a title), a
@@ -460,6 +506,22 @@ unset single value, `[]` for an unset multi value — and the clicked button's `
 Approve — Select the destination subinventory
 <gnimsysSubmit id="destSubinv">{"subinv":"12200","txnRef":"KRN-TXN-1","decision":"APPROVE"}</gnimsysSubmit>
 ```
+
+A select with `submit: "item"` carries its whole selected row instead of the value: one object for a single select
+(`null` when unset), an array of objects in the order the user picked them for a multi select (`[]` when unset). The
+row is what the select's data has: a report row = exactly its declared `columns` (typed: `type` 2 a number, else text,
+`null` for an element BIP left out); a REST row = every field the resource returned (Fusion REST rows carry `links`
+unless the url asks `onlyData=true`; restrict with `fields=` / `$fields`); an inline option = its `value`, `label` and
+its other fields, in the agent's order. For the block above:
+
+```
+OK — Pick the supplier site
+<gnimsysSubmit id="supplierSite">{"site":{"VENDOR_SITE_ID":400002,"VENDOR_NAME":"Smith & Sons","VENDOR_NUMBER":"S1001","VENDOR_SITE_CODE":"CHI-01","CITY":"Chicago","SITE_LABEL":"Smith & Sons — CHI-01"},"notify":[{"VENDOR_SITE_ID":400013,"VENDOR_NAME":"Acme Corp","VENDOR_SITE_CODE":"SFO-02","SITE_LABEL":"Acme Corp — SFO-02"},{"VENDOR_SITE_ID":400023,"VENDOR_NAME":"Northwind Traders","VENDOR_SITE_CODE":"SFO-03","SITE_LABEL":"Northwind Traders — SFO-03"}],"decision":"OK"}</gnimsysSubmit>
+```
+
+A validating button refuses while an item select has a selected key whose row is not known (the field says "The
+selected item's data is not loaded: pick it again"); a `validate: false` button sends the rows that are known. A block
+reopened from history shows an item select read-only from the rows in its envelope (no datasource call).
 
 The workflow parses `$context.$system.$inputMessage` with `<gnimsysSubmit id="([^"]+)">(.*?)</gnimsysSubmit>`
 (single-line; the JSON has no newlines), `JSON.parse`s group 2 and routes on the button's data key (a SWITCH on
@@ -522,6 +584,45 @@ prefixes apply too (as Oracle's Studio CLI routes its tokens: `FA` any pod path,
 `"datasources": { "allowInline": true, "allowPrefixes": ["/api/boss/data/objects/ora/"] }` (or one object family,
 `/api/boss/data/objects/ora/<family>/`); the `BOSS` endpoint is already in every page's endpoint map.
 
+**BI Publisher report datasource** (`"type": "BIPReport"`, rev 5; the dashboard's BIPReport in its explicit form —
+no `datasetName` discovery, no `sql`, no tree output, no `{{…}}` anywhere). Served by the data pack's **report data
+provider** (`src/ts/jet-composites/xxx-gnimsys-data/rest/report-data-provider.js`, a JET `RESTDataProvider` whose
+fetches run the report through the page's `FA` endpoint):
+
+| key | req | meaning |
+|---|---|---|
+| `type` | yes | `"BIPReport"` |
+| `target` | yes | `"FA"` (the report service is a pod path of the FA endpoint) |
+| `reportName` | yes | the report's absolute catalog path, `/…/NAME.xdo` |
+| `recordsetSelector` | yes | the element wrapping the rows (the data model root, e.g. `DATA_DS`) |
+| `recordSelector` | yes | the element of one row (the data set's group, e.g. `G_1`) |
+| `columns` | yes | `[ { "name": "<element>", "type"?: 1 \| 2 } ]`, ≥ 1, names unique: a row is exactly these fields; `2` = number, `1` / none = text (dates as the report writes them) |
+| `parameters` | no | fixed values, `[ { "name": "P_X", "value": "v" \| 7 \| ["a", "b"] } ]` (an array = a multi-value parameter), names unique |
+| `searchParam` | no | the report parameter that takes the typed text (not one of `parameters`) |
+
+Each run is `POST /xmlpserver/services/ExternalReportWSSService` (SOAP 1.2 `runReport`, `Content-Type:
+application/soap+xml; charset=utf-8`, no SOAPAction, `attributeFormat` `xml`, `sizeOfDataChunkDownload` `-1`, the
+`parameterNameValues` items as `<pub:item><pub:name>P</pub:name><pub:values><pub:item>v</pub:item>…</pub:values></pub:item>`).
+The rows are the `recordSelector` elements inside the first `recordsetSelector` element of the decoded `reportBytes`; a
+row's field is its direct child element named after the column (a name that is not an XML name in BIP's `_xHHHH_`
+form; an absent element = `null`). A row without its `valueField` value, or a number column holding text, fails the
+run. `valueField` / `labelField` / `searchField` must be columns.
+
+- **With `searchParam`**: each distinct typed text is one run with `searchParam` = the text as typed (`''` when nothing
+  is typed: the report decides what an empty search lists, e.g. `(:P_SEARCH IS NULL OR UPPER(NAME) LIKE
+  '%'||UPPER(:P_SEARCH)||'%')`); the report does the matching. `searchTemplate` applies (`minChars`, `debounceMs`);
+  `searchField` does not.
+- **Without `searchParam`**: the report runs once and the typed text filters its rows in the chat (case-insensitive
+  contains on `searchField`, else `labelField`); `searchTemplate` is refused (no request follows the text).
+- Rows are paged in the chat (`datasources.pageSize`); BIP returns the whole output at once, so the report bounds its
+  own row count. fetchByKeys (the selected label, chips) answers from the rows already returned, else from one
+  unsearched run.
+- A failed run (a SOAP fault, an HTTP error, an unreadable answer) shows on the field ("report <path> failed: <fault
+  text>") and lists nothing; the next fetch runs it again.
+- Gate: an inline report loads only when `datasources.allowInline` is true and `datasources.allowPrefixes` holds a
+  prefix of `/xmlpserver/services/ExternalReportWSSService`, e.g. `"allowPrefixes": ["/xmlpserver/"]` (any report the
+  user may run is then reachable, as any REST resource under an allowed prefix is). The debugger allows `/`.
+
 The config overlay `widgets[widgetId].fields[fieldId]` gives a select field a datasource (+ `searchField`, `searchTemplate`) that wins
 over the block's own options or datasource (a customer-owned source is not subject to `allowInline`):
 
@@ -539,9 +640,15 @@ over the block's own options or datasource (a customer-owned source is not subje
 }
 ```
 
+The overlay may carry a `BIPReport` datasource too (same rules); the block's own `collectionTemplateTable` and `submit`
+stay as the agent wrote them.
+
 Mock pod fixtures for the e2e (`tests/e2e/widgets.spec.ts`): message `pick subinventory` (the KRN block, 24 options,
 Approve / Back), `pick from datasource` (an inline datasource searched and paged through the mock's 300-row
-`/subinventories`), `choose next step` (radio + checkbox + hidden + confirm button, followed by an invalid block).
+`/subinventories`), `choose next step` (radio + checkbox + hidden + confirm button, followed by an invalid block),
+`pick supplier site` (the report block above, over the mock's BI Publisher emulation: `POST
+/xmlpserver/services/ExternalReportWSSService`, report `/Custom/Gnimsys/LOV/SUPPLIER_SITES.xdo`, 60 rows, `P_BU_NAME`
+required, `P_SEARCH` optional; any other report answers a SOAP fault).
 
 ## Known limits (v1.0)
 
@@ -554,6 +661,9 @@ Approve / Back), `pick from datasource` (an inline datasource searched and paged
   can continue it.
 - Widgets: the `gnimsys-ui` v1 `form` block only (see Widgets); `table`, `dependsOn` (cascading selects), text/number/date
   fields and the `ai-chat-submit` / `ai-chat-action` events are not built.
+- Report datasource (rev 5): proven against the mock pod's BI Publisher emulation only. Not yet seen on a pod: the
+  runReport POST through a VB FA service connection (token, CSRF) and through the engine's pod proxy to a real
+  `/xmlpserver`, VB reading the `application/soap+xml` answer as text, BIP's handling of an empty `searchParam` value.
 - No cancel API: a running reply cannot be stopped; leaving the conversation only closes the local stream.
 - Attachments: when a send fails, the files stay pending and are uploaded again on the next send. Files can go without
   a text (the message is then `""`, as Oracle's chat client sends it) while every picked file is waiting to go — not

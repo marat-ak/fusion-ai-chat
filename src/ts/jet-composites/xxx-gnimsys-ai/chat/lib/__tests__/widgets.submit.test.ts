@@ -1,6 +1,8 @@
 import { parseBlock } from "../widgets/block";
 import type { FormBlock } from "../widgets/block";
-import { ENVELOPE_RE, clickedButton, initialValues, missingRequired, readableLine, submitText, submitsIn, withoutEnvelopes } from "../widgets/submit";
+import {
+  ENVELOPE_RE, clickedButton, initialValues, missingRequired, readableLine, submitText, submitsIn, submittedRows, submittedValues, unresolvedItems, withoutEnvelopes,
+} from "../widgets/submit";
 
 const block = (): FormBlock => {
   const r = parseBlock(JSON.stringify({
@@ -76,6 +78,52 @@ describe("submit builder (rev 2)", () => {
     expect(submitsIn('<gnimsysSubmit id="x">not json</gnimsysSubmit>')).toEqual([]);
     // The rev-1 envelope (with attributes) is not a submit any more.
     expect(submitsIn('<gnimsysSubmit id="x" kind="form" action="a">{"a":1}</gnimsysSubmit>')).toEqual([]);
+  });
+
+  test("item_selects_submit_whole_rows_single_an_object_multi_an_array_in_selection_order", () => {
+    const report = {
+      type: "BIPReport", target: "FA", reportName: "/Custom/R.xdo", recordsetSelector: "DATA_DS", recordSelector: "G_1",
+      columns: [{ name: "SITE_ID", type: 2 }, { name: "SUPPLIER" }, { name: "SITE" }],
+    };
+    const r = parseBlock(JSON.stringify({
+      v: 1, kind: "form", id: "pick", title: "Pick",
+      fields: [
+        { id: "site", type: "select", required: true, dataSource: report, valueField: "SITE_ID", labelField: "SITE", submit: "item" },
+        { id: "notify", type: "select", multi: true, dataSource: report, valueField: "SITE_ID", labelField: "SITE", submit: "item" },
+        { id: "cand", type: "select", submit: "item", options: [{ value: "C1", label: "Smith — NYC", supplier: "Smith" }, { value: "C2", label: "Acme — SFO", supplier: "Acme" }] },
+        { id: "plain", type: "select", options: [{ value: "P", label: "Plain" }] },
+      ],
+      buttons: [{ id: "ok", label: "OK", data: { decision: "OK" } }, { id: "back", label: "Back", validate: false, data: { decision: "BACK" } }],
+    }));
+    if (!r.ok) throw new Error(r.reason);
+    const b = r.block;
+    const s1 = { SITE_ID: 400002, SUPPLIER: "Smith & Sons", SITE: "CHI-01" };
+    const s2 = { SITE_ID: 400013, SUPPLIER: "Acme Corp", SITE: "SFO-02" };
+    const s3 = { SITE_ID: 400023, SUPPLIER: "Northwind", SITE: "SFO-03" };
+    const c2 = { value: "C2", label: "Acme — SFO", supplier: "Acme" };
+    const items = { site: [s1], notify: [s3, s2], cand: [c2], plain: [{ value: "P", label: "Plain" }] };
+    const values = { site: 400002, notify: [400013, 400023], cand: "C2", plain: "P" };
+    const text = submitText(b, values, b.buttons[0], items);
+    expect(text).toBe('OK — Pick\n<gnimsysSubmit id="pick">{"site":{"SITE_ID":400002,"SUPPLIER":"Smith & Sons","SITE":"CHI-01"},'
+      + '"notify":[{"SITE_ID":400013,"SUPPLIER":"Acme Corp","SITE":"SFO-02"},{"SITE_ID":400023,"SUPPLIER":"Northwind","SITE":"SFO-03"}],'
+      + '"cand":{"value":"C2","label":"Acme — SFO","supplier":"Acme"},"plain":"P","decision":"OK"}</gnimsysSubmit>');
+    // The envelope is still one line the workflow regex parses.
+    expect(JSON.parse(ENVELOPE_RE.exec(text)![2]).notify.map((x: { SITE_ID: number }) => x.SITE_ID)).toEqual([400013, 400023]);
+    // Unset: null / [].
+    expect(submitText(b, initialValues(b), b.buttons[1], {})).toContain('{"site":null,"notify":[],"cand":null,"plain":null,"decision":"BACK"}');
+    // A selected key whose row is not known yet: unresolved (a validating button refuses); validate:false sends what is known.
+    expect(unresolvedItems(b, values, items)).toEqual([]);
+    expect(unresolvedItems(b, values, { ...items, notify: [s2] })).toEqual(["notify"]);
+    expect(unresolvedItems(b, values, {})).toEqual(["site", "notify", "cand"]);
+    expect(submitText(b, values, b.buttons[1], { notify: [s2] })).toContain('{"site":null,"notify":[{"SITE_ID":400013,"SUPPLIER":"Acme Corp","SITE":"SFO-02"}],"cand":null,"plain":"P","decision":"BACK"}');
+    expect(missingRequired(b, values)).toEqual([]);
+
+    // Read back from the envelope: the rows (a history re-render's data), the keys the select shows, the clicked button.
+    const submit = submitsIn(text)[0];
+    expect(submittedRows(b.fields[1], submit)).toEqual([s2, s3]);
+    expect(submittedRows(b.fields[3], submit)).toEqual([]);
+    expect(submittedValues(b, submit)).toEqual({ site: 400002, notify: [400013, 400023], cand: "C2", plain: "P", decision: "OK" });
+    expect(clickedButton(b, submit)?.id).toBe("ok");
   });
 
   test("clicked_button_matches_array_data", () => {

@@ -335,6 +335,154 @@ test("a_paused_reply_and_a_reply_reopened_from_history_split_at_their_block_too"
   await expectSplit();
 });
 
+// ---- BI Publisher report datasource, dropdown tables, item submit (rev 5) ---------------------------------------------
+
+const REPORT_PATH = "/xmlpserver/services/ExternalReportWSSService";
+const REPORT_CONFIG = { ...DS_CONFIG, datasources: { allowInline: true, allowPrefixes: ["/xmlpserver/"], pageSize: 10 } };
+
+/** The runReport calls the mock pod got: their content type and parameters (name -> values) as the SOAP body carries them. */
+async function reportRuns(page: Page): Promise<Array<{ contentType: string; report: string; params: Record<string, string[]> }>> {
+  return (await mockRequests(page)).filter((q) => q.method === "POST" && q.url === REPORT_PATH).map((q) => {
+    const body = String(q.body);
+    const params: Record<string, string[]> = {};
+    for (const m of body.matchAll(/<pub:item><pub:name>([^<]*)<\/pub:name><pub:values>(.*?)<\/pub:values><\/pub:item>/g)) {
+      params[m[1]] = [...m[2].matchAll(/<pub:item>([^<]*)<\/pub:item>/g)].map((v) => v[1]);
+    }
+    return { contentType: q.headers["content-type"], report: /<pub:reportAbsolutePath>([^<]*)</.exec(body)?.[1] ?? "", params };
+  });
+}
+
+const SITE_ROW = '{"VENDOR_SITE_ID":400002,"VENDOR_NAME":"Smith & Sons","VENDOR_NUMBER":"S1001","VENDOR_SITE_CODE":"CHI-01","CITY":"Chicago","SITE_LABEL":"Smith & Sons — CHI-01"}';
+
+test("report_select_shows_a_table_searches_through_the_report_and_submits_whole_items_single_and_multi", async ({ page }) => {
+  // Mock pod "pick supplier site": `site` = a single select over the SUPPLIER_SITES report searched by its P_SEARCH
+  // (minChars 2), `notify` = a multi select over the same report run once and filtered here on VENDOR_SITE_CODE; both
+  // show their dropdown as a table and submit whole rows. Two selects, two dropdowns, debounced runs: past the 30 s default.
+  test.setTimeout(90_000);
+  await page.addInitScript((cfg) => { (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = cfg; }, REPORT_CONFIG);
+  await page.goto("/");
+  await sendText(page, "pick supplier site");
+  const widget = page.getByTestId("gai-widget");
+  await expect(widget).toBeVisible();
+  const site = widget.getByTestId("gai-widget-field-site");
+  await expect(site).not.toContainText("datasource not allowed");
+
+  // Opening lists the report's unsearched rows as a table with the configured columns.
+  await site.locator("input").click();
+  await expect(page.getByRole("columnheader")).toHaveText(["Supplier", "Number", "Site", "City"]);
+  // oj-c-table renders the first column as each row's header cell.
+  await expect(page.getByRole("rowheader").first()).toHaveText("Smith & Sons");
+  await expect.poll(async () => (await reportRuns(page)).length).toBe(1);
+  expect((await reportRuns(page))[0]).toEqual({
+    contentType: "application/soap+xml; charset=utf-8", report: "/Custom/Gnimsys/LOV/SUPPLIER_SITES.xdo", params: { P_BU_NAME: ["US1 Business Unit"], P_SEARCH: [""] },
+  });
+
+  // The typed text is the report's P_SEARCH (the report matches); a row click picks the row.
+  await site.locator("input").fill("smith");
+  await expect(page.getByRole("row").filter({ has: page.getByRole("gridcell") })).toHaveCount(3);
+  expect((await reportRuns(page)).map((r) => r.params.P_SEARCH)).toEqual([[""], ["smith"]]);
+  await page.getByRole("gridcell", { name: "CHI-01" }).click();
+  await expect(site.locator("input")).toHaveValue("Smith & Sons — CHI-01");
+
+  // The multi select: one run (no P_SEARCH), the text filters its rows here; the table's row selection is the value.
+  const notify = widget.getByTestId("gai-widget-field-notify");
+  await notify.locator("input").click();
+  await notify.locator("input").fill("SFO");
+  await expect(page.getByRole("gridcell", { name: "SFO-02" })).toBeVisible();
+  // A multi table row's first cell is its selector (the checkbox inside is a visual, aria-disabled): clicking it toggles.
+  const selector = (code: string) => page.getByRole("row").filter({ has: page.getByRole("gridcell", { name: code }) }).getByRole("gridcell").first();
+  await selector("SFO-02").click();
+  await selector("SFO-03").click();
+  await page.keyboard.press("Escape");
+  await expect(notify).toContainText("Acme Corp — SFO-02");
+  await expect(notify).toContainText("Northwind Traders — SFO-03");
+  expect((await reportRuns(page)).filter((r) => r.params.P_SEARCH === undefined)).toHaveLength(1);
+
+  await widget.getByTestId("gai-widget-button-ok").locator("button").click();
+  await expect.poll(async () => (await chatMessages(page)).at(-1)).toBe(
+    `OK — Pick the supplier site\n<gnimsysSubmit id="supplierSite">{"site":${SITE_ROW},"notify":[`
+    + '{"VENDOR_SITE_ID":400013,"VENDOR_NAME":"Acme Corp","VENDOR_SITE_CODE":"SFO-02","SITE_LABEL":"Acme Corp — SFO-02"},'
+    + '{"VENDOR_SITE_ID":400023,"VENDOR_NAME":"Northwind Traders","VENDOR_SITE_CODE":"SFO-03","SITE_LABEL":"Northwind Traders — SFO-03"}'
+    + '],"decision":"OK"}</gnimsysSubmit>',
+  );
+  await expect(widget).toHaveAttribute("data-submitted", "ok");
+  await expect(site).toContainText("Smith & Sons — CHI-01");
+});
+
+/** The report block of the mock fixture with a single `site` field (the report and its columns as given). */
+const reportBlock = (reportName: string): string => "```gnimsys-ui\n" + JSON.stringify({
+  v: 1, kind: "form", id: "supplierSite", title: "Pick the supplier site",
+  fields: [{
+    id: "site", type: "select", label: "Supplier site", required: true,
+    dataSource: {
+      type: "BIPReport", target: "FA", reportName, recordsetSelector: "DATA_DS", recordSelector: "G_1",
+      columns: [{ name: "VENDOR_SITE_ID", type: 2 }, { name: "VENDOR_NAME" }, { name: "VENDOR_NUMBER" }, { name: "VENDOR_SITE_CODE" }, { name: "CITY" }, { name: "SITE_LABEL" }],
+      parameters: [{ name: "P_BU_NAME", value: "US1 Business Unit" }], searchParam: "P_SEARCH",
+    },
+    valueField: "VENDOR_SITE_ID", labelField: "SITE_LABEL", searchTemplate: { minChars: 2 },
+    collectionTemplateTable: [{ field: "VENDOR_NAME", headerText: "Supplier" }, { field: "VENDOR_SITE_CODE", headerText: "Site" }],
+    submit: "item",
+  }],
+  buttons: [{ id: "ok", label: "OK", data: { decision: "OK" } }],
+}) + "\n```";
+
+/** Opens a conversation from history whose messages are `items` (oldest first) under `config`. */
+async function openHistory(page: Page, id: string, items: Array<{ type: string; text: string }>, config: object): Promise<void> {
+  await page.route("**/api/fusion-ai/orchestrator/conversations/v1/*/messages", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [...items].reverse() }) }));
+  await page.addInitScript(([cfg, conv]) => {
+    (window as unknown as { __CHAT_CONFIG__: object }).__CHAT_CONFIG__ = cfg as object;
+    (window as unknown as { __CHAT_CONVERSATION_ID__: string }).__CHAT_CONVERSATION_ID__ = conv as string;
+  }, [config, id] as const);
+  await page.goto("/");
+}
+
+test("item_select_reopened_from_history_shows_its_submitted_row_without_running_the_report", async ({ page }) => {
+  const submit = `OK — Pick the supplier site\n<gnimsysSubmit id="supplierSite">{"site":${SITE_ROW},"decision":"OK"}</gnimsysSubmit>`;
+  await openHistory(page, "report-history", [{ type: "AI", text: reportBlock("/Custom/Gnimsys/LOV/SUPPLIER_SITES.xdo") }, { type: "USER", text: submit }], REPORT_CONFIG);
+  const widget = page.getByTestId("gai-widget");
+  await expect(widget).toHaveAttribute("data-submitted", "ok");
+  await expect(widget.getByTestId("gai-widget-field-site")).toContainText("Smith & Sons — CHI-01");
+  await page.waitForTimeout(500);
+  expect(await reportRuns(page)).toEqual([]);
+});
+
+test("a_report_fault_shows_on_the_field", async ({ page }) => {
+  await openHistory(page, "report-fault", [{ type: "AI", text: reportBlock("/Custom/Gnimsys/LOV/MISSING.xdo") }], REPORT_CONFIG);
+  const field = page.getByTestId("gai-widget-field-site");
+  await expect(page.getByTestId("gai-widget")).toBeVisible();
+  await field.locator("input").click();
+  await expect(field).toContainText("report /Custom/Gnimsys/LOV/MISSING.xdo failed: oracle.xdo.webservice.exception.AccessDeniedException: "
+    + "PublicReportService::executeReport Failure: Failed to read the report /Custom/Gnimsys/LOV/MISSING.xdo");
+  expect((await reportRuns(page)).map((r) => r.report)).toContain("/Custom/Gnimsys/LOV/MISSING.xdo");
+});
+
+test("inline_row_options_show_as_a_table_and_submit_the_picked_option_row", async ({ page }) => {
+  // The agent's own candidates (a CODE node's rows): value + label + more fields, a table over them, the whole row submitted.
+  const block = "```gnimsys-ui\n" + JSON.stringify({
+    v: 1, kind: "form", id: "candidate", title: "Pick the supplier",
+    fields: [{
+      id: "cand", type: "select", label: "Candidate", required: true, submit: "item",
+      options: [
+        { value: "C1", label: "Smith & Sons — NYC-01", supplier: "Smith & Sons", site: "NYC-01", taxId: "11-111" },
+        { value: "C2", label: "Acme Corp — SFO-02", supplier: "Acme Corp", site: "SFO-02", taxId: null },
+      ],
+      collectionTemplateTable: [{ field: "supplier", headerText: "Supplier" }, { field: "site", headerText: "Site" }, { field: "taxId", headerText: "Tax ID" }],
+    }],
+    buttons: [{ id: "ok", label: "OK", data: { decision: "OK" } }],
+  }) + "\n```";
+  await openHistory(page, "inline-rows", [{ type: "AI", text: block }], DS_CONFIG);
+  const field = page.getByTestId("gai-widget-field-cand");
+  await field.locator("input").click();
+  await expect(page.getByRole("columnheader")).toHaveText(["Supplier", "Site", "Tax ID"]);
+  await page.getByRole("gridcell", { name: "SFO-02" }).click();
+  await expect(field.locator("input")).toHaveValue("Acme Corp — SFO-02");
+  await page.getByTestId("gai-widget-button-ok").locator("button").click();
+  await expect.poll(async () => (await chatMessages(page)).at(-1)).toBe(
+    'OK — Pick the supplier\n<gnimsysSubmit id="candidate">{"cand":{"value":"C2","label":"Acme Corp — SFO-02","supplier":"Acme Corp","site":"SFO-02","taxId":null},"decision":"OK"}</gnimsysSubmit>',
+  );
+});
+
 // ---- BOSS datasource (Business Objects API: $filter / $limit / $offset) -----------------------------------------------
 
 /** A mock BOSS object (no such object on a pod): the page's route serves it, the mock pod has none. */

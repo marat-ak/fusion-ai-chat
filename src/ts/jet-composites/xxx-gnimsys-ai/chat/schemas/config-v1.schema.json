@@ -123,7 +123,7 @@
       }
     },
     "widgets": {
-      "$comment": "The gnimsys-ui overlay (D7): widgets[widgetId].fields[fieldId] gives a select field of that block a datasource (the dashboard REST shape, see gnimsys-ui-v1.schema.json #/$defs/dataSource) that wins over the block's own options or datasource. A config datasource is the customer's own: datasources.allowInline / allowPrefixes gate only the datasources an agent carries inline.",
+      "$comment": "The gnimsys-ui overlay (D7): widgets[widgetId].fields[fieldId] gives a select field of that block a datasource (the dashboard REST shape or a BIPReport report, see gnimsys-ui-v1.schema.json #/$defs/dataSource; a report's valueField / labelField / searchField are its columns, searchField does not apply with searchParam, searchTemplate needs searchParam) that wins over the block's own options or datasource. A config datasource is the customer's own: datasources.allowInline / allowPrefixes gate only the datasources an agent carries inline.",
       "type": "object",
       "propertyNames": { "pattern": "^[A-Za-z0-9_-]{1,64}$" },
       "additionalProperties": {
